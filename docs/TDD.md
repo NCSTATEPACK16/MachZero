@@ -142,7 +142,7 @@ export interface RaceSnapshot {
   raceTime: number; lap: number; totalLaps: number;
   lapTimes: number[]; currentLapTime: number; bestLap: number | null; recordLap: number | null;
   standings: RacerStanding[];                 // sorted by position
-  player: ShipState; wrongWay: boolean;
+  player: ShipState; ships: readonly ShipState[]; wrongWay: boolean;
 }
 
 // ---------- Per-frame context for render-side systems ----------
@@ -197,9 +197,10 @@ export interface GameEvents {
   'ship:lowEnergy': { shipId: ShipId };
   'ship:destroyed': { shipId: ShipId; position: THREE.Vector3 };
   'ship:respawn':   { shipId: ShipId };
+  'audio:mute':     { muted: boolean };
 }
 ```
-Emitters: physics → `ship:railHit|shipHit|boost|dash|pit|lowEnergy|respawn`; game → `race:*`, `ship:destroyed`. Graphics/HUD/Audio only subscribe.
+Emitters: physics → `ship:railHit|shipHit|boost|dash|pit|lowEnergy|respawn`; game → `race:*`, `ship:destroyed`, `audio:mute`. Graphics/HUD/Audio only subscribe.
 
 ### Track → Physics collision handoff (the key interface)
 1. `generateTrack()` builds world-space `TriMesh` arrays for `surface` and `rails` from the same swept frames as the visual mesh.
@@ -294,3 +295,14 @@ npm run build
 npm run dev         # open http://localhost:5173 (and ?autopilot=1&debug=1)
 ```
 Pass criteria: all green; autopilot race completes 3 laps with all 4 ships, results screen shows; zero console errors; stable 60 fps; GitHub `main` contains only project output (no `.claude/`, plans, transcripts, session IDs).
+
+## 7. Phase 3 integration notes (post-review)
+- **Hover through the corkscrew.** The headless race sim showed every ship detaching once per lap at the corkscrew's inverted point. Fixes in `ShipController`:
+  1. The hover damper acts on velocity *relative to the surface* (`dh/dt`), because a twisting surface at lateral offset L moves along its own normal at L·ω.
+  2. The repulsor is two-sided (a "magnetic lock" up to `MAGNET_LOCK_G`) while the hover rays see the surface.
+  3. A grounded hull locks to the measured surface normal and carries its momentum through the re-alignment rotation.
+  4. Twist compensation yaws heading and momentum at the geodesic rate `L·k²·v/(1+L²k²)` (k = twist rate, rad/m), so ships hold their line through the roll.
+- **Curvature.** `TrackSample.curvature` is measured in the unbanked (rotation-minimising) frame: the bend a ship must steer through, independent of bank and corkscrew roll.
+- **Contract additions.** `RaceSnapshot.ships` (the minimap needs every ship) and the `audio:mute` event (keeps the HUD mute buttons and the M key in sync).
+- **Rendering.** The composer runs single-sample; the scene renders into a private 4× MSAA HalfFloat target (`MsaaScenePass`, NaN-sanitised) because bloom's additive blend fails on multisampled read buffers.
+- **Tests.** `src/sim/race.sim.test.ts` runs a full 3-lap, 4-ship race on two seeds with real track, physics, AI and race logic. `src/sim/corkscrew.sim.test.ts` holds a line through the corkscrew at 5 lateral offsets.

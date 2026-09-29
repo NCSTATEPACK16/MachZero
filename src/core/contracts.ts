@@ -224,6 +224,8 @@ export interface RaceSnapshot {
   /** Sorted by position. */
   standings: RacerStanding[];
   player: ShipState;
+  /** Every ship (same shared references as FrameContext.ships) — read-only, e.g. for the minimap. */
+  ships: readonly ShipState[];
   wrongWay: boolean;
 }
 

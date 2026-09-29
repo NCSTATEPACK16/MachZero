@@ -4,7 +4,7 @@ import type { RaceState, RacerStanding, ShipId } from './contracts';
 /**
  * Every cross-system event. Emitters:
  *  - physics → ship:railHit | shipHit | boost | dash | pit | lowEnergy | respawn
- *  - game    → race:* and ship:destroyed
+ *  - game    → race:*, ship:destroyed, audio:mute
  * Graphics, HUD and Audio only subscribe.
  */
 export interface GameEvents {
@@ -22,6 +22,8 @@ export interface GameEvents {
   'ship:lowEnergy': { shipId: ShipId };
   'ship:destroyed': { shipId: ShipId; position: THREE.Vector3 };
   'ship:respawn': { shipId: ShipId };
+  /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */
+  'audio:mute': { muted: boolean };
 }
 
 export type Handler<T> = (payload: T) => void;

@@ -30,6 +30,7 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'race:lap': [],
     'race:finish': [],
     'race:results': [],
+    'audio:mute': [],
     'ship:railHit': [],
     'ship:shipHit': [],
     'ship:boost': [],

@@ -58,7 +58,7 @@ export class AudioSystem implements IAudioSystem {
   private readonly offs: Array<() => void> = [];
   private listening = false;
 
-  constructor(bus: GameBus) {
+  constructor(private readonly bus: GameBus) {
     this.offs.push(
       bus.on('race:countdown', (e) => this.onCountdown(e.value)),
       bus.on('ship:boost', (e) => this.onBoost(e.shipId)),
@@ -104,9 +104,7 @@ export class AudioSystem implements IAudioSystem {
   setMuted(muted: boolean): void {
     this._muted = muted;
     if (this.ac && this.master) this.master.gain.setTargetAtTime(muted ? 0 : MASTER_LEVEL, this.ac.currentTime, 0.02);
-    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('machzero:mute', { detail: { muted } }));
-    }
+    this.bus.emit('audio:mute', { muted });
   }
 
   // ---------------------------------------------------------------------

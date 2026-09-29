@@ -12,11 +12,6 @@ import type {
 import type { GameBus } from '../core/events';
 import { clamp, damp, loopDelta, smoothstep } from '../core/math';
 
-/** RaceSnapshot plus the shared ship list (the HUD minimap needs every ship; extra fields are contract-compatible). */
-export interface RaceSnapshotEx extends RaceSnapshot {
-  ships: readonly ShipState[];
-}
-
 /** Per-ship race bookkeeping (everything the RaceManager owns besides ShipState's GAME fields). */
 interface Racer {
   ship: ShipState;
@@ -79,7 +74,7 @@ export class RaceManager implements IRaceManager {
   private readonly racers: Racer[];
   private readonly playerRacer: Racer;
   private readonly sorted: RacerStanding[] = [];
-  private readonly snap: RaceSnapshotEx;
+  private readonly snap: RaceSnapshot;
 
   private raceTime = 0;
   private countdownClock = 0;
@@ -224,7 +219,7 @@ export class RaceManager implements IRaceManager {
     }
   }
 
-  snapshot(): RaceSnapshotEx {
+  snapshot(): RaceSnapshot {
     const p = this.playerRacer;
     const s = this.snap;
     this.updateStandings();

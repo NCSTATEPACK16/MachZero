@@ -171,7 +171,7 @@ describe('HUD (fake DOM smoke test)', () => {
     expect(calls.restart).toBe(2);
 
     // Mute events from the audio system relabel the buttons.
-    for (const fn of winListeners['machzero:mute'] ?? []) fn({ detail: { muted: true } });
+    bus.emit('audio:mute', { muted: true });
     expect(container.findAll('mz-chip')[0].textContent).toContain('OFF');
   });
 });

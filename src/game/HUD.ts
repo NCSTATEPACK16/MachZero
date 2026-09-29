@@ -3,7 +3,6 @@ import type { HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackDat
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
 import { Minimap } from './Minimap';
-import type { RaceSnapshotEx } from './RaceManager';
 import './hud.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -268,14 +267,7 @@ export class HUD implements IHUD {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
       }),
     );
-    if (typeof window !== 'undefined') {
-      const onMute = (ev: Event): void => {
-        const detail = (ev as CustomEvent<{ muted: boolean }>).detail;
-        this.setMuted(!!detail?.muted);
-      };
-      window.addEventListener('machzero:mute', onMute);
-      this.offs.push(() => window.removeEventListener('machzero:mute', onMute));
-    }
+    this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
   }
 
   update(snap: RaceSnapshot, dt: number): void {
@@ -378,9 +370,7 @@ export class HUD implements IHUD {
     }
 
     if (snap.state !== 'paused') {
-      // RaceManager attaches the full ship list to its snapshot (extra field, contract-compatible).
-      const ships = (snap as Partial<RaceSnapshotEx>).ships;
-      this.minimap.update(ships && ships.length > 0 ? ships : [p], p);
+      this.minimap.update(snap.ships.length > 0 ? snap.ships : [p], p);
     }
   }
 
