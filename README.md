@@ -1,5 +1,9 @@
 # MachZero
 
+[![CI](https://github.com/NCSTATEPACK16/MachZero/actions/workflows/ci.yml/badge.svg)](https://github.com/NCSTATEPACK16/MachZero/actions/workflows/ci.yml)
+
+**Play it:** https://machzero.netlify.app
+
 A single-player anti-gravity racer in the spirit of F-Zero X/GX, built with **Three.js**, **Rapier** and **Vite**.
 Every mesh, texture, shader and sound is generated at runtime, so there are no asset files to download.
 
@@ -31,6 +35,8 @@ Open http://localhost:5173.
 | `npm run preview` | Serve the production build |
 | `npm test` | Unit tests plus a headless full-race simulation (real track, Rapier and AI) |
 | `npm run typecheck` | TypeScript strict check |
+| `npm run size` | Bundle size budgets (after `npm run build`) |
+| `npm run smoke` | Playwright browser smoke test against the production build (`npx playwright install chromium` once) |
 | `npm run codebase` | Regenerate `CODEBASE.md` (every source file in one document) |
 
 ## Controls
@@ -52,10 +58,11 @@ Open http://localhost:5173.
 - `?autopilot=1`: the AI drives your ship (handy for demos and soak tests)
 - `?debug=1`: FPS, draw-call and physics overlay
 - `?seed=N`: generate a different circuit
+- `?features=all` (or `?features=garage,worlds`): enable in-progress 2.0 features (off on the live site until each milestone ships)
 
 ## Architecture
 
-See [`docs/TDD.md`](docs/TDD.md). In short:
+See [`docs/TDD.md`](docs/TDD.md). MachZero 2.0 is specified in [`docs/v2/SPEC.md`](docs/v2/SPEC.md), with the milestone-by-milestone build guide in [`docs/v2/IMPLEMENTATION.md`](docs/v2/IMPLEMENTATION.md). The v1 layout, in short:
 
 ```
 src/core/      contracts, config, event bus, fixed-step loop   (shared, frozen interfaces)
@@ -69,3 +76,7 @@ src/main.ts    wiring + game loop
 Physics runs at a fixed 120 Hz, and rendering interpolates between physics steps.
 The track generator passes world-space triangle meshes (`TrackCollisionData`) to Rapier.
 Rapier collision groups keep the ships off the road surface's solver: the surface is only ever hit by hover raycasts, while the ships collide physically with the rails and with each other.
+
+## Contributing / CI
+
+Every pull request runs typecheck, unit tests, headless race simulations, a production build, size budgets and a Playwright smoke test. Netlify posts a deploy preview on each PR, and merging to `main` deploys https://machzero.netlify.app.
