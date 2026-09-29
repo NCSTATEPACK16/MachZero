@@ -24,6 +24,7 @@ Build a polished, single-player F-Zero-style anti-gravity racer ("MachZero") in 
 ## 1. Stack & conventions
 - **Deps:** `three`, `@dimforge/rapier3d-compat`; dev: `typescript`, `vite`, `vitest`, `@types/three`. `package.json` is orchestrator-owned; agents may not add deps.
 - **Scripts:** `dev`, `build` (`tsc --noEmit && vite build`), `preview`, `test` (`vitest run`), `typecheck`, `codebase` (`node scripts/gen-codebase.mjs`).
+- **Ground/elevation:** centerline elevation in `[TRACK_MIN_ELEVATION 25, TRACK_MAX_ELEVATION 60]` m; world ground plane at `GROUND_Y = −40`.
 - **Units/axes:** 1 unit = 1 m, world Y-up, right-handed. **Ship local frame: forward = −Z, up = +Y, right = +X.** Track frame: `right = forward × up`. `lateral` > 0 = right of centerline.
 - **Scale:** track half-width 14 m, rail height 2.5 m, lap ≈ 4–5 km, ship ≈ 4.5 m long, hover height 1.2 m, top speed ≈ 140 m/s, boost ≈ 190 m/s. HUD speed = `speed * SPEED_DISPLAY_SCALE` (≈ 7.9 → ~1100 km/h).
 - **Loop:** fixed physics step **120 Hz** (accumulator, max 5 substeps), render on rAF with interpolation `alpha`. Physics/AI/race logic run in the fixed step; graphics/HUD/audio per frame.
@@ -173,7 +174,7 @@ export function generateTrack(opts: { seed: number }): TrackData;
 // graphics/index.ts
 export class GraphicsSystem implements IGraphicsSystem { constructor(container: HTMLElement, bus: GameBus); }
 // game/index.ts
-export class AIDriver implements IAIDriver { constructor(ship: ShipState, track: TrackData, personality: AIPersonality, rngSeed: number); }
+export class AIDriver implements IAIDriver { constructor(ship: ShipState, track: TrackData, personality: AIPersonality, rngSeed: number, rivals?: readonly ShipState[]); }
 export class RaceManager implements IRaceManager { constructor(track: TrackData, ships: ShipState[], bus: GameBus); }
 export class HUD implements IHUD { constructor(root: HTMLElement, bus: GameBus, track: TrackData, actions: HudActions); }
 export class AudioSystem implements IAudioSystem { constructor(bus: GameBus); }
@@ -219,7 +220,7 @@ Rapier's pairwise rule is `((a >> 16) & b) != 0 && ((b >> 16) & a) != 0` — **b
 - `PhysicsSystem`: Rapier world, colliders as above, event queue drain → energy drain + events; per-ship `ShipController`.
 - Hover: 4 corner raycasts along −shipUp (max 10 m) against `GROUP_SURFACE` using `castRayAndGetNormal`; averaged hit normal → target up, slerp body up toward it (fast when grounded). Spring-damper along up to `HOVER_HEIGHT`; **magnet gravity** `−up × MAGNET_G` (≈ 40 m/s²) when grounded, falls back to `−track.project().sample.up` when airborne (so the corkscrew and inverted sections hold).
 - Propulsion: thrust along forward projected onto surface plane; quadratic drag sets top speed; **no wheel friction** — lateral velocity damped by `LATERAL_GRIP` (anti-slip thrusters), reduced by air-brakes; air-brake adds yaw torque + drag on that side (sharp slides). Yaw rate from steer scaled by speed curve. Momentum preserved over crests.
-- Banking: `bank` = damped `−(steer × MAX_BANK × speedFactor) ± airbrake roll`, plus slight pitch-free visual lean.
+- Banking: `bank` = damped `steer × MAX_VISUAL_BANK × speedFactor ± airbrake roll`. Convention: **bank > 0 = right side dips**; graphics renders `quaternion * axisAngle(+Z, −bank)`.
 - Boost: if `boostUnlocked && energy > BOOST_COST` on edge → `boosting` for `BOOST_TIME`, extra thrust + top speed, `energy −= BOOST_COST`. Dash zone → impulse + `ship:dash`. Pit zone → `energy += PIT_RATE × dt` (capped), `ship:pit`.
 - Rail/ship collision: energy drain ∝ impact normal speed; reflect/bleed velocity; rail scrape continuous events (intensity).
 - Safety respawn: if `heightAboveTrack < −4` or `|lateral| > halfWidth + 6` for > 0.5 s → reset to centerline at last valid u, `ship:respawn`.

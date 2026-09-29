@@ -30,7 +30,7 @@ async function boot(): Promise<void> {
   for (const ship of ships) {
     if (!ship.def.isPlayer || flags.autopilot) {
       const personality = ship.def.personality ?? 'steady';
-      drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919));
+      drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, ships));
     }
   }
 

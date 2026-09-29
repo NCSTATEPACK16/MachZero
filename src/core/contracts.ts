@@ -160,7 +160,10 @@ export interface ShipState {
   speed: number;
   /** velocity · forward in m/s. */
   forwardSpeed: number;
-  /** Visual roll in radians; graphics applies it on top of `quaternion`. */
+  /**
+   * Visual roll in radians. bank > 0 = right side dips (leaning into a right turn).
+   * Graphics renders: visualQuat = quaternion * axisAngle(+Z, -bank).
+   */
   bank: number;
   grounded: boolean;
   /** 0..CONFIG.ENERGY_MAX */
@@ -273,6 +276,7 @@ export interface IGraphicsSystem {
   dispose(): void;
 }
 
+/** Constructed as new AIDriver(ship, track, personality, rngSeed, rivals). */
 export interface IAIDriver {
   readonly shipId: ShipId;
   update(dt: number): ControlInput;

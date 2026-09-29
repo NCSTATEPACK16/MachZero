@@ -25,6 +25,8 @@ export const CONFIG = {
   TRACK_MIN_RADIUS: 60,
   TRACK_TARGET_LENGTH: 4500,
   TRACK_MAX_ELEVATION: 60,
+  TRACK_MIN_ELEVATION: 25, // centerline never dips below this (corkscrew clearance)
+  GROUND_Y: -40, // world ground plane (scenery, pylon feet)
   MAX_BANK: (60 * Math.PI) / 180,
   BANK_FACTOR: 55, // radians of roll per (1/m) of curvature, before clamp
   PIT_LATERAL_MIN: -13, // pit strip hugs the left edge of the main straight
