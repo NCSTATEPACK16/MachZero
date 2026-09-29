@@ -1,0 +1,762 @@
+import RAPIER from '@dimforge/rapier3d-compat';
+import type { Collider, RigidBody, World } from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
+import { COLLISION, CONFIG } from '../core/config';
+import type { ControlInput, GridSlot, ShipState, TrackData } from '../core/contracts';
+import { copyControls, neutralControls } from '../core/controls';
+import type { GameBus } from '../core/events';
+import { clamp, clamp01, damp, inLoopRange } from '../core/math';
+
+/**
+ * Physics-only tuning that is not part of the shared CONFIG. Everything the
+ * design brief exposes as a global tunable (thrust, grip, hover, damage ...)
+ * still comes from CONFIG; these are implementation constants of the model.
+ */
+export const TUNING = {
+  /** Hover rays start this far above the body centre, along ship up. */
+  RAY_LIFT: 1.0,
+  /** Corner ray offsets: +-RAY_WIDTH_FRACTION * width/2 sideways, +-RAY_LENGTH_FRACTION * length fore/aft. */
+  RAY_WIDTH_FRACTION: 0.8,
+  RAY_LENGTH_FRACTION: 0.35,
+  /** Upward push never exceeds this many times MAGNET_G. */
+  REPULSOR_MAX_G: 9,
+  /** Extra stiffening as the hull compresses below HOVER_HEIGHT. */
+  REPULSOR_COMPRESSION: 3,
+  /** Height band above HOVER_HEIGHT over which spring damping fades out. */
+  DAMPING_FADE_TOP: 0.8,
+  DAMPING_FADE_LENGTH: 0.5,
+  /** Slerp-rate multiplier for aligning to the track while no ray hits. */
+  AIR_ALIGN_FACTOR: 0.35,
+  /** Thrust / grip / steering authority while airborne. */
+  AIR_THRUST_FACTOR: 0.25,
+  AIR_GRIP_FACTOR: 0.3,
+  AIR_STEER_FACTOR: 0.35,
+  /** Decay rate (1/s) of forward speed above the current limit (after boost / dash). */
+  OVERSPEED_RATE: 1.4,
+  /** Fraction of removed sideways speed that is turned into forward speed. */
+  GRIP_SPEED_TRANSFER: 0.85,
+  AIRBRAKE_SPEED_TRANSFER: 0.3,
+  /** Forward speed at which steering reaches full authority (m/s). */
+  STEER_FULL_AUTHORITY_SPEED: 12,
+  /** Extra visual roll (rad) from a fully-pressed air-brake. */
+  AIRBRAKE_BANK: 0.35,
+  /** Boost accel taper exponent. */
+  BOOST_TAPER_POWER: 4,
+  /** Hard sanity clamp on speed (m/s). */
+  MAX_SPEED: 320,
+  /** Ship-forward speed multiplier on respawn. */
+  RESPAWN_SPEED_FACTOR: 0.3,
+  /** Zones only affect ships hovering within this height of the surface. */
+  ZONE_MAX_HEIGHT: 6,
+  // --- collision response ---
+  /** Minimum closing speed (m/s) to count as an impact. */
+  IMPACT_MIN_SPEED: 0.8,
+  /** Fraction of tangential speed lost per m/s of wall impact speed (capped). */
+  WALL_BLEED_PER_MS: 0.012,
+  WALL_BLEED_MAX: 0.35,
+  /** Continuous tangential drag (1/s) while grinding along a wall. */
+  WALL_SCRAPE_DRAG: 0.9,
+  /** Energy per second per m/s of tangential speed while scraping. */
+  WALL_SCRAPE_DAMAGE: 0.012,
+  /** Yaw kick (rad) per m/s of impact speed and its cap. */
+  WALL_YAW_KICK_PER_MS: 0.006,
+  WALL_YAW_KICK_MAX: 0.3,
+  /** Yaw assist (rad/s) pointing the nose away from a wall it is grinding on. */
+  WALL_YAW_ASSIST: 1.8,
+  /** Minimum seconds between rail-hit events per ship (scrapes). */
+  RAIL_EVENT_INTERVAL: 1 / 15,
+  /** Impact speed (m/s) that always emits an event regardless of throttling. */
+  RAIL_EVENT_FORCE_SPEED: 8,
+  /** Impact speed (m/s) mapping to intensity 1. */
+  RAIL_INTENSITY_SPEED: 40,
+  SHIP_INTENSITY_SPEED: 30,
+  /** Contact points deeper than this distance count as touching. */
+  CONTACT_MAX_DIST: 0.15,
+} as const;
+
+const NEUTRAL: Readonly<ControlInput> = Object.freeze(neutralControls());
+
+interface Vec3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** True while the ship participates in racing rules (damage, zones, respawn). */
+function isActiveStatus(status: ShipState['status']): boolean {
+  return status === 'racing' || status === 'finished';
+}
+
+/**
+ * Per-ship simulation: hover spring, magnet gravity, propulsion, boost, zones,
+ * energy and safety respawn. Owns the Rapier body/collider of one ship and the
+ * ShipState it writes (physics fields only).
+ */
+export class ShipController {
+  readonly state: ShipState;
+  readonly body: RigidBody;
+  readonly collider: Collider;
+
+  /** Set by the PhysicsSystem from collision events. */
+  railContact = false;
+
+  // Orientation frame (unit, mutually orthogonal: right = fwd × up).
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly fwd = new THREE.Vector3(0, 0, -1);
+  private readonly right = new THREE.Vector3(1, 0, 0);
+
+  /** Velocity handed to Rapier this step (before contacts resolve). */
+  private readonly preVel = new THREE.Vector3();
+  /** Local track frame from the latest projection (copied: the track may reuse its sample object). */
+  private readonly sampleUp = new THREE.Vector3(0, 1, 0);
+  private readonly sampleFwd = new THREE.Vector3(0, 0, -1);
+  private sampleHalfWidth: number;
+  private hasProjection = false;
+
+  // Hover ray results of the current step.
+  private rayHits = 0;
+  private rayHeight = Infinity;
+  private readonly rayNormal = new THREE.Vector3(0, 1, 0);
+
+  // Scratch (no per-step allocation).
+  private readonly tmpA = new THREE.Vector3();
+  private readonly tmpB = new THREE.Vector3();
+  private readonly tmpN = new THREE.Vector3();
+  private readonly tmpY = new THREE.Vector3();
+  private readonly tmpZ = new THREE.Vector3();
+  private readonly basis = new THREE.Matrix4();
+  private readonly rapierVec: Vec3Like = { x: 0, y: 0, z: 0 };
+  private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+
+  // Ray corner offsets in (right, forward) fractions.
+  private static readonly CORNERS: ReadonlyArray<readonly [number, number]> = [
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ];
+
+  // Boost / energy bookkeeping.
+  private boostArmed = false;
+  private prevBoostInput = false;
+  private lowEnergyFired = false;
+
+  // Safety respawn.
+  private invalidTime = 0;
+  private lastValidU: number;
+
+  // Event throttling.
+  private lastRailEventTime = -Infinity;
+
+  private colliderEnabled = true;
+
+  constructor(
+    private readonly world: World,
+    private readonly track: TrackData,
+    private readonly bus: GameBus,
+    state: ShipState,
+    body: RigidBody,
+    collider: Collider,
+  ) {
+    this.state = state;
+    this.body = body;
+    this.collider = collider;
+    this.sampleHalfWidth = track.halfWidth;
+    this.lastValidU = state.trackU;
+    this.frameFromQuaternion(state.quaternion);
+    this.refreshProjection();
+  }
+
+  // -------------------------------------------------------------------------
+  // Public API used by PhysicsSystem
+  // -------------------------------------------------------------------------
+
+  /** Copy current pose into the previous-pose fields. Must run before anything else in a step. */
+  beginStep(): void {
+    const s = this.state;
+    s.prevPosition.copy(s.position);
+    s.prevQuaternion.copy(s.quaternion);
+  }
+
+  /** Compute this step's velocity/orientation and push them into the rigid body. */
+  simulate(dt: number, controls: ControlInput | undefined): void {
+    const s = this.state;
+    this.syncColliderWithStatus();
+
+    if (s.status === 'retired') {
+      copyControls(NEUTRAL, s.lastControls);
+      s.velocity.set(0, 0, 0);
+      s.speed = 0;
+      s.forwardSpeed = 0;
+      s.boosting = false;
+      s.boostTimer = 0;
+      s.bank = damp(s.bank, 0, CONFIG.BANK_RATE, dt);
+      this.preVel.set(0, 0, 0);
+      this.body.setLinvel(this.zeroVec(), true);
+      return;
+    }
+
+    const c = controls ?? NEUTRAL;
+    copyControls(c, s.lastControls);
+
+    const racing = s.status === 'racing';
+    const finished = s.status === 'finished';
+    const onGrid = s.status === 'grid';
+
+    // --- boost bookkeeping ---
+    this.updateBoost(c, racing, dt);
+    const boosting = s.boosting;
+
+    // --- hover rays ---
+    this.castHoverRays();
+    const grounded = this.rayHits > 0;
+    s.grounded = grounded;
+
+    // Height above the surface used by the spring: rays when available,
+    // otherwise the cached projection (keeps the spring alive after a hard landing).
+    let hoverHeight = this.rayHeight;
+    let springActive = grounded;
+    if (!grounded && this.hasProjection && s.heightAboveTrack < CONFIG.HOVER_HEIGHT + TUNING.DAMPING_FADE_TOP) {
+      hoverHeight = s.heightAboveTrack;
+      springActive = true;
+    }
+
+    // --- align body up ---
+    const up = this.up;
+    const sampleUp = this.sampleUp;
+    if (grounded) {
+      this.alignUp(this.rayNormal, CONFIG.UP_ALIGN_RATE, dt);
+    } else {
+      this.alignUp(sampleUp, CONFIG.UP_ALIGN_RATE * TUNING.AIR_ALIGN_FACTOR, dt);
+    }
+    this.orthonormalizeHeading();
+
+    // --- decompose current velocity in the surface plane ---
+    const v = s.velocity;
+    let vUp = v.dot(up);
+    const planar = this.tmpA.copy(v).addScaledVector(up, -vUp);
+    let f = planar.dot(this.fwd);
+    let lat = planar.dot(this.right);
+
+    const authority = grounded ? 1 : TUNING.AIR_THRUST_FACTOR;
+
+    if (onGrid) {
+      f = 0;
+      lat = 0;
+    } else {
+      // --- steering (yaw about ship up; right turn = negative rotation) ---
+      const speedFrac = clamp01(Math.abs(f) / (CONFIG.TOP_SPEED * s.thrustScale));
+      const steerRate = CONFIG.STEER_RATE + (CONFIG.STEER_RATE_HIGH_SPEED - CONFIG.STEER_RATE) * speedFrac;
+      const lowSpeed = clamp01(Math.abs(f) / TUNING.STEER_FULL_AUTHORITY_SPEED);
+      const steerIn = clamp(c.steer, -1, 1);
+      const airbrakeYaw = (clamp01(c.airbrakeRight) - clamp01(c.airbrakeLeft)) * CONFIG.AIRBRAKE_YAW;
+      const yawRate = (steerIn * steerRate + airbrakeYaw) * lowSpeed * (grounded ? 1 : TUNING.AIR_STEER_FACTOR);
+      this.yaw(-yawRate * dt);
+
+      // Re-express velocity in the rotated frame (velocity itself does not rotate: momentum).
+      this.right.crossVectors(this.fwd, up);
+      f = planar.dot(this.fwd);
+      lat = planar.dot(this.right);
+
+      // --- propulsion ---
+      const rawThrottle = clamp01(c.throttle);
+      const throttle = finished ? Math.min(rawThrottle, 0.6) : rawThrottle;
+      const brake = clamp01(c.brake);
+      const topSpeed = CONFIG.TOP_SPEED * s.thrustScale;
+      const boostTop = CONFIG.BOOST_TOP_SPEED * s.thrustScale;
+      const limit = boosting ? boostTop : topSpeed;
+      const fPos = Math.max(f, 0);
+
+      if (boosting) {
+        const x = Math.min(fPos / boostTop, 1.5);
+        const taper = 1 - Math.pow(x, TUNING.BOOST_TAPER_POWER);
+        if (taper > 0) f += CONFIG.BOOST_ACCEL * s.thrustScale * taper * authority * dt;
+      } else if (throttle > 0.02) {
+        const cap = topSpeed * (0.4 + 0.6 * throttle);
+        if (fPos < cap) {
+          const x = fPos / cap;
+          f += CONFIG.THRUST_ACCEL * s.thrustScale * throttle * (1 - x * x) * authority * dt;
+        }
+      }
+
+      // Speed above the current limit (after boost / dash) bleeds off smoothly.
+      if (f > limit) f -= (f - limit) * (1 - Math.exp(-TUNING.OVERSPEED_RATE * dt));
+
+      // Coast drag with no throttle and no boost.
+      if (throttle <= 0.02 && !boosting) {
+        const k = Math.exp(-CONFIG.COAST_DRAG * dt);
+        f *= k;
+      }
+
+      // Air-brakes: extra longitudinal drag and looser sideways grip (power-slides).
+      const abL = clamp01(c.airbrakeLeft);
+      const abR = clamp01(c.airbrakeRight);
+      const abMax = Math.max(abL, abR);
+      if (abL + abR > 0) f *= Math.exp(-CONFIG.AIRBRAKE_DRAG * (abL + abR) * dt);
+
+      // Lateral grip: anti-slip thrusters remove sideways speed and convert most of it
+      // into forward speed (momentum is redirected, not destroyed).
+      const grip = (CONFIG.LATERAL_GRIP + (CONFIG.AIRBRAKE_GRIP - CONFIG.LATERAL_GRIP) * abMax) * (grounded ? 1 : TUNING.AIR_GRIP_FACTOR);
+      const latNew = lat * Math.exp(-grip * dt);
+      const transfer = TUNING.GRIP_SPEED_TRANSFER + (TUNING.AIRBRAKE_SPEED_TRANSFER - TUNING.GRIP_SPEED_TRANSFER) * abMax;
+      const keep = Math.sqrt(Math.max(0, f * f + lat * lat - latNew * latNew));
+      f = f + (Math.sign(f || 1) * keep - f) * transfer;
+      lat = latNew;
+
+      // Brake: reduces the planar speed toward zero, never reverses.
+      if (brake > 0) {
+        const planarSpeed = Math.hypot(f, lat);
+        if (planarSpeed > 1e-6) {
+          const scale = Math.max(0, planarSpeed - CONFIG.BRAKE_DECEL * brake * dt) / planarSpeed;
+          f *= scale;
+          lat *= scale;
+        }
+      }
+    }
+
+    // --- vertical: hover spring + magnet gravity ---
+    if (springActive) {
+      const H = CONFIG.HOVER_HEIGHT;
+      const G = CONFIG.MAGNET_G;
+      const d = H - hoverHeight;
+      let repulse = G + CONFIG.HOVER_STIFFNESS * d * (1 + TUNING.REPULSOR_COMPRESSION * Math.max(0, d / H));
+      repulse = clamp(repulse, 0, G * TUNING.REPULSOR_MAX_G);
+      const fade = clamp01((H + TUNING.DAMPING_FADE_TOP - hoverHeight) / TUNING.DAMPING_FADE_LENGTH);
+      const accel = repulse - G - CONFIG.HOVER_DAMPING * vUp * fade;
+      vUp += accel * dt;
+    }
+
+    // --- recompose velocity ---
+    v.copy(this.fwd).multiplyScalar(f).addScaledVector(this.right, lat).addScaledVector(up, vUp);
+    if (!springActive) {
+      // Airborne: magnet gravity toward the nearest track surface.
+      v.addScaledVector(sampleUp, -CONFIG.MAGNET_G * dt);
+    }
+    const speedSq = v.lengthSq();
+    if (!(speedSq < TUNING.MAX_SPEED * TUNING.MAX_SPEED)) {
+      if (Number.isFinite(speedSq)) v.multiplyScalar(TUNING.MAX_SPEED / Math.sqrt(speedSq));
+      else v.set(0, 0, 0);
+    }
+
+    // --- bank (visual roll) ---
+    const bankSpeed = clamp01(Math.hypot(f, lat) / (CONFIG.TOP_SPEED * 0.4));
+    let bankTarget = 0;
+    if (!onGrid) {
+      bankTarget =
+        clamp(c.steer, -1, 1) * CONFIG.MAX_VISUAL_BANK * bankSpeed +
+        (clamp01(c.airbrakeRight) - clamp01(c.airbrakeLeft)) * TUNING.AIRBRAKE_BANK * (0.4 + 0.6 * bankSpeed);
+    }
+    s.bank = damp(s.bank, bankTarget, CONFIG.BANK_RATE, dt);
+
+    // --- push into Rapier ---
+    this.right.crossVectors(this.fwd, up);
+    this.buildQuaternion(s.quaternion);
+    this.preVel.copy(v);
+    this.body.setLinvel(v, true);
+    this.body.setRotation(s.quaternion, true);
+  }
+
+  /** After world.step: adopt the solver's translation and velocity. */
+  readback(): void {
+    const s = this.state;
+    if (s.status === 'retired') {
+      return;
+    }
+    const t = this.body.translation(this.rapierVec);
+    s.position.set(t.x, t.y, t.z);
+    const lv = this.body.linvel(this.rapierVec);
+    s.velocity.set(lv.x, lv.y, lv.z);
+    this.updateSpeeds();
+  }
+
+  /**
+   * Resolve a contact between this ship and a rail wall. `n` is the wall normal
+   * pointing from the wall toward the ship; `point` is the deepest contact point.
+   */
+  applyWallContact(n: THREE.Vector3, point: Vec3Like, dt: number, now: number): void {
+    const s = this.state;
+    if (s.status === 'retired') return;
+    const v = s.velocity;
+    const damageActive = isActiveStatus(s.status);
+
+    const closing = -this.preVel.dot(n);
+    const vnPost = v.dot(n);
+    const impact = closing > TUNING.IMPACT_MIN_SPEED;
+
+    let bounce = 0;
+    if (impact) {
+      // Reflect with restitution: the solver already removed the normal component.
+      const target = CONFIG.RAIL_RESTITUTION * closing;
+      if (vnPost < target) v.addScaledVector(n, target - vnPost);
+      bounce = closing;
+      if (damageActive) this.drainEnergy(CONFIG.RAIL_DAMAGE_PER_MS * closing);
+    }
+
+    // Tangential handling (bleed on impact, drag while scraping).
+    const vn = v.dot(n);
+    const tangent = this.tmpB.copy(v).addScaledVector(n, -vn);
+    let tangentSpeed = tangent.length();
+    if (tangentSpeed > 1e-6) {
+      let keep = Math.exp(-TUNING.WALL_SCRAPE_DRAG * dt);
+      if (impact) keep *= 1 - clamp(TUNING.WALL_BLEED_PER_MS * closing, 0, TUNING.WALL_BLEED_MAX);
+      v.addScaledVector(tangent, keep - 1);
+      tangentSpeed *= keep;
+      if (damageActive) this.drainEnergy(TUNING.WALL_SCRAPE_DAMAGE * tangentSpeed * dt);
+    }
+
+    // Steer the nose off the wall (glance instead of grinding head-on).
+    const fwdIntoWall = this.fwd.dot(n);
+    if (fwdIntoWall < 0) {
+      let angle = TUNING.WALL_YAW_ASSIST * dt * clamp01(-fwdIntoWall * 4);
+      if (impact) angle += clamp(TUNING.WALL_YAW_KICK_PER_MS * closing, 0, TUNING.WALL_YAW_KICK_MAX);
+      const sign = this.tmpN.crossVectors(this.up, this.fwd).dot(n) > 0 ? 1 : -1;
+      this.yaw(sign * angle);
+      this.right.crossVectors(this.fwd, this.up);
+    }
+
+    this.body.setLinvel(v, true);
+    this.updateSpeeds();
+
+    // Event (throttled).
+    const intensity = clamp01(
+      Math.max(bounce / TUNING.RAIL_INTENSITY_SPEED, 0.08 + 0.3 * clamp01(tangentSpeed / CONFIG.TOP_SPEED)),
+    );
+    if (now - this.lastRailEventTime >= TUNING.RAIL_EVENT_INTERVAL || bounce > TUNING.RAIL_EVENT_FORCE_SPEED) {
+      this.lastRailEventTime = now;
+      this.bus.emit('ship:railHit', {
+        shipId: s.def.id,
+        point: new THREE.Vector3(point.x, point.y, point.z),
+        normal: n.clone(),
+        intensity,
+      });
+    }
+  }
+
+  /** Apply damage from a ship-ship collision. */
+  applyShipDamage(closingSpeed: number): void {
+    if (!isActiveStatus(this.state.status)) return;
+    this.drainEnergy(CONFIG.SHIP_DAMAGE_PER_MS * closingSpeed);
+  }
+
+  /** Preserved pre-solver velocity for impact computations. */
+  get preSolveVelocity(): THREE.Vector3 {
+    return this.preVel;
+  }
+
+  get isColliderEnabled(): boolean {
+    return this.colliderEnabled;
+  }
+
+  /** Track projection, zones, energy events and the safety respawn. Runs last in a step. */
+  finishStep(dt: number): void {
+    const s = this.state;
+    if (s.status === 'retired') {
+      this.refreshProjection();
+      return;
+    }
+
+    if (!this.isFinite()) {
+      this.respawn(true);
+      return;
+    }
+
+    this.refreshProjection();
+    this.updateZones(dt);
+
+    // Safety respawn.
+    if (s.status !== 'grid') {
+      const halfWidth = this.sampleHalfWidth;
+      const invalid =
+        s.heightAboveTrack < CONFIG.RESPAWN_HEIGHT || Math.abs(s.lateral) > halfWidth + CONFIG.RESPAWN_LATERAL_MARGIN;
+      if (invalid) {
+        this.invalidTime += dt;
+        if (this.invalidTime > CONFIG.RESPAWN_GRACE) this.respawn(false);
+      } else {
+        this.invalidTime = 0;
+        this.lastValidU = s.trackU;
+      }
+    }
+  }
+
+  /** Teleport to a grid slot: zero velocity, full energy, cleared flags. */
+  reset(slot: GridSlot): void {
+    const s = this.state;
+    this.colliderEnabled = true;
+    this.collider.setEnabled(true);
+    this.railContact = false;
+
+    s.position.copy(slot.position);
+    s.quaternion.copy(slot.quaternion);
+    s.prevPosition.copy(slot.position);
+    s.prevQuaternion.copy(slot.quaternion);
+    s.velocity.set(0, 0, 0);
+    s.speed = 0;
+    s.forwardSpeed = 0;
+    s.bank = 0;
+    s.grounded = true;
+    s.energy = CONFIG.ENERGY_MAX;
+    s.boosting = false;
+    s.boostTimer = 0;
+    s.onDash = false;
+    if (s.inPit) {
+      s.inPit = false;
+      this.bus.emit('ship:pit', { shipId: s.def.id, active: false });
+    }
+    copyControls(NEUTRAL, s.lastControls);
+
+    this.boostArmed = false;
+    this.lowEnergyFired = false;
+    this.invalidTime = 0;
+    this.lastRailEventTime = -Infinity;
+    this.preVel.set(0, 0, 0);
+
+    this.frameFromQuaternion(slot.quaternion);
+    this.body.setTranslation(slot.position, true);
+    this.body.setRotation(slot.quaternion, true);
+    this.body.setLinvel(this.zeroVec(), true);
+
+    this.hasProjection = false;
+    this.lastValidU = slot.u;
+    s.trackU = slot.u;
+    this.refreshProjection();
+  }
+
+  // -------------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------------
+
+  private zeroVec(): Vec3Like {
+    const r = this.rapierVec;
+    r.x = 0;
+    r.y = 0;
+    r.z = 0;
+    return r;
+  }
+
+  private syncColliderWithStatus(): void {
+    const retired = this.state.status === 'retired';
+    if (retired && this.colliderEnabled) {
+      this.colliderEnabled = false;
+      this.collider.setEnabled(false);
+      this.railContact = false;
+    } else if (!retired && !this.colliderEnabled) {
+      this.colliderEnabled = true;
+      this.collider.setEnabled(true);
+    }
+  }
+
+  private updateSpeeds(): void {
+    const s = this.state;
+    s.speed = s.velocity.length();
+    s.forwardSpeed = s.velocity.dot(this.fwd);
+  }
+
+  private isFinite(): boolean {
+    const p = this.state.position;
+    const v = this.state.velocity;
+    return Number.isFinite(p.x + p.y + p.z + v.x + v.y + v.z);
+  }
+
+  /** Boost edge handling (timer, energy cost). Emits ship:boost. */
+  private updateBoost(c: ControlInput, racing: boolean, dt: number): void {
+    const s = this.state;
+    if (s.boosting) {
+      s.boostTimer -= dt;
+      if (s.boostTimer <= 0) {
+        s.boosting = false;
+        s.boostTimer = 0;
+      }
+    }
+    if (c.boost) {
+      if (!this.prevBoostInput) this.boostArmed = true;
+    } else {
+      this.boostArmed = false;
+    }
+    this.prevBoostInput = c.boost;
+
+    if (this.boostArmed && racing && s.boostUnlocked && !s.boosting && s.energy > CONFIG.BOOST_COST) {
+      this.boostArmed = false;
+      s.boosting = true;
+      s.boostTimer = CONFIG.BOOST_TIME;
+      this.drainEnergy(CONFIG.BOOST_COST);
+      this.bus.emit('ship:boost', { shipId: s.def.id });
+    }
+  }
+
+  /** Four corner rays along -up against the surface only. Results land in ray* fields. */
+  private castHoverRays(): void {
+    const s = this.state;
+    const up = this.up;
+    const ray = this.ray;
+    const ox = (CONFIG.SHIP_WIDTH / 2) * TUNING.RAY_WIDTH_FRACTION;
+    const oz = CONFIG.SHIP_LENGTH * TUNING.RAY_LENGTH_FRACTION;
+    this.right.crossVectors(this.fwd, up);
+
+    ray.dir.x = -up.x;
+    ray.dir.y = -up.y;
+    ray.dir.z = -up.z;
+
+    let hits = 0;
+    let heightSum = 0;
+    const normal = this.rayNormal.set(0, 0, 0);
+    const n = this.tmpN;
+    for (let i = 0; i < 4; i++) {
+      const corner = ShipController.CORNERS[i];
+      const sx = corner[0] * ox;
+      const sz = corner[1] * oz;
+      ray.origin.x = s.position.x + this.right.x * sx + this.fwd.x * sz + up.x * TUNING.RAY_LIFT;
+      ray.origin.y = s.position.y + this.right.y * sx + this.fwd.y * sz + up.y * TUNING.RAY_LIFT;
+      ray.origin.z = s.position.z + this.right.z * sx + this.fwd.z * sz + up.z * TUNING.RAY_LIFT;
+      const hit = this.world.castRayAndGetNormal(ray, CONFIG.HOVER_RAY_LENGTH, true, undefined, COLLISION.HOVER_RAY);
+      if (hit === null) continue;
+      hits++;
+      heightSum += hit.timeOfImpact - TUNING.RAY_LIFT;
+      n.set(hit.normal.x, hit.normal.y, hit.normal.z);
+      if (n.dot(up) < 0) n.negate();
+      normal.add(n);
+    }
+    this.rayHits = hits;
+    if (hits > 0) {
+      this.rayHeight = heightSum / hits;
+      if (normal.lengthSq() < 1e-8) normal.copy(up);
+      else normal.normalize();
+    } else {
+      this.rayHeight = Infinity;
+    }
+  }
+
+  /** Nlerp the body up vector toward `target` at exponential `rate` (1/s). */
+  private alignUp(target: THREE.Vector3, rate: number, dt: number): void {
+    const k = 1 - Math.exp(-rate * dt);
+    this.up.lerp(target, k);
+    if (this.up.lengthSq() < 1e-8) this.up.copy(target);
+    this.up.normalize();
+  }
+
+  /** Re-project the heading onto the plane orthogonal to up and rebuild right. */
+  private orthonormalizeHeading(): void {
+    const up = this.up;
+    const fwd = this.fwd;
+    fwd.addScaledVector(up, -fwd.dot(up));
+    if (fwd.lengthSq() < 1e-6) {
+      fwd.copy(this.sampleFwd);
+      fwd.addScaledVector(up, -fwd.dot(up));
+      if (fwd.lengthSq() < 1e-6) fwd.set(1, 0, 0).addScaledVector(up, -up.x);
+    }
+    fwd.normalize();
+    this.right.crossVectors(fwd, up);
+  }
+
+  /** Rotate the heading about ship up by `angle` radians (positive = counter-clockwise from above = left). */
+  private yaw(angle: number): void {
+    if (angle === 0) return;
+    const c = Math.cos(angle);
+    const sn = Math.sin(angle);
+    this.tmpY.crossVectors(this.up, this.fwd);
+    this.fwd.multiplyScalar(c).addScaledVector(this.tmpY, sn).normalize();
+  }
+
+  /** Orientation quaternion for the current (right, up, -forward) basis. */
+  private buildQuaternion(out: THREE.Quaternion): void {
+    this.tmpZ.copy(this.fwd).negate();
+    this.basis.makeBasis(this.right, this.up, this.tmpZ);
+    out.setFromRotationMatrix(this.basis);
+  }
+
+  private frameFromQuaternion(q: THREE.Quaternion): void {
+    this.up.set(0, 1, 0).applyQuaternion(q);
+    this.fwd.set(0, 0, -1).applyQuaternion(q);
+    this.right.crossVectors(this.fwd, this.up);
+  }
+
+  /** Refresh the cached track projection (u, lateral, height) and the local track frame. */
+  private refreshProjection(): void {
+    const s = this.state;
+    const p = this.track.project(s.position, s.trackU);
+    s.trackU = p.u;
+    s.lateral = p.lateral;
+    s.heightAboveTrack = p.height;
+    this.sampleUp.copy(p.sample.up);
+    this.sampleFwd.copy(p.sample.forward);
+    this.sampleHalfWidth = p.sample.halfWidth;
+    this.hasProjection = true;
+  }
+
+  /** Dash plates and pit strip. */
+  private updateZones(dt: number): void {
+    const s = this.state;
+    let dash = false;
+    let pit = false;
+    if (isActiveStatus(s.status) && s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT) {
+      const zones = this.track.zones;
+      for (let i = 0; i < zones.length; i++) {
+        const z = zones[i];
+        if (z.type !== 'dash' && z.type !== 'pit') continue;
+        if (s.lateral < z.lateralMin || s.lateral > z.lateralMax) continue;
+        if (!inLoopRange(s.trackU, z.uStart, z.uEnd)) continue;
+        if (z.type === 'dash') dash = true;
+        else pit = true;
+      }
+    }
+
+    if (dash && !s.onDash) {
+      s.velocity.addScaledVector(this.fwd, CONFIG.DASH_IMPULSE);
+      this.body.setLinvel(s.velocity, true);
+      this.updateSpeeds();
+      this.bus.emit('ship:dash', { shipId: s.def.id });
+    }
+    s.onDash = dash;
+
+    if (pit && s.energy < CONFIG.ENERGY_MAX) {
+      s.energy = Math.min(CONFIG.ENERGY_MAX, s.energy + CONFIG.PIT_RECHARGE_RATE * dt);
+    }
+    if (pit !== s.inPit) {
+      s.inPit = pit;
+      this.bus.emit('ship:pit', { shipId: s.def.id, active: pit });
+    }
+    if (s.energy >= CONFIG.LOW_ENERGY_THRESHOLD) this.lowEnergyFired = false;
+  }
+
+  /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */
+  private respawn(nonFinite: boolean): void {
+    const s = this.state;
+    const smp = this.track.sampleAt(this.lastValidU);
+    const oldForward = nonFinite || !Number.isFinite(s.forwardSpeed) ? 0 : Math.max(s.forwardSpeed, 0);
+
+    this.up.copy(smp.up);
+    this.fwd.copy(smp.forward);
+    this.orthonormalizeHeading();
+    this.buildQuaternion(s.quaternion);
+
+    s.position.copy(smp.position).addScaledVector(this.up, CONFIG.HOVER_HEIGHT);
+    s.prevPosition.copy(s.position);
+    s.prevQuaternion.copy(s.quaternion);
+    s.velocity.copy(this.fwd).multiplyScalar(oldForward * TUNING.RESPAWN_SPEED_FACTOR);
+    s.bank = 0;
+    s.grounded = true;
+    s.onDash = false;
+    this.preVel.copy(s.velocity);
+    this.railContact = false;
+    this.invalidTime = 0;
+
+    this.body.setTranslation(s.position, true);
+    this.body.setRotation(s.quaternion, true);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
+
+    s.trackU = this.lastValidU;
+    this.refreshProjection();
+    this.bus.emit('ship:respawn', { shipId: s.def.id });
+  }
+
+  /** Reduce energy (never below 0) and emit ship:lowEnergy once when crossing the threshold. */
+  private drainEnergy(amount: number): void {
+    if (!(amount > 0)) return;
+    const s = this.state;
+    s.energy = Math.max(0, s.energy - amount);
+    if (!this.lowEnergyFired && s.energy < CONFIG.LOW_ENERGY_THRESHOLD) {
+      this.lowEnergyFired = true;
+      this.bus.emit('ship:lowEnergy', { shipId: s.def.id });
+    }
+  }
+}
