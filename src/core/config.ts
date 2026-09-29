@@ -43,7 +43,7 @@ export const CONFIG = {
   HOVER_STIFFNESS: 220, // spring (1/s²) toward HOVER_HEIGHT
   HOVER_DAMPING: 22, // spring damping (1/s)
   MAGNET_G: 40, // m/s² toward the track surface
-  UP_ALIGN_RATE: 14, // 1/s slerp rate of ship up toward surface normal
+  UP_ALIGN_RATE: 36, // 1/s airborne re-alignment rate (grounded ships lock to the surface normal)
   RESPAWN_HEIGHT: -4,
   RESPAWN_LATERAL_MARGIN: 6,
   RESPAWN_GRACE: 0.5,

@@ -26,13 +26,13 @@ async function boot(): Promise<void> {
   for (const ship of ships) graphics.addShip(ship);
   const player = ships.find((s) => s.def.isPlayer)!;
 
+  // Every ship gets a driver. The player's one steers only in ?autopilot mode or after crossing the finish line.
   const drivers = new Map<ShipId, AIDriver>();
   for (const ship of ships) {
-    if (!ship.def.isPlayer || flags.autopilot) {
-      const personality = ship.def.personality ?? 'steady';
-      drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, ships));
-    }
+    const personality = ship.def.personality ?? 'steady';
+    drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, ships));
   }
+  const playerDriven = () => !flags.autopilot && player.status !== 'finished';
 
   const race = new RaceManager(track, ships, bus);
   const audio = new AudioSystem(bus);
@@ -80,8 +80,8 @@ async function boot(): Promise<void> {
       if (race.state === 'paused') return;
 
       for (const ship of ships) {
-        const driver = drivers.get(ship.def.id);
-        controls.set(ship.def.id, driver ? driver.update(dt) : ship === player ? input.sample() : neutralControls());
+        const human = ship === player && playerDriven();
+        controls.set(ship.def.id, human ? input.sample() : drivers.get(ship.def.id)!.update(dt));
       }
       physics.step(dt, controls);
       race.fixedUpdate(dt);

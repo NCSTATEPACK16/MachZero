@@ -47,7 +47,7 @@ export interface FrameSet {
   roll: Float64Array;
   /** Banking part of the roll only. */
   bank: Float64Array;
-  /** Signed curvature (dT/ds)·right, positive = turning right. */
+  /** Signed lateral curvature (dT/ds)·rmfRight in the unbanked frame, positive = turning right. */
   curvature: Float64Array;
 }
 
@@ -275,8 +275,11 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
   const { tan, dTds } = diff;
   const rmfUp = rotationMinimisingUp(pos, tan, count);
 
-  // Banking from curvature measured in the unbanked (RMF) frame.
+  // Banking from curvature measured in the unbanked (RMF) frame. That same RMF-frame bend is what is
+  // exported as `curvature`: it is the turn a ship must steer through, independent of bank/corkscrew
+  // roll (measuring it on the rolled frame would shrink it by cos(roll) and flip it when inverted).
   const rawBank = new Float64Array(count);
+  const curvature = new Float64Array(count);
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
     // rmfRight = tan × rmfUp
@@ -284,6 +287,7 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
     const ry = tan[i3 + 2] * rmfUp[i3] - tan[i3] * rmfUp[i3 + 2];
     const rz = tan[i3] * rmfUp[i3 + 1] - tan[i3 + 1] * rmfUp[i3];
     const k = dTds[i3] * rx + dTds[i3 + 1] * ry + dTds[i3 + 2] * rz;
+    curvature[i] = k;
     rawBank[i] = clamp(k * CONFIG.BANK_FACTOR, -CONFIG.MAX_BANK, CONFIG.MAX_BANK);
   }
   // Wide Gaussian (~45 m sigma) so bank transitions are gradual; periodic so it wraps correctly.
@@ -292,7 +296,6 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
   const up = new Float64Array(count * 3);
   const right = new Float64Array(count * 3);
   const roll = new Float64Array(count);
-  const curvature = new Float64Array(count);
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
     const u = i / count;
@@ -312,7 +315,6 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
     right[i3] = rx;
     right[i3 + 1] = ry;
     right[i3 + 2] = rz;
-    curvature[i] = dTds[i3] * rx + dTds[i3 + 1] * ry + dTds[i3 + 2] * rz;
   }
   return { count, length, ds, pos, tan, up, right, roll, bank, curvature };
 }

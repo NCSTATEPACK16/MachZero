@@ -5,7 +5,7 @@ import { COLLISION, CONFIG } from '../core/config';
 import type { ControlInput, GridSlot, ShipState, TrackData } from '../core/contracts';
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
-import { clamp, clamp01, damp, inLoopRange } from '../core/math';
+import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
 
 /**
  * Physics-only tuning that is not part of the shared CONFIG. Everything the
@@ -20,11 +20,19 @@ export const TUNING = {
   RAY_LENGTH_FRACTION: 0.35,
   /** Upward push never exceeds this many times MAGNET_G. */
   REPULSOR_MAX_G: 9,
+  /**
+   * Extra pull toward the surface (beyond MAGNET_G) while the hover rays see it, as a multiple of MAGNET_G.
+   * Makes the repulsor two-sided — the "magnetic lock" that keeps ships glued to the far side of a
+   * corkscrew, where the surface accelerates away from the hull faster than MAGNET_G alone can follow.
+   */
+  MAGNET_LOCK_G: 3,
   /** Extra stiffening as the hull compresses below HOVER_HEIGHT. */
   REPULSOR_COMPRESSION: 3,
   /** Height band above HOVER_HEIGHT over which spring damping fades out. */
   DAMPING_FADE_TOP: 0.8,
   DAMPING_FADE_LENGTH: 0.5,
+  /** Clamp on the finite-difference surface-relative hover speed (m/s): rejects ray-set discontinuities. */
+  MAX_REL_HOVER_SPEED: 60,
   /** Slerp-rate multiplier for aligning to the track while no ray hits. */
   AIR_ALIGN_FACTOR: 0.35,
   /** Thrust / grip / steering authority while airborne. */
@@ -110,6 +118,9 @@ export class ShipController {
   /** Local track frame from the latest projection (copied: the track may reuse its sample object). */
   private readonly sampleUp = new THREE.Vector3(0, 1, 0);
   private readonly sampleFwd = new THREE.Vector3(0, 0, -1);
+  private readonly sampleRight = new THREE.Vector3(1, 0, 0);
+  /** Track twist rate d(roll)/ds (rad/m) at the ship's projection. */
+  private twistRate = 0;
   private sampleHalfWidth: number;
   private hasProjection = false;
 
@@ -117,6 +128,8 @@ export class ShipController {
   private rayHits = 0;
   private rayHeight = Infinity;
   private readonly rayNormal = new THREE.Vector3(0, 1, 0);
+  /** Spring height of the previous step (NaN when the spring was inactive): used to damp velocity relative to the surface. */
+  private prevSpringHeight = NaN;
 
   // Scratch (no per-step allocation).
   private readonly tmpA = new THREE.Vector3();
@@ -125,6 +138,8 @@ export class ShipController {
   private readonly tmpY = new THREE.Vector3();
   private readonly tmpZ = new THREE.Vector3();
   private readonly basis = new THREE.Matrix4();
+  private readonly prevUp = new THREE.Vector3();
+  private readonly alignRot = new THREE.Quaternion();
   private readonly rapierVec: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
@@ -224,12 +239,36 @@ export class ShipController {
     // --- align body up ---
     const up = this.up;
     const sampleUp = this.sampleUp;
+    this.prevUp.copy(up);
     if (grounded) {
-      this.alignUp(this.rayNormal, CONFIG.UP_ALIGN_RATE, dt);
+      // Grounded: lock the hull exactly to the measured surface normal. Any lag lets lateral grip
+      // misread the correct surface-tangent motion (e.g. the helix through the corkscrew) as slip.
+      up.copy(this.rayNormal).normalize();
+      // Magnetic lock: momentum follows the surface. Rotate the velocity through the same rotation
+      // as the hull so bends in the surface (crests, dips, banks, the corkscrew twist) redirect speed
+      // instead of converting it into a sideways fling off the track.
+      this.alignRot.setFromUnitVectors(this.prevUp, up);
+      s.velocity.applyQuaternion(this.alignRot);
     } else {
       this.alignUp(sampleUp, CONFIG.UP_ALIGN_RATE * TUNING.AIR_ALIGN_FACTOR, dt);
     }
     this.orthonormalizeHeading();
+
+    if (grounded && this.hasProjection && this.twistRate !== 0) {
+      // Twist compensation (arcade track magnetism). On a twisting ribbon (the corkscrew) a line of
+      // constant lateral offset L is not straight on the surface: it has geodesic curvature
+      // L·k²/(1 + L²k²) toward the centerline (k = twist rate, rad/m). The surface carries the ship
+      // round that curve — heading and momentum yaw together — so it holds its line through the roll
+      // instead of being flung into the outer rail.
+      const k2 = this.twistRate * this.twistRate;
+      const L = s.lateral;
+      const fwdSpeed = s.velocity.dot(this.fwd);
+      const angle = ((L * k2 * fwdSpeed) / (1 + L * L * k2)) * dt;
+      this.yaw(angle);
+      this.alignRot.setFromAxisAngle(up, angle);
+      s.velocity.applyQuaternion(this.alignRot);
+      this.right.crossVectors(this.fwd, up);
+    }
 
     // --- decompose current velocity in the surface plane ---
     const v = s.velocity;
@@ -320,10 +359,19 @@ export class ShipController {
       const G = CONFIG.MAGNET_G;
       const d = H - hoverHeight;
       let repulse = G + CONFIG.HOVER_STIFFNESS * d * (1 + TUNING.REPULSOR_COMPRESSION * Math.max(0, d / H));
-      repulse = clamp(repulse, 0, G * TUNING.REPULSOR_MAX_G);
-      const fade = clamp01((H + TUNING.DAMPING_FADE_TOP - hoverHeight) / TUNING.DAMPING_FADE_LENGTH);
-      const accel = repulse - G - CONFIG.HOVER_DAMPING * vUp * fade;
+      repulse = clamp(repulse, grounded ? -G * TUNING.MAGNET_LOCK_G : 0, G * TUNING.REPULSOR_MAX_G);
+      const fade = grounded ? 1 : clamp01((H + TUNING.DAMPING_FADE_TOP - hoverHeight) / TUNING.DAMPING_FADE_LENGTH);
+      // Damp the velocity RELATIVE to the surface (d height / dt), not the absolute vUp: on a twisting
+      // section the surface at lateral offset L moves along its own normal at L·ω, and damping absolute
+      // velocity would drag the ship metres below its hover height (and through the deck in the corkscrew).
+      const relVel = Number.isFinite(this.prevSpringHeight)
+        ? clamp((hoverHeight - this.prevSpringHeight) / dt, -TUNING.MAX_REL_HOVER_SPEED, TUNING.MAX_REL_HOVER_SPEED)
+        : vUp;
+      this.prevSpringHeight = hoverHeight;
+      const accel = repulse - G - CONFIG.HOVER_DAMPING * relVel * fade;
       vUp += accel * dt;
+    } else {
+      this.prevSpringHeight = NaN;
     }
 
     // --- recompose velocity ---
@@ -678,7 +726,10 @@ export class ShipController {
     s.heightAboveTrack = p.height;
     this.sampleUp.copy(p.sample.up);
     this.sampleFwd.copy(p.sample.forward);
+    this.sampleRight.copy(p.sample.right);
     this.sampleHalfWidth = p.sample.halfWidth;
+    const rates = twistRates(this.track);
+    this.twistRate = rates[Math.round(p.u * rates.length) % rates.length];
     this.hasProjection = true;
   }
 
@@ -759,4 +810,23 @@ export class ShipController {
       this.bus.emit('ship:lowEnergy', { shipId: s.def.id });
     }
   }
+}
+
+const twistCache = new WeakMap<TrackData, Float32Array>();
+
+/** Per-sample twist rate d(roll)/ds in rad/m (central difference, wrap-safe), cached per track. */
+function twistRates(track: TrackData): Float32Array {
+  let rates = twistCache.get(track);
+  if (rates) return rates;
+  const smp = track.samples;
+  const n = smp.length;
+  rates = new Float32Array(n);
+  const ds = track.length / n;
+  for (let i = 0; i < n; i++) {
+    const a = smp[(i - 1 + n) % n].roll;
+    const b = smp[(i + 1) % n].roll;
+    rates[i] = wrapAngle(b - a) / (2 * ds);
+  }
+  twistCache.set(track, rates);
+  return rates;
 }
