@@ -196,7 +196,7 @@ What M0 delivered, so later milestones can rely on it:
   
   Flip a default to `true` in the PR that completes that milestone.
 
-## M1 — Architecture refactor: data-driven content, 8 ships, app flow, saves, settings, quality — ✅ DONE (PRs #3 M1a, #4 M1b, #M1C_PR M1c)
+## M1 — Architecture refactor: data-driven content, 8 ships, app flow, saves, settings, quality — ✅ DONE (PRs #3 M1a, #4 M1b, #5 M1c)
 
 **As built** (read this before M2; the plan below is kept for reference):
 

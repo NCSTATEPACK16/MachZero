@@ -15,9 +15,9 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
 - **M1 is done** as three stacked PRs (IMPLEMENTATION §M1 has the as-built notes; read them first):
   - #3 `v2/m1-stats-ships`: per-ship stats, 6 chassis, parts, 8-ship field.
   - #4 `v2/m1-app-shell`: App + RaceSession, saves, settings, Preact menus.
-  - #M1C_PR `v2/m1-quality`: quality presets and auto-detect. This PR also flips `profiles` on.
+  - #5 `v2/m1-quality`: quality presets and auto-detect. This PR also flips `profiles` on.
   
-  Stack order: #2 ← #3 ← #4 ← #M1C_PR. If any are still open when you start, stack M2 on `v2/m1-quality` and say so in the PR body. Rebase after merges.
+  Stack order: #2 ← #3 ← #4 ← #5. If any are still open when you start, stack M2 on `v2/m1-quality` and say so in the PR body. Rebase after merges.
 - **Tests:**
   - 170 unit/integration tests. They include the full 3-lap headless race sims (v1 4-ship, 8-ship at rookie/pilot/legend fits), a corkscrew hold test, save migrations and a RaceSession lifecycle test (10 races, no leaks).
   - 4 Playwright tests: smoke; menus by keyboard, gamepad and touch; 10 race rebuilds with no GPU-memory growth.
