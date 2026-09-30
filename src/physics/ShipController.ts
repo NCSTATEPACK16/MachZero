@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { Collider, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { COLLISION, CONFIG } from '../core/config';
-import type { ControlInput, GridSlot, ShipState, TrackData } from '../core/contracts';
+import type { ControlInput, GridSlot, ShipState, ShipStats, TrackData } from '../core/contracts';
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
@@ -165,6 +165,16 @@ export class ShipController {
 
   private colliderEnabled = true;
 
+  /** Per-ship handling (Balanced Stock = v1 CONFIG). */
+  private get stats(): ShipStats {
+    return this.state.def.stats;
+  }
+
+  /** Low-energy warning level: CONFIG.LOW_ENERGY_THRESHOLD percent of this ship's max. */
+  private get lowEnergyLevel(): number {
+    return (CONFIG.LOW_ENERGY_THRESHOLD / 100) * this.stats.energyMax;
+  }
+
   constructor(
     private readonly world: World,
     private readonly track: TrackData,
@@ -284,8 +294,8 @@ export class ShipController {
       lat = 0;
     } else {
       // --- steering (yaw about ship up; right turn = negative rotation) ---
-      const speedFrac = clamp01(Math.abs(f) / (CONFIG.TOP_SPEED * s.thrustScale));
-      const steerRate = CONFIG.STEER_RATE + (CONFIG.STEER_RATE_HIGH_SPEED - CONFIG.STEER_RATE) * speedFrac;
+      const speedFrac = clamp01(Math.abs(f) / (this.stats.topSpeed * s.thrustScale));
+      const steerRate = this.stats.steerRate + (this.stats.steerRateHighSpeed - this.stats.steerRate) * speedFrac;
       const lowSpeed = clamp01(Math.abs(f) / TUNING.STEER_FULL_AUTHORITY_SPEED);
       const steerIn = clamp(c.steer, -1, 1);
       const airbrakeYaw = (clamp01(c.airbrakeRight) - clamp01(c.airbrakeLeft)) * CONFIG.AIRBRAKE_YAW;
@@ -301,20 +311,20 @@ export class ShipController {
       const rawThrottle = clamp01(c.throttle);
       const throttle = finished ? Math.min(rawThrottle, 0.6) : rawThrottle;
       const brake = clamp01(c.brake);
-      const topSpeed = CONFIG.TOP_SPEED * s.thrustScale;
-      const boostTop = CONFIG.BOOST_TOP_SPEED * s.thrustScale;
+      const topSpeed = this.stats.topSpeed * s.thrustScale;
+      const boostTop = this.stats.boostTopSpeed * s.thrustScale;
       const limit = boosting ? boostTop : topSpeed;
       const fPos = Math.max(f, 0);
 
       if (boosting) {
         const x = Math.min(fPos / boostTop, 1.5);
         const taper = 1 - Math.pow(x, TUNING.BOOST_TAPER_POWER);
-        if (taper > 0) f += CONFIG.BOOST_ACCEL * s.thrustScale * taper * authority * dt;
+        if (taper > 0) f += this.stats.boostAccel * s.thrustScale * taper * authority * dt;
       } else if (throttle > 0.02) {
         const cap = topSpeed * (0.4 + 0.6 * throttle);
         if (fPos < cap) {
           const x = fPos / cap;
-          f += CONFIG.THRUST_ACCEL * s.thrustScale * throttle * (1 - x * x) * authority * dt;
+          f += this.stats.thrustAccel * s.thrustScale * throttle * (1 - x * x) * authority * dt;
         }
       }
 
@@ -335,7 +345,7 @@ export class ShipController {
 
       // Lateral grip: anti-slip thrusters remove sideways speed and convert most of it
       // into forward speed (momentum is redirected, not destroyed).
-      const grip = (CONFIG.LATERAL_GRIP + (CONFIG.AIRBRAKE_GRIP - CONFIG.LATERAL_GRIP) * abMax) * (grounded ? 1 : TUNING.AIR_GRIP_FACTOR);
+      const grip = (this.stats.lateralGrip + (this.stats.airbrakeGrip - this.stats.lateralGrip) * abMax) * (grounded ? 1 : TUNING.AIR_GRIP_FACTOR);
       const latNew = lat * Math.exp(-grip * dt);
       const transfer = TUNING.GRIP_SPEED_TRANSFER + (TUNING.AIRBRAKE_SPEED_TRANSFER - TUNING.GRIP_SPEED_TRANSFER) * abMax;
       const keep = Math.sqrt(Math.max(0, f * f + lat * lat - latNew * latNew));
@@ -387,7 +397,7 @@ export class ShipController {
     }
 
     // --- bank (visual roll) ---
-    const bankSpeed = clamp01(Math.hypot(f, lat) / (CONFIG.TOP_SPEED * 0.4));
+    const bankSpeed = clamp01(Math.hypot(f, lat) / (this.stats.topSpeed * 0.4));
     let bankTarget = 0;
     if (!onGrid) {
       bankTarget =
@@ -437,7 +447,7 @@ export class ShipController {
       const target = CONFIG.RAIL_RESTITUTION * closing;
       if (vnPost < target) v.addScaledVector(n, target - vnPost);
       bounce = closing;
-      if (damageActive) this.drainEnergy(CONFIG.RAIL_DAMAGE_PER_MS * closing);
+      if (damageActive) this.drainEnergy(CONFIG.RAIL_DAMAGE_PER_MS * this.stats.damageTakenScale * closing);
     }
 
     // Tangential handling (bleed on impact, drag while scraping).
@@ -483,7 +493,7 @@ export class ShipController {
   /** Apply damage from a ship-ship collision. */
   applyShipDamage(closingSpeed: number): void {
     if (!isActiveStatus(this.state.status)) return;
-    this.drainEnergy(CONFIG.SHIP_DAMAGE_PER_MS * closingSpeed);
+    this.drainEnergy(CONFIG.SHIP_DAMAGE_PER_MS * this.stats.damageTakenScale * closingSpeed);
   }
 
   /** Preserved pre-solver velocity for impact computations. */
@@ -542,7 +552,7 @@ export class ShipController {
     s.forwardSpeed = 0;
     s.bank = 0;
     s.grounded = true;
-    s.energy = CONFIG.ENERGY_MAX;
+    s.energy = this.stats.energyMax;
     s.boosting = false;
     s.boostTimer = 0;
     s.onDash = false;
@@ -622,11 +632,11 @@ export class ShipController {
     }
     this.prevBoostInput = c.boost;
 
-    if (this.boostArmed && racing && s.boostUnlocked && !s.boosting && s.energy > CONFIG.BOOST_COST) {
+    if (this.boostArmed && racing && s.boostUnlocked && !s.boosting && s.energy > this.stats.boostCost) {
       this.boostArmed = false;
       s.boosting = true;
-      s.boostTimer = CONFIG.BOOST_TIME;
-      this.drainEnergy(CONFIG.BOOST_COST);
+      s.boostTimer = this.stats.boostTime;
+      this.drainEnergy(this.stats.boostCost);
       this.bus.emit('ship:boost', { shipId: s.def.id });
     }
   }
@@ -758,14 +768,14 @@ export class ShipController {
     }
     s.onDash = dash;
 
-    if (pit && s.energy < CONFIG.ENERGY_MAX) {
-      s.energy = Math.min(CONFIG.ENERGY_MAX, s.energy + CONFIG.PIT_RECHARGE_RATE * dt);
+    if (pit && s.energy < this.stats.energyMax) {
+      s.energy = Math.min(this.stats.energyMax, s.energy + CONFIG.PIT_RECHARGE_RATE * dt);
     }
     if (pit !== s.inPit) {
       s.inPit = pit;
       this.bus.emit('ship:pit', { shipId: s.def.id, active: pit });
     }
-    if (s.energy >= CONFIG.LOW_ENERGY_THRESHOLD) this.lowEnergyFired = false;
+    if (s.energy >= this.lowEnergyLevel) this.lowEnergyFired = false;
   }
 
   /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */
@@ -805,7 +815,7 @@ export class ShipController {
     if (!(amount > 0)) return;
     const s = this.state;
     s.energy = Math.max(0, s.energy - amount);
-    if (!this.lowEnergyFired && s.energy < CONFIG.LOW_ENERGY_THRESHOLD) {
+    if (!this.lowEnergyFired && s.energy < this.lowEnergyLevel) {
       this.lowEnergyFired = true;
       this.bus.emit('ship:lowEnergy', { shipId: s.def.id });
     }

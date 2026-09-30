@@ -17,6 +17,7 @@ const PIT_END = 250;
 const START_LINE_HALF_LENGTH = 2;
 const GRID_SPACING = 12;
 const GRID_LATERAL = 5;
+const GRID_SLOTS = 8;
 const DASH_COUNT_RANGE: [number, number] = [3, 4];
 
 export interface TrackStats {
@@ -111,11 +112,11 @@ export function generateTrack(opts: { seed: number }): TrackData {
     ),
   ];
 
-  // ---- Start grid: behind the line, two staggered columns, index 0 = pole ----
+  // ---- Start grid: 8 slots (4 rows × 2 staggered columns) behind the line, index 0 = pole ----
   const basis = new THREE.Matrix4();
   const back = new THREE.Vector3();
   const startGrid: GridSlot[] = [];
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < GRID_SLOTS; k++) {
     const u = wrap01(-(GRID_SPACING * (k + 1)) / length);
     const lateral = k % 2 === 0 ? -GRID_LATERAL : GRID_LATERAL;
     const s = query.sampleAt(u);

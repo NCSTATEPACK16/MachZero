@@ -8,6 +8,7 @@ import type {
   TrackSample,
   TrackZone,
 } from '../../core/contracts';
+import { CLASSIC_STATS } from '../../core/config';
 import { neutralControls } from '../../core/controls';
 import { EventBus, type GameEvents } from '../../core/events';
 
@@ -91,6 +92,7 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     livery: { primary: 0xffffff, secondary: 0x000000, glow: 0xffffff },
     personality,
     gridIndex: id,
+    stats: CLASSIC_STATS,
   };
   return {
     def,

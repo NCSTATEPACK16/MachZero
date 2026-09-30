@@ -66,6 +66,7 @@ export class HUD implements IHUD {
   // race HUD nodes
   private readonly posNum: Txt;
   private readonly posSuf: Txt;
+  private readonly posTotal: Txt;
   private readonly posEl: HTMLElement;
   private readonly lapNum: Txt;
   private readonly lapOf: Txt;
@@ -90,6 +91,7 @@ export class HUD implements IHUD {
   private shownCountdown = -2;
   private shownWrong = false;
   private shownPos = -1;
+  private shownField = -1;
   private shownEnergyQ = -1;
   private shownEnergyHue = -1;
   private shownEnergyLow = false;
@@ -151,7 +153,7 @@ export class HUD implements IHUD {
     const start = this.button('mz-btn big', 'PRESS ENTER / CLICK TO RACE', () => this.actions.onStart(), title);
     start.addEventListener('click', (e) => e.stopPropagation());
     this.addMute(title);
-    el('div', 'mz-start-hint', '3 LAPS  •  3 RIVALS  •  ONE TRACK', title);
+    el('div', 'mz-start-hint', `${CONFIG.TOTAL_LAPS} LAPS  •  7 RIVALS  •  ONE TRACK`, title);
     title.addEventListener('click', () => this.actions.onStart());
 
     // ------------------------------------------------------------ race HUD
@@ -160,9 +162,10 @@ export class HUD implements IHUD {
     this.posEl = el('div', 'mz-pos', undefined, race);
     const pn = el('span', 'mz-num mz-pos-num', '-', this.posEl);
     const ps = el('span', 'mz-num mz-pos-suf', '', this.posEl);
-    el('span', 'mz-num mz-pos-total', `/${CONFIG.TOTAL_LAPS + 1}`, this.posEl);
+    const pt = el('span', 'mz-num mz-pos-total', '', this.posEl);
     this.posNum = new Txt(pn);
     this.posSuf = new Txt(ps);
+    this.posTotal = new Txt(pt);
 
     const lapBox = panel('mz-lapbox', race);
     const lapRow = el('div', 'mz-lap', undefined, lapBox.inner);
@@ -285,6 +288,10 @@ export class HUD implements IHUD {
         break;
       }
     }
+    if (snap.standings.length !== this.shownField) {
+      this.shownField = snap.standings.length;
+      this.posTotal.set(`/${this.shownField}`);
+    }
     if (pos > 0 && pos !== this.shownPos) {
       if (this.shownPos > 0 && snap.state === 'racing') {
         this.posEl.classList.remove('pop');
@@ -305,19 +312,21 @@ export class HUD implements IHUD {
     this.updateLapList(snap);
 
     // energy
-    const e = clamp(p.energy, 0, CONFIG.ENERGY_MAX);
-    const eq = Math.round((e / CONFIG.ENERGY_MAX) * 200) / 2;
+    const eMax = p.def.stats.energyMax;
+    const e = clamp(p.energy, 0, eMax);
+    const ePct = (e / eMax) * 100;
+    const eq = Math.round(ePct * 2) / 2;
     if (eq !== this.shownEnergyQ) {
       this.shownEnergyQ = eq;
       this.energyFill.style.transform = `scaleX(${(eq / 100).toFixed(3)})`;
       this.energyVal.set(String(Math.ceil(e)));
-      const hue = Math.round((clamp(e / 60, 0, 1) * 130) / 4) * 4; // red at 0 → amber ~30 → green ≥ 60
+      const hue = Math.round((clamp(ePct / 60, 0, 1) * 130) / 4) * 4; // red at 0 → amber ~30 → green ≥ 60
       if (hue !== this.shownEnergyHue) {
         this.shownEnergyHue = hue;
         this.energyFill.style.setProperty('--h', String(hue));
       }
     }
-    const low = e < CONFIG.LOW_ENERGY_THRESHOLD && snap.state === 'racing';
+    const low = ePct < CONFIG.LOW_ENERGY_THRESHOLD && snap.state === 'racing';
     if (low !== this.shownEnergyLow) {
       this.shownEnergyLow = low;
       this.energyBox.classList.toggle('low', low);
@@ -336,7 +345,7 @@ export class HUD implements IHUD {
     } else if (p.boosting) {
       bs = 'active';
       label = 'BOOSTING';
-    } else if (e > CONFIG.BOOST_COST) {
+    } else if (e > p.def.stats.boostCost) {
       bs = 'ready';
       label = 'BOOST READY';
     } else {

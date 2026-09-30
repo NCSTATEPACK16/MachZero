@@ -295,8 +295,8 @@ describe('zones and grid', () => {
     }
   });
 
-  it('places 4 grid slots behind the line, oriented along the track', () => {
-    expect(track.startGrid).toHaveLength(4);
+  it('places 8 grid slots behind the line, oriented along the track', () => {
+    expect(track.startGrid).toHaveLength(8);
     const fwd = new THREE.Vector3();
     const up = new THREE.Vector3();
     let lastBack = 0;

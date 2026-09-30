@@ -1,4 +1,4 @@
-import type { ShipDefinition } from './contracts';
+import type { ShipDefinition, ShipStats } from './contracts';
 
 /**
  * Global tunables. Units: metres, seconds, radians, m/s, m/s².
@@ -129,12 +129,32 @@ export const PALETTE = {
   horizon: 0x2a0a4a,
 } as const;
 
-/** Race roster. Player is id 0 and starts at the back of the grid. */
+/**
+ * v1 handling as a ShipStats record. content/ships.ts' Balanced class at Stock parts resolves to exactly
+ * this (tested), which is the proof that the 2.0 stats refactor is behaviour-neutral.
+ */
+export const CLASSIC_STATS: Readonly<ShipStats> = Object.freeze({
+  topSpeed: CONFIG.TOP_SPEED,
+  thrustAccel: CONFIG.THRUST_ACCEL,
+  boostTopSpeed: CONFIG.BOOST_TOP_SPEED,
+  boostAccel: CONFIG.BOOST_ACCEL,
+  boostCost: CONFIG.BOOST_COST,
+  boostTime: CONFIG.BOOST_TIME,
+  steerRate: CONFIG.STEER_RATE,
+  steerRateHighSpeed: CONFIG.STEER_RATE_HIGH_SPEED,
+  lateralGrip: CONFIG.LATERAL_GRIP,
+  airbrakeGrip: CONFIG.AIRBRAKE_GRIP,
+  energyMax: CONFIG.ENERGY_MAX,
+  damageTakenScale: 1,
+  mass: 1,
+});
+
+/** v1's 4-ship roster (all Balanced Stock). Kept for the v1 tests and sims; races use content/pilots. */
 export const SHIP_ROSTER: readonly ShipDefinition[] = [
-  { id: 0, name: 'BLUE COMET', isPlayer: true, gridIndex: 3, livery: { primary: 0x1f6bff, secondary: 0xe8eeff, glow: 0x19f0ff } },
-  { id: 1, name: 'CRIMSON FANG', isPlayer: false, personality: 'aggressive', gridIndex: 0, livery: { primary: 0xd81b2a, secondary: 0x1a1a1a, glow: 0xff5a2b } },
-  { id: 2, name: 'GOLDEN ARROW', isPlayer: false, personality: 'steady', gridIndex: 1, livery: { primary: 0xf2b705, secondary: 0x2b2b35, glow: 0xffe066 } },
-  { id: 3, name: 'VIOLET WISP', isPlayer: false, personality: 'erratic', gridIndex: 2, livery: { primary: 0x8a2be2, secondary: 0x00e5a8, glow: 0xff2bd6 } },
+  { id: 0, name: 'BLUE COMET', isPlayer: true, gridIndex: 3, stats: CLASSIC_STATS, livery: { primary: 0x1f6bff, secondary: 0xe8eeff, glow: 0x19f0ff } },
+  { id: 1, name: 'CRIMSON FANG', isPlayer: false, personality: 'aggressive', gridIndex: 0, stats: CLASSIC_STATS, livery: { primary: 0xd81b2a, secondary: 0x1a1a1a, glow: 0xff5a2b } },
+  { id: 2, name: 'GOLDEN ARROW', isPlayer: false, personality: 'steady', gridIndex: 1, stats: CLASSIC_STATS, livery: { primary: 0xf2b705, secondary: 0x2b2b35, glow: 0xffe066 } },
+  { id: 3, name: 'VIOLET WISP', isPlayer: false, personality: 'erratic', gridIndex: 2, stats: CLASSIC_STATS, livery: { primary: 0x8a2be2, secondary: 0x00e5a8, glow: 0xff2bd6 } },
 ];
 
 /** URL flags: ?autopilot=1 ?debug=1 ?seed=N */
