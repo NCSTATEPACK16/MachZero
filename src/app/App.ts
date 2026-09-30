@@ -15,6 +15,7 @@ import { InputManager } from '../physics';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
 import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
+import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { initialRoute, isMenuRoute, type Route } from './routes';
 
@@ -52,6 +53,10 @@ export class App {
     return s.profiles.find((p) => p.id === s.activeProfileId) ?? null;
   });
   readonly settings: Settings;
+  /** Preset in use right now (the benchmark may be testing one). */
+  readonly qualityLevel = signal<QualityLevel>('high');
+  /** True while the first-launch benchmark runs. */
+  readonly benchmarking = signal(false);
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -66,6 +71,7 @@ export class App {
   private building: Promise<RaceSession> | null = null;
   private buildingKey = '';
   private toastId = 0;
+  private bench: QualityBenchmark | null = null;
 
   constructor(private readonly els: AppElements) {
     let pendingFallback: FallbackReason | null = null;
@@ -91,6 +97,7 @@ export class App {
       frame: (dt, alpha, time) => {
         this.session?.frame(dt, alpha, time);
         this.graphics.render();
+        if (this.bench) this.benchFrame(dt);
       },
     });
     const onResize = () => this.graphics.resize(window.innerWidth, window.innerHeight);
@@ -371,7 +378,52 @@ export class App {
     if (this.menus) this.store.save(draft);
   }
 
+  /**
+   * Quality in force: ?quality= override, then the explicit setting, then what Auto detected earlier, then
+   * the device hint. Otherwise (first launch on a capable desktop) run the benchmark; autopilot uses High.
+   */
+  private applyQuality(s: SettingsData): void {
+    let level: QualityLevel | null = this.flags.quality ?? (s.quality !== 'auto' ? s.quality : s.detectedQuality);
+    // The device hint is recomputed each launch (cheap); only a benchmark result is stored.
+    if (level === null) level = deviceHint(navigator) ?? (this.flags.autopilot ? 'high' : null);
+    if (level === null) {
+      if (!this.bench) {
+        this.bench = new QualityBenchmark();
+        this.benchmarking.value = true;
+        this.setQualityLevel(this.bench.testing);
+      }
+      return;
+    }
+    this.bench = null;
+    this.benchmarking.value = false;
+    this.setQualityLevel(level);
+  }
+
+  private setQualityLevel(level: QualityLevel): void {
+    if (this.qualityLevel.value === level && this.graphics.qualityLevel === level) return;
+    this.qualityLevel.value = level;
+    this.graphics.setQuality(QUALITY_PROFILES[level]);
+  }
+
+  private benchFrame(dt: number): void {
+    const step = this.bench!.feed(dt);
+    if (!step.done) {
+      this.setQualityLevel(step.test);
+      return;
+    }
+    this.bench = null;
+    this.benchmarking.value = false;
+    this.settings.detectedQuality.value = step.level; // persists and re-applies via onChange
+  }
+
+  /** Forget the detected preset and measure again (Settings → Graphics). */
+  redetectQuality(): void {
+    this.bench = null;
+    this.settings.detectedQuality.value = null;
+  }
+
   private applySettings(s: SettingsData): void {
+    this.applyQuality(s);
     this.audio.setVolumes(s.masterVolume, s.sfxVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });

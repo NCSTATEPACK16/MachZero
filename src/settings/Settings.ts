@@ -16,6 +16,7 @@ export class Settings {
   readonly largeText = signal(false);
   readonly keyBindings = signal<KeyBindings>(cloneBindings(DEFAULT_KEY_BINDINGS));
   readonly quality = signal<QualitySetting>('auto');
+  readonly detectedQuality = signal<SettingsData['detectedQuality']>(null);
   readonly touchSteer = signal<TouchSteer>('slider');
 
   constructor(initial: SettingsData) {
@@ -35,6 +36,7 @@ export class Settings {
       this.largeText.value = d.largeText;
       this.keyBindings.value = d.keyBindings;
       this.quality.value = d.quality;
+      this.detectedQuality.value = d.detectedQuality;
       this.touchSteer.value = d.touchSteer;
     });
   }
@@ -50,6 +52,7 @@ export class Settings {
       largeText: this.largeText.value,
       keyBindings: cloneBindings(this.keyBindings.value),
       quality: this.quality.value,
+      detectedQuality: this.detectedQuality.value,
       touchSteer: this.touchSteer.value,
     };
   }

@@ -196,7 +196,27 @@ What M0 delivered, so later milestones can rely on it:
   
   Flip a default to `true` in the PR that completes that milestone.
 
-## M1 — Architecture refactor: data-driven content, 8 ships, app flow, saves, settings, quality
+## M1 — Architecture refactor: data-driven content, 8 ships, app flow, saves, settings, quality — ✅ DONE (PRs #3 M1a, #4 M1b, #M1C_PR M1c)
+
+**As built** (read this before M2; the plan below is kept for reference):
+
+- **Where things live:** `app/App.ts` (routes, the long-lived renderer, audio, input, save and settings) and `app/RaceSession.ts` (one disposable race). The menus are in `ui/` (Preact) and share `ui/tokens.css` with the HUD. Saves are in `save/` (`schema.ts`, `migrations.ts`, `SaveStore.ts`); settings are in `settings/` (`Settings.ts` signals and `QualityManager.ts`).
+- **Flags:** `profiles` is **on** by default from M1c. `?features=none` still gives the v1 start-screen flow on the new core; in that flow nothing is written to the v2 save, so the v1 → 2 migration can still pick up the v1 record later.
+- **Difficulty:** races use the **Rookie fit** (stock rivals, player at the back) until M5. `App.raceTier()` switches to the profile's tier when the `tiers` flag is on.
+- **v1 record migration:** `machzero.recordLap` becomes the Classic record (`records.classic`) of an active profile named PILOT (Classic preset).
+- **Ship LOD row:** not applicable until the M2 GLB ships (the procedural ships have no LODs). **M2 must add a `lod` field to `QualityProfile`.**
+- **Quality:**
+  - Auto uses the device hint, which is recomputed at each launch.
+  - Otherwise a benchmark runs: High is measured, then Med once if High is under 50 fps; a slow Med settles at Low. The result is saved as `settings.detectedQuality`.
+  - `?quality=low|med|high` overrides it for QA and isn't saved.
+- **Settings UI:**
+  - Music volume shows only with the `music` flag (M6).
+  - `touchSteer` is stored but has no UI until M7.
+  - Comfort colour-blind mode covers the energy bar; M7 extends it to track markers.
+- **Not done:** the optional separate-WASM Rapier task. The Rapier budget stays at 1.7 MB.
+- **AI fix found by the 8-ship sim:** each AI keeps to its own side of the rival it avoids (`AIDriver`, avoidance block).
+- **Input:** `InputManager` ignores key events whose event path contains `[data-ui-root]` or a text field. The menu UI handles its own keyboard focus; gamepad input reaches the UI through `App.navHandler`.
+
 
 The biggest refactor, done first so every later milestone plugs into it. Split it into 2–3 PRs if large (1a contracts + stats + 8 ships; 1b app flow + saves + settings; 1c quality).
 

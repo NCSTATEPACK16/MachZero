@@ -10,7 +10,8 @@ import { Environment } from './Environment';
 import { PostFX } from './PostFX';
 import { ShipModel } from './ShipModel';
 import { SpeedLines } from './SpeedLines';
-import { createFogUniforms } from './shaders/fog';
+import { createFogUniforms, type FogUniforms } from './shaders/fog';
+import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
 
 const FOG_COLOR = 0x1a0a38;
 const FOG_DENSITY = 0.0006;
@@ -93,6 +94,8 @@ export class GraphicsSystem implements IGraphicsSystem {
   private readonly modelList: ShipModel[] = [];
   private readonly unsubs: Array<() => void> = [];
   private trackVisual: THREE.Object3D | null = null;
+  private quality: QualityProfile = QUALITY_PROFILES.high;
+  private fogUniforms!: FogUniforms;
   private hasRace = false;
 
   private playerId: ShipId = 0;
@@ -113,7 +116,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     const debugFlag = readUrlFlags().debug;
     // preserveDrawingBuffer only in ?debug=1 so external screenshot tooling can read the canvas
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, preserveDrawingBuffer: debugFlag });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(this.pixelRatio());
     renderer.setSize(this.width, this.height);
     renderer.setClearColor(PALETTE.night, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -132,6 +135,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     // ---- fog / lighting / reflections ----
     this.scene.fog = new THREE.FogExp2(FOG_COLOR, FOG_DENSITY);
     const fogUniforms = createFogUniforms(FOG_COLOR, FOG_DENSITY);
+    this.fogUniforms = fogUniforms;
 
     const hemi = new THREE.HemisphereLight(0x6a55d8, 0x1a0b33, 0.85);
     this.scene.add(hemi);
@@ -276,6 +280,29 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.hasRace = false;
   }
 
+  /** Quality preset (IMPLEMENTATION §M1.6). Reduced motion stays applied on top. */
+  setQuality(q: QualityProfile): void {
+    this.quality = q;
+    this.post.setQuality(q);
+    this.moon.castShadow = q.shadowMap > 0;
+    if (q.shadowMap > 0 && this.moon.shadow.mapSize.x !== q.shadowMap) {
+      this.moon.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+      this.moon.shadow.map?.dispose();
+      this.moon.shadow.map = null;
+    }
+    this.env.setDensity(q.scenery);
+    this.fx.setBudget(q.particles);
+    this.speedLines.budget = q.particles;
+    const density = FOG_DENSITY * q.fog;
+    (this.scene.fog as THREE.FogExp2).density = density;
+    this.fogUniforms.uFogDensity.value = density;
+    this.resize(this.width, this.height);
+  }
+
+  get qualityLevel(): QualityProfile['level'] {
+    return this.quality.level;
+  }
+
   /** Comfort settings (SPEC §2). Applied on top of any quality preset. */
   setComfort(opts: { reducedMotion: boolean }): void {
     this.chase.reducedMotion = opts.reducedMotion;
@@ -363,10 +390,15 @@ export class GraphicsSystem implements IGraphicsSystem {
     }
   }
 
+  private pixelRatio(): number {
+    const q = this.quality ?? QUALITY_PROFILES.high;
+    return Math.min(window.devicePixelRatio || 1, q.pixelRatioCap) * q.renderScale;
+  }
+
   resize(width: number, height: number): void {
     this.width = Math.max(1, Math.floor(width));
     this.height = Math.max(1, Math.floor(height));
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(this.width, this.height);
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();

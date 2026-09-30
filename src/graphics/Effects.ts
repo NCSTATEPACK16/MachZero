@@ -125,6 +125,9 @@ export class Effects {
   private nextRing = 0;
 
   private readonly emitters = new Map<ShipId, ShipEmitter>();
+  /** Quality: fraction of particles / sparks actually spawned (thinned evenly by an accumulator). */
+  private budget = 1;
+  private budgetAcc = 0;
   private camera: THREE.PerspectiveCamera | null = null;
 
   // scratch
@@ -201,6 +204,19 @@ export class Effects {
     });
   }
 
+  setBudget(fraction: number): void {
+    this.budget = Math.min(1, Math.max(0.05, fraction));
+  }
+
+  /** True for `budget` of the calls, evenly spread. */
+  private admit(): boolean {
+    if (this.budget >= 1) return true;
+    this.budgetAcc += this.budget;
+    if (this.budgetAcc < 1) return false;
+    this.budgetAcc -= 1;
+    return true;
+  }
+
   /** Forget every ship (between races). */
   clearShips(): void {
     this.emitters.clear();
@@ -234,7 +250,7 @@ export class Effects {
     a0: number, drag: number,
   ): void {
     const i = this.pCount.n;
-    if (i >= MAX_POINTS) return;
+    if (i >= MAX_POINTS || !this.admit()) return;
     this.pCount.n = i + 1;
     const p = i * 3;
     this.pPos[p] = x;
@@ -266,7 +282,7 @@ export class Effects {
     drag: number, grav: number, trail: number,
   ): void {
     const i = this.sCount;
-    if (i >= MAX_SPARKS) return;
+    if (i >= MAX_SPARKS || !this.admit()) return;
     this.sCount = i + 1;
     const p = i * 3;
     this.sPos[p] = x;
