@@ -3,6 +3,7 @@ import type { HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackDat
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
 import { Minimap } from './Minimap';
+import '../ui/tokens.css';
 import './hud.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -111,50 +112,53 @@ export class HUD implements IHUD {
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
+    opts: { showTitle?: boolean } = {},
   ) {
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
     root.appendChild(c);
     this.container = c;
 
-    // ------------------------------------------------------------ title
-    const title = el('section', 'mz-screen mz-title', undefined, c);
-    el('div', 'mz-logo', 'MACHZERO', title);
-    el('p', 'mz-sub', 'ANTI-GRAVITY RACING', title);
-    const controls = el('div', 'mz-controls', undefined, title);
-    const kb = el('div', undefined, undefined, controls);
-    el('h4', undefined, 'KEYBOARD', kb);
-    for (const [k, v] of [
-      ['W / ↑', 'THRUST'],
-      ['S / ↓', 'BRAKE'],
-      ['A D / ← →', 'STEER'],
-      ['Q  E', 'AIR-BRAKES'],
-      ['SPACE / SHIFT', 'BOOST (LAP 2+)'],
-      ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
-    ]) {
-      const row = el('div', 'row', undefined, kb);
-      el('kbd', undefined, k, row);
-      el('span', undefined, v, row);
+    // ------------------------------------------------------------ title (v1 start screen; the menu UI replaces it)
+    if (opts.showTitle !== false) {
+      const title = el('section', 'mz-screen mz-title', undefined, c);
+      el('div', 'mz-logo', 'MACHZERO', title);
+      el('p', 'mz-sub', 'ANTI-GRAVITY RACING', title);
+      const controls = el('div', 'mz-controls', undefined, title);
+      const kb = el('div', undefined, undefined, controls);
+      el('h4', undefined, 'KEYBOARD', kb);
+      for (const [k, v] of [
+        ['W / ↑', 'THRUST'],
+        ['S / ↓', 'BRAKE'],
+        ['A D / ← →', 'STEER'],
+        ['Q  E', 'AIR-BRAKES'],
+        ['SPACE / SHIFT', 'BOOST (LAP 2+)'],
+        ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
+      ]) {
+        const row = el('div', 'row', undefined, kb);
+        el('kbd', undefined, k, row);
+        el('span', undefined, v, row);
+      }
+      const gp = el('div', undefined, undefined, controls);
+      el('h4', undefined, 'GAMEPAD', gp);
+      for (const [k, v] of [
+        ['LEFT STICK', 'STEER'],
+        ['RT', 'THRUST'],
+        ['LT', 'BRAKE'],
+        ['LB  RB', 'AIR-BRAKES'],
+        ['A', 'BOOST (LAP 2+)'],
+        ['START', 'PAUSE'],
+      ]) {
+        const row = el('div', 'row', undefined, gp);
+        el('kbd', undefined, k, row);
+        el('span', undefined, v, row);
+      }
+      const start = this.button('mz-btn big', 'PRESS ENTER / CLICK TO RACE', () => this.actions.onStart(), title);
+      start.addEventListener('click', (e) => e.stopPropagation());
+      this.addMute(title);
+      el('div', 'mz-start-hint', `${CONFIG.TOTAL_LAPS} LAPS  •  7 RIVALS  •  ONE TRACK`, title);
+      title.addEventListener('click', () => this.actions.onStart());
     }
-    const gp = el('div', undefined, undefined, controls);
-    el('h4', undefined, 'GAMEPAD', gp);
-    for (const [k, v] of [
-      ['LEFT STICK', 'STEER'],
-      ['RT', 'THRUST'],
-      ['LT', 'BRAKE'],
-      ['LB  RB', 'AIR-BRAKES'],
-      ['A', 'BOOST (LAP 2+)'],
-      ['START', 'PAUSE'],
-    ]) {
-      const row = el('div', 'row', undefined, gp);
-      el('kbd', undefined, k, row);
-      el('span', undefined, v, row);
-    }
-    const start = this.button('mz-btn big', 'PRESS ENTER / CLICK TO RACE', () => this.actions.onStart(), title);
-    start.addEventListener('click', (e) => e.stopPropagation());
-    this.addMute(title);
-    el('div', 'mz-start-hint', `${CONFIG.TOTAL_LAPS} LAPS  •  7 RIVALS  •  ONE TRACK`, title);
-    title.addEventListener('click', () => this.actions.onStart());
 
     // ------------------------------------------------------------ race HUD
     const race = el('section', 'mz-race', undefined, c);
@@ -241,6 +245,8 @@ export class HUD implements IHUD {
     const prow = el('div', 'mz-btnrow', undefined, pause);
     this.button('mz-btn', 'RESUME', () => this.actions.onResume(), prow);
     this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
+    if (this.actions.onSettings) this.button('mz-btn', 'SETTINGS', () => this.actions.onSettings?.(), prow);
+    if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
     this.addMute(prow);
     el('div', 'mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', pause);
 
@@ -271,6 +277,14 @@ export class HUD implements IHUD {
       }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
+  }
+
+  /** Unsubscribe and remove the DOM (RaceSession.dispose). */
+  dispose(): void {
+    for (const off of this.offs) off();
+    this.offs.length = 0;
+    this.clearToasts();
+    this.container.remove?.();
   }
 
   update(snap: RaceSnapshot, dt: number): void {
@@ -487,6 +501,7 @@ export class HUD implements IHUD {
 
     const row = el('div', 'mz-btnrow', undefined, root);
     this.button('mz-btn big', 'RACE AGAIN', () => this.actions.onRestart(), row);
+    if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), row);
     this.addMute(row);
     el('div', 'mz-hint', 'PRESS ENTER TO RACE AGAIN', root);
   }

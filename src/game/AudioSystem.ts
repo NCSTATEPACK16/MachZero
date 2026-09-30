@@ -58,7 +58,26 @@ export class AudioSystem implements IAudioSystem {
   private readonly offs: Array<() => void> = [];
   private listening = false;
 
-  constructor(private readonly bus: GameBus) {
+  private bus: GameBus | null = null;
+  private masterVolume = 1;
+  private sfxVolume = 1;
+
+  /** Pass a bus to attach immediately (v1 style); the App attaches one per race instead. */
+  constructor(bus?: GameBus) {
+    if (bus) this.attach(bus);
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      window.addEventListener('pointerdown', this.unlock, { passive: true });
+      window.addEventListener('keydown', this.unlock, { passive: true });
+      window.addEventListener('touchstart', this.unlock, { passive: true });
+      this.listening = true;
+      document.addEventListener('visibilitychange', this.onVisibility);
+    }
+  }
+
+  /** Listen to one race's events (detaches from the previous race). */
+  attach(bus: GameBus): void {
+    this.detach();
+    this.bus = bus;
     this.offs.push(
       bus.on('race:countdown', (e) => this.onCountdown(e.value)),
       bus.on('ship:boost', (e) => this.onBoost(e.shipId)),
@@ -87,14 +106,42 @@ export class AudioSystem implements IAudioSystem {
         if (this.isPlayer(e.shipId)) this.finishFanfare(e.position === 1);
       }),
     );
+  }
 
-    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-      window.addEventListener('pointerdown', this.unlock, { passive: true });
-      window.addEventListener('keydown', this.unlock, { passive: true });
-      window.addEventListener('touchstart', this.unlock, { passive: true });
-      this.listening = true;
-      document.addEventListener('visibilitychange', this.onVisibility);
-    }
+  /** Stop listening to the current race and fade its continuous voices out. */
+  detach(): void {
+    for (const off of this.offs) off();
+    this.offs.length = 0;
+    this.bus = null;
+    this.frame = null;
+    this.scrape = 0;
+    this.lastImpact.clear();
+    const ac = this.ac;
+    if (!ac) return;
+    const t = ac.currentTime;
+    for (const g of [this.engineGain, this.boostGain, this.windGain, this.scrapeGain, this.humGain]) g?.gain.setTargetAtTime(0, t, 0.08);
+  }
+
+  /** Settings volumes, 0..1. Every current sound is an effect; music gets its own bus in M6. */
+  setVolumes(master: number, sfx: number): void {
+    this.masterVolume = clamp(master, 0, 1);
+    this.sfxVolume = clamp(sfx, 0, 1);
+    this.applyLevels();
+  }
+
+  dispose(): void {
+    this.detach();
+    if (this.listening) this.stopListening();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
+    void this.ac?.close().catch(() => undefined);
+    this.ac = null;
+  }
+
+  private applyLevels(): void {
+    if (!this.ac || !this.master || !this.sfx) return;
+    const t = this.ac.currentTime;
+    this.master.gain.setTargetAtTime(this._muted ? 0 : MASTER_LEVEL * this.masterVolume, t, 0.02);
+    this.sfx.gain.setTargetAtTime(this.sfxVolume, t, 0.02);
   }
 
   get muted(): boolean {
@@ -103,8 +150,8 @@ export class AudioSystem implements IAudioSystem {
 
   setMuted(muted: boolean): void {
     this._muted = muted;
-    if (this.ac && this.master) this.master.gain.setTargetAtTime(muted ? 0 : MASTER_LEVEL, this.ac.currentTime, 0.02);
-    this.bus.emit('audio:mute', { muted });
+    this.applyLevels();
+    this.bus?.emit('audio:mute', { muted });
   }
 
   // ---------------------------------------------------------------------
@@ -152,12 +199,12 @@ export class AudioSystem implements IAudioSystem {
     compressor.attack.value = 0.004;
     compressor.release.value = 0.2;
     const master = ac.createGain();
-    master.gain.value = this._muted ? 0 : MASTER_LEVEL;
+    master.gain.value = this._muted ? 0 : MASTER_LEVEL * this.masterVolume;
     master.connect(compressor);
     compressor.connect(ac.destination);
     this.master = master;
     const sfx = ac.createGain();
-    sfx.gain.value = 1;
+    sfx.gain.value = this.sfxVolume;
     sfx.connect(master);
     this.sfx = sfx;
 
@@ -168,10 +215,10 @@ export class AudioSystem implements IAudioSystem {
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
     this.noiseBuffer = buf;
 
-    this.buildEngine(ac, master);
-    this.buildWind(ac, master);
-    this.buildScrape(ac, master);
-    this.buildHum(ac, master);
+    this.buildEngine(ac, sfx);
+    this.buildWind(ac, sfx);
+    this.buildScrape(ac, sfx);
+    this.buildHum(ac, sfx);
   }
 
   private buildEngine(ac: AudioContext, out: AudioNode): void {

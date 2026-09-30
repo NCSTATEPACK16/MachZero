@@ -123,6 +123,8 @@ export class PostFX {
   readonly outputPass: OutputPass;
 
   private blur = 0;
+  /** Comfort: no radial speed blur and no chromatic aberration (the vignette stays). */
+  reducedMotion = false;
   private kick = 0;
   private vignette = 0.42;
 
@@ -172,7 +174,7 @@ export class PostFX {
 
   update(dt: number, p: PostFxParams): void {
     const sf = clamp01((p.speed - 40) / (CONFIG.BOOST_TOP_SPEED - 40));
-    const targetBlur = sf <= 0 ? 0 : 0.15 * Math.pow(sf, 1.15) + (p.boosting ? 0.07 * Math.min(1, sf * 2) : 0);
+    const targetBlur = sf <= 0 || this.reducedMotion ? 0 : 0.15 * Math.pow(sf, 1.15) + (p.boosting ? 0.07 * Math.min(1, sf * 2) : 0);
     this.blur = damp(this.blur, targetBlur, 6, dt);
     if (targetBlur === 0 && this.blur < 0.0006) this.blur = 0;
     this.speedBlurPass.enabled = this.blur > 0.0008;
@@ -182,7 +184,7 @@ export class PostFX {
     this.kick = damp(this.kick, 0, 4.5, dt);
     if (this.kick < 0.001) this.kick = 0;
     const base = 0.0007 * sf + (p.boosting ? 0.0018 : 0);
-    this.chromaticPass.uniforms['uAberration'].value = base + this.kick * 0.011;
+    this.chromaticPass.uniforms['uAberration'].value = this.reducedMotion ? 0 : base + this.kick * 0.011;
     this.vignette = damp(this.vignette, 0.42 + 0.24 * sf + this.kick * 0.1, 5, dt);
     this.chromaticPass.uniforms['uVignette'].value = this.vignette;
   }

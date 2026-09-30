@@ -142,6 +142,79 @@ describe('InputManager keyboard', () => {
     input.dispose();
   });
 
+  it('arrow left/right are also menu left/right', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    key(target, 'keydown', 'ArrowLeft');
+    key(target, 'keydown', 'ArrowRight');
+    expect(input.consume('left')).toBe(true);
+    expect(input.consume('right')).toBe(true);
+    input.dispose();
+  });
+
+  it('setBindings remaps driving keys', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    input.setBindings({ throttle: ['KeyI'], brake: ['KeyK'], left: ['KeyJ'], right: ['KeyL'], airLeft: ['KeyU'], airRight: ['KeyO'], boost: ['KeyB'] });
+    key(target, 'keydown', 'KeyW');
+    expect(input.sample().throttle).toBe(0);
+    key(target, 'keydown', 'KeyI');
+    key(target, 'keydown', 'KeyB');
+    const c = input.sample();
+    expect(c.throttle).toBe(1);
+    expect(c.boost).toBe(true);
+    input.dispose();
+  });
+
+  it('ignores keys typed into text fields or the menu UI', () => {
+    class FakeEl extends EventTarget {
+      constructor(
+        readonly tagName: string,
+        private readonly inUi = false,
+      ) {
+        super();
+      }
+      isContentEditable = false;
+      uiRoot = false;
+      closest(): object | null {
+        return this.inUi ? {} : null;
+      }
+      hasAttribute(name: string): boolean {
+        return name === 'data-ui-root' && this.uiRoot;
+      }
+    }
+    vi.stubGlobal('HTMLElement', FakeEl);
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    const at = (el: FakeEl, code: string) => {
+      const e = new Event('keydown', { cancelable: true });
+      Object.assign(e, { code, key: '', repeat: false, ctrlKey: false, metaKey: false, altKey: false });
+      Object.defineProperty(e, 'target', { value: el });
+      target.dispatchEvent(e);
+      return e;
+    };
+    const typed = at(new FakeEl('INPUT'), 'Backspace');
+    expect(typed.defaultPrevented).toBe(false);
+    expect(input.consume('back')).toBe(false);
+    at(new FakeEl('BUTTON', true), 'Enter');
+    expect(input.consume('confirm')).toBe(false);
+    at(new FakeEl('CANVAS'), 'Enter');
+    expect(input.consume('confirm')).toBe(true);
+
+    // A menu button removed from the DOM while its own keydown is still being dispatched (the UI re-rendered
+    // between listeners): closest() no longer finds the UI root, but the event path still contains it.
+    const root = new FakeEl('DIV');
+    root.uiRoot = true;
+    const detached = new FakeEl('BUTTON');
+    const e = new Event('keydown', { cancelable: true });
+    Object.assign(e, { code: 'Escape', key: '', repeat: false, ctrlKey: false, metaKey: false, altKey: false });
+    Object.defineProperty(e, 'target', { value: detached });
+    Object.defineProperty(e, 'composedPath', { value: () => [detached, root, target] });
+    target.dispatchEvent(e);
+    expect(input.consume('pause')).toBe(false);
+    input.dispose();
+  });
+
   it('does not repeat menu actions from key auto-repeat', () => {
     const { win, target } = fakeWindow();
     const input = new InputManager(win);
@@ -224,6 +297,26 @@ describe('InputManager gamepad', () => {
     const c = input.sample();
     expect(c.throttle).toBe(1);
     expect(c.brake).toBe(1);
+    input.dispose();
+  });
+
+  it('d-pad and left stick navigate menus in all four directions', () => {
+    const { win } = fakeWindow();
+    const input = new InputManager(win);
+    stubPad({ pressed: [14] });
+    input.update();
+    expect(input.consume('left')).toBe(true);
+    stubPad({ pressed: [15] });
+    input.update();
+    expect(input.consume('right')).toBe(true);
+    stubPad({ axes: [0.9, 0, 0, 0] });
+    input.update();
+    expect(input.consume('right')).toBe(true);
+    input.update();
+    expect(input.consume('right')).toBe(false); // held: no repeat
+    stubPad({ axes: [-0.9, 0, 0, 0] });
+    input.update();
+    expect(input.consume('left')).toBe(true);
     input.dispose();
   });
 

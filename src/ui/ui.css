@@ -1,0 +1,852 @@
+/* MachZero menus (Preact). Same neon language as the HUD; tokens in ui/tokens.css. */
+
+#ui {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  font-family: var(--font);
+  font-size: var(--u);
+  line-height: 1.15;
+  color: var(--white);
+  -webkit-tap-highlight-color: transparent;
+}
+#ui *,
+#ui *::before,
+#ui *::after {
+  box-sizing: border-box;
+}
+#ui button,
+#ui input {
+  font: inherit;
+  color: inherit;
+}
+#ui button {
+  cursor: pointer;
+}
+
+.mzu-layer {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: max(1.2em, env(safe-area-inset-top)) max(1.2em, env(safe-area-inset-right)) max(1.2em, env(safe-area-inset-bottom)) max(1.2em, env(safe-area-inset-left));
+  background: radial-gradient(ellipse at 50% 60%, rgba(5, 3, 15, 0.1), rgba(5, 3, 15, 0.72) 75%);
+  pointer-events: auto;
+}
+.mzu-layer.on {
+  display: flex;
+}
+.mzu-layer.over-race {
+  background: rgba(5, 3, 15, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+/* ---------- screen shell ---------- */
+.mzu-screen {
+  position: relative;
+  width: min(46em, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-glow);
+  clip-path: polygon(1.4em 0, 100% 0, 100% calc(100% - 1.4em), calc(100% - 1.4em) 100%, 0 100%, 0 1.4em);
+  animation: mzu-in 0.22s ease-out;
+}
+.mzu-screen.wide {
+  width: min(58em, 100%);
+}
+@keyframes mzu-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.8em) scale(0.985);
+  }
+}
+.mz-reduced-motion .mzu-screen {
+  animation: none;
+}
+.mzu-head {
+  display: flex;
+  align-items: center;
+  gap: 1.2em;
+  padding: 1.1em 1.6em 0.9em;
+  border-bottom: 1px solid rgba(25, 240, 255, 0.18);
+}
+.mzu-titles {
+  min-width: 0;
+}
+.mzu-kicker {
+  font-weight: 800;
+  font-style: italic;
+  font-size: 0.75em;
+  letter-spacing: 0.3em;
+  color: var(--magenta);
+  text-shadow: 0 0 0.6em rgba(255, 43, 214, 0.7);
+}
+.mzu-title {
+  margin: 0.05em 0 0;
+  font-size: 2.2em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  color: var(--white);
+  text-shadow: 0 0 0.5em rgba(25, 240, 255, 0.55);
+}
+.mzu-back {
+  flex: none;
+  min-height: 2.8em;
+  padding: 0 1.1em;
+  border: 1px solid rgba(244, 247, 255, 0.3);
+  background: rgba(8, 6, 26, 0.6);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.14em;
+  transform: skewX(-10deg);
+}
+.mzu-back > span {
+  display: inline-block;
+  font-size: 1.4em;
+  line-height: 0;
+  vertical-align: -0.08em;
+}
+.mzu-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.2em 1.6em 1.6em;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(25, 240, 255, 0.4) transparent;
+}
+
+/* ---------- focus (keyboard / gamepad) ---------- */
+#ui :focus {
+  outline: none;
+}
+#ui :focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+  box-shadow: 0 0 1.2em rgba(25, 240, 255, 0.55);
+}
+
+/* ---------- main menu ---------- */
+.mzu-main {
+  width: min(40em, 100%);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  clip-path: none;
+  align-items: stretch;
+  gap: 1.2em;
+}
+.mzu-brand {
+  text-align: center;
+}
+.mzu-logo {
+  font-size: 4.6em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  background: linear-gradient(180deg, #ffffff 0%, var(--cyan) 45%, var(--violet) 55%, var(--magenta) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.25em rgba(255, 43, 214, 0.55));
+}
+.mzu-tag {
+  margin-top: 0.3em;
+  font-weight: 800;
+  font-style: italic;
+  font-size: 0.9em;
+  letter-spacing: 0.55em;
+  color: var(--cyan);
+  text-shadow: 0 0 0.6em rgba(25, 240, 255, 0.8);
+}
+.mzu-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.mzu-hints {
+  display: flex;
+  justify-content: center;
+  gap: 1.6em;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: rgba(244, 247, 255, 0.55);
+}
+@media (hover: none) {
+  .mzu-hints {
+    display: none;
+  }
+}
+
+/* ---------- menu items ---------- */
+.mzu-item {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  width: 100%;
+  min-height: 3.6em;
+  padding: 0.55em 1.4em;
+  text-align: left;
+  border: 1px solid rgba(25, 240, 255, 0.38);
+  background: linear-gradient(90deg, rgba(14, 10, 40, 0.88), rgba(8, 6, 26, 0.62));
+  box-shadow: inset 0 0 1.2em rgba(138, 77, 255, 0.12);
+  transform: skewX(-10deg);
+  transition:
+    transform 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+}
+.mzu-item > * {
+  transform: skewX(10deg);
+}
+.mzu-item:hover,
+.mzu-item:focus-visible {
+  border-color: var(--cyan);
+  background: linear-gradient(90deg, rgba(25, 240, 255, 0.2), rgba(138, 77, 255, 0.16));
+  transform: skewX(-10deg) translateX(0.4em);
+}
+.mzu-item:active {
+  transform: skewX(-10deg) translateX(0.4em) scale(0.985);
+}
+.mzu-item.big {
+  min-height: 4.8em;
+  border-color: var(--magenta);
+  background: linear-gradient(90deg, rgba(255, 43, 214, 0.28), rgba(138, 77, 255, 0.22) 60%, rgba(8, 6, 26, 0.7));
+  box-shadow:
+    0 0 1.6em rgba(255, 43, 214, 0.35),
+    inset 0 0 1.4em rgba(255, 43, 214, 0.18);
+}
+.mzu-item.big .mzu-item-label {
+  font-size: 1.9em;
+}
+.mzu-item.go {
+  justify-content: center;
+  margin-top: 0.6em;
+}
+.mzu-item-icon {
+  flex: none;
+  width: 2em;
+  height: 2em;
+  color: var(--cyan);
+  filter: drop-shadow(0 0 0.3em rgba(25, 240, 255, 0.7));
+}
+.mzu-item.big .mzu-item-icon {
+  color: var(--magenta);
+  width: 2.4em;
+  height: 2.4em;
+}
+.mzu-item-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.mzu-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  min-width: 0;
+}
+.mzu-item-label {
+  font-size: 1.35em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+}
+.mzu-item-sub {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(244, 247, 255, 0.66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- pilot chip ---------- */
+.mzu-pilot {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.35em 1.2em 0.35em 0.4em;
+  border: 1px solid rgba(244, 247, 255, 0.25);
+  background: rgba(8, 6, 26, 0.7);
+  border-radius: 99em;
+}
+.mzu-pilot:hover {
+  border-color: var(--cyan);
+}
+.mzu-pilot-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.mzu-pilot-name {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.1em;
+  letter-spacing: 0.08em;
+}
+.mzu-pilot-sub {
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--cyan);
+}
+.mzu-badge {
+  display: block;
+  flex: none;
+}
+
+/* ---------- profile cards ---------- */
+.mzu-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17em, 1fr));
+  gap: 0.8em;
+}
+.mzu-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 5.2em;
+  border: 1px solid rgba(25, 240, 255, 0.35);
+  background: rgba(8, 6, 26, 0.65);
+}
+.mzu-card-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  padding: 0.6em 0.8em;
+  border: 0;
+  background: none;
+  text-align: left;
+  min-width: 0;
+}
+.mzu-card-main:hover {
+  background: rgba(25, 240, 255, 0.1);
+}
+.mzu-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  min-width: 0;
+}
+.mzu-card-name {
+  font-size: 1.4em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+.mzu-card-meta {
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(244, 247, 255, 0.6);
+}
+.mzu-card-del {
+  flex: none;
+  width: 2.8em;
+  border: 0;
+  border-left: 1px solid rgba(244, 247, 255, 0.12);
+  background: none;
+  color: rgba(244, 247, 255, 0.45);
+  font-size: 1em;
+}
+.mzu-card-del:hover,
+.mzu-card-del:focus-visible {
+  color: var(--red);
+  background: rgba(255, 51, 68, 0.12);
+}
+.mzu-card-new {
+  justify-content: center;
+  align-items: center;
+  gap: 0.6em;
+  border-style: dashed;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+}
+.mzu-card-new:hover {
+  background: rgba(25, 240, 255, 0.1);
+}
+.mzu-plus {
+  font-size: 1.8em;
+  font-style: normal;
+  line-height: 1;
+}
+.mzu-card.confirm {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.6em;
+  padding: 0.7em 0.9em;
+  border-color: var(--red);
+}
+.mzu-card-q {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.mzu-card-q small {
+  display: block;
+  margin-top: 0.2em;
+  font-weight: 600;
+  font-size: 0.75em;
+  color: rgba(244, 247, 255, 0.6);
+}
+.mzu-card-actions {
+  display: flex;
+  gap: 0.6em;
+}
+
+/* ---------- create form ---------- */
+.mzu-create {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1em;
+}
+.mzu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+}
+.mzu-field-label,
+.mzu-subhead {
+  font-size: 0.75em;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.26em;
+  color: var(--cyan);
+}
+.mzu-subhead {
+  margin-top: 1.2em;
+}
+.mzu-field input[type='text'] {
+  width: 100%;
+  min-height: 2.6em;
+  padding: 0.2em 0.7em;
+  font-size: 1.5em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  background: rgba(5, 3, 15, 0.85);
+  border: 1px solid rgba(25, 240, 255, 0.5);
+  border-radius: 0;
+}
+.mzu-field input[type='text']::placeholder {
+  color: rgba(244, 247, 255, 0.28);
+}
+.mzu-badges {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 4em));
+  gap: 0.45em;
+}
+.mzu-badges button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 0.2em;
+  border: 2px solid transparent;
+  background: none;
+  opacity: 0.6;
+}
+.mzu-badges button svg {
+  width: 100%;
+  height: 100%;
+}
+.mzu-badges button.on {
+  border-color: var(--white);
+  opacity: 1;
+  box-shadow: 0 0 1em rgba(244, 247, 255, 0.45);
+}
+.mzu-badges button:hover {
+  opacity: 1;
+}
+.mzu-presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7em;
+}
+.mzu-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  padding: 0.8em 1em;
+  text-align: left;
+  border: 1px solid rgba(244, 247, 255, 0.25);
+  background: rgba(8, 6, 26, 0.6);
+}
+.mzu-preset.on {
+  border-color: var(--lime);
+  background: rgba(125, 255, 58, 0.1);
+  box-shadow: 0 0 1em rgba(125, 255, 58, 0.25);
+}
+.mzu-preset-title {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+.mzu-preset.on .mzu-preset-title::before {
+  content: '✓ ';
+  color: var(--lime);
+}
+.mzu-preset-sub {
+  font-size: 0.78em;
+  font-weight: 600;
+  color: rgba(244, 247, 255, 0.66);
+  line-height: 1.3;
+}
+.mzu-error {
+  margin: 0;
+  color: var(--amber);
+  font-weight: 700;
+}
+
+/* ---------- settings ---------- */
+.mzu-tabs {
+  display: flex;
+  gap: 0.4em;
+  margin-bottom: 1em;
+  flex-wrap: wrap;
+}
+.mzu-tabs button {
+  flex: 1;
+  min-height: 2.6em;
+  padding: 0 1em;
+  border: 1px solid rgba(244, 247, 255, 0.22);
+  background: rgba(8, 6, 26, 0.6);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.14em;
+  transform: skewX(-10deg);
+}
+.mzu-tabs button.on {
+  border-color: var(--cyan);
+  background: rgba(25, 240, 255, 0.18);
+  color: var(--cyan);
+  text-shadow: 0 0 0.5em rgba(25, 240, 255, 0.7);
+}
+.mzu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.mzu-row {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  width: 100%;
+  min-height: 3.2em;
+  padding: 0.45em 0.9em;
+  text-align: left;
+  border: 1px solid rgba(244, 247, 255, 0.14);
+  background: rgba(8, 6, 26, 0.55);
+}
+.mzu-row:hover {
+  border-color: rgba(25, 240, 255, 0.5);
+}
+.mzu-row-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  min-width: 0;
+}
+.mzu-row-label {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+}
+.mzu-row-hint {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: rgba(244, 247, 255, 0.6);
+  line-height: 1.3;
+}
+.mzu-switch {
+  flex: none;
+  position: relative;
+  width: 4.6em;
+  height: 1.9em;
+  border: 1px solid rgba(244, 247, 255, 0.35);
+  background: rgba(5, 3, 15, 0.8);
+}
+.mzu-switch-dot {
+  position: absolute;
+  top: 0.2em;
+  left: 0.2em;
+  width: 1.4em;
+  height: 1.4em;
+  background: rgba(244, 247, 255, 0.55);
+  transition: left 0.14s;
+}
+.mzu-switch-txt {
+  position: absolute;
+  right: 0.55em;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.72em;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: rgba(244, 247, 255, 0.55);
+}
+.mzu-switch.on {
+  border-color: var(--lime);
+  box-shadow: 0 0 0.8em rgba(125, 255, 58, 0.35);
+}
+.mzu-switch.on .mzu-switch-dot {
+  left: calc(100% - 1.6em);
+  background: var(--lime);
+}
+.mzu-switch.on .mzu-switch-txt {
+  left: 0.55em;
+  right: auto;
+  color: var(--lime);
+}
+.mzu-slider input[type='range'] {
+  flex: 0 1 16em;
+  min-width: 8em;
+  height: 2.4em;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.mzu-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 0.5em;
+  background: linear-gradient(90deg, var(--cyan) var(--p), rgba(244, 247, 255, 0.18) var(--p));
+}
+.mzu-slider input[type='range']::-moz-range-track {
+  height: 0.5em;
+  background: linear-gradient(90deg, var(--cyan) var(--p), rgba(244, 247, 255, 0.18) var(--p));
+}
+.mzu-slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 1.3em;
+  height: 1.9em;
+  margin-top: -0.7em;
+  background: var(--white);
+  border: 0;
+  box-shadow: 0 0 0.8em rgba(25, 240, 255, 0.9);
+  transform: skewX(-10deg);
+}
+.mzu-slider input[type='range']::-moz-range-thumb {
+  width: 1.3em;
+  height: 1.9em;
+  background: var(--white);
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 0 0.8em rgba(25, 240, 255, 0.9);
+}
+.mzu-slider-val {
+  flex: none;
+  width: 2.4em;
+  text-align: right;
+  font-weight: 900;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+}
+
+/* key bindings */
+.mzu-binds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+.mzu-bind {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 0.3em 0.9em;
+  border: 1px solid rgba(244, 247, 255, 0.12);
+  background: rgba(8, 6, 26, 0.55);
+}
+.mzu-bind-label {
+  flex: 1;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+}
+.mzu-bind-keys {
+  display: flex;
+  gap: 0.4em;
+}
+.mzu-key {
+  min-width: 4.8em;
+  min-height: 2.4em;
+  padding: 0 0.7em;
+  border: 1px solid rgba(244, 247, 255, 0.4);
+  border-bottom-width: 3px;
+  background: rgba(244, 247, 255, 0.08);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.mzu-key.add {
+  border-style: dashed;
+  color: rgba(244, 247, 255, 0.5);
+  min-width: 2.6em;
+}
+.mzu-key.listening {
+  border-color: var(--amber);
+  color: var(--amber);
+  animation: mz-flash 0.6s steps(2, jump-none) infinite;
+}
+.mzu-padmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14em, 1fr));
+  gap: 0.35em 1.2em;
+  font-size: 0.85em;
+}
+.mzu-padmap div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.2em 0;
+  border-bottom: 1px solid rgba(244, 247, 255, 0.08);
+}
+.mzu-padmap kbd {
+  font: inherit;
+  font-weight: 800;
+  color: var(--cyan);
+}
+.mzu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  margin-top: 0.4em;
+}
+.mzu-chip {
+  min-height: 2.6em;
+  padding: 0 1.2em;
+  border: 1px solid rgba(25, 240, 255, 0.55);
+  background: rgba(25, 240, 255, 0.1);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.12em;
+  transform: skewX(-10deg);
+}
+.mzu-chip:hover {
+  background: rgba(25, 240, 255, 0.22);
+}
+.mzu-chip.danger {
+  border-color: var(--red);
+  background: rgba(255, 51, 68, 0.18);
+}
+.mzu-note {
+  margin: 0.4em 0 0;
+  font-size: 0.85em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: rgba(244, 247, 255, 0.75);
+}
+.mzu-note.dim {
+  color: rgba(244, 247, 255, 0.5);
+}
+.mzu-lead {
+  margin: 0;
+  font-size: 1.2em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+/* ---------- loading & toasts ---------- */
+.mzu-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1em;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.4em;
+  letter-spacing: 0.4em;
+  color: var(--cyan);
+  text-shadow: 0 0 0.7em rgba(25, 240, 255, 0.8);
+}
+.mzu-spinner {
+  width: 2.6em;
+  height: 2.6em;
+  border: 3px solid rgba(25, 240, 255, 0.2);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: mzu-spin 0.8s linear infinite;
+}
+@keyframes mzu-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mzu-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: max(1.6em, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  width: min(36em, calc(100% - 2em));
+  pointer-events: none;
+  z-index: 2;
+}
+.mzu-toast {
+  padding: 0.6em 1.3em;
+  border: 1px solid var(--cyan);
+  background: rgba(8, 6, 26, 0.92);
+  box-shadow: 0 0 1.2em rgba(25, 240, 255, 0.3);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.3;
+  animation: mzu-in 0.2s ease-out;
+}
+.mzu-toast.good {
+  border-color: var(--lime);
+}
+.mzu-toast.warn {
+  border-color: var(--amber);
+}
+
+/* ---------- small / short screens (phones in landscape) ---------- */
+@media (max-height: 520px) {
+  .mzu-logo {
+    font-size: 3em;
+  }
+  .mzu-main {
+    gap: 0.7em;
+  }
+  .mzu-item {
+    min-height: 2.9em;
+  }
+  .mzu-item.big {
+    min-height: 3.6em;
+  }
+  .mzu-item.big .mzu-item-label {
+    font-size: 1.5em;
+  }
+  .mzu-head {
+    padding: 0.6em 1.2em 0.5em;
+  }
+  .mzu-title {
+    font-size: 1.6em;
+  }
+  .mzu-body {
+    padding: 0.8em 1.2em 1.1em;
+  }
+}
+@media (max-width: 720px) {
+  .mzu-badges {
+    grid-template-columns: repeat(6, minmax(0, 4em));
+  }
+}
+@media (max-width: 560px) {
+  .mzu-presets {
+    grid-template-columns: 1fr;
+  }
+  .mzu-bind {
+    flex-wrap: wrap;
+  }
+}

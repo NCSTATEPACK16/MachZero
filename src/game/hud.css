@@ -1,19 +1,11 @@
 /* MachZero HUD — neon, F-Zero inspired. System fonts only. */
 
+/* Colour tokens and the --u unit live in ui/tokens.css. */
 .mz-hud {
-  --cyan: #19f0ff;
-  --magenta: #ff2bd6;
-  --violet: #8a4dff;
-  --amber: #ffb319;
-  --lime: #7dff3a;
-  --red: #ff3344;
-  --white: #f4f7ff;
-  --ink: rgba(8, 6, 26, 0.72);
-  --u: clamp(10px, min(1.28vw, 2.1vh), 20px);
   position: absolute;
   inset: 0;
   overflow: hidden;
-  font-family: 'Avenir Next Condensed', 'Arial Narrow', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  font-family: var(--font);
   font-size: var(--u);
   line-height: 1.1;
   color: var(--white);
@@ -923,4 +915,16 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* ---------- comfort (classes on <html>, set by the App from Settings) ---------- */
+/* Colour-blind-safe energy bar: blue (full) → orange (empty) instead of green → red; low energy also pulses. */
+.mz-cb .mz-bar-fill {
+  --cbh: calc(30 + var(--h, 130) * 1.385);
+  background: linear-gradient(180deg, hsl(var(--cbh) 100% 68%), hsl(var(--cbh) 100% 46%));
+  box-shadow: 0 0 1.2em hsl(var(--cbh) 100% 55% / 0.9);
+}
+.mz-cb .mz-energy.low .mz-energy-val::before {
+  content: '▲ ';
+  color: var(--amber);
 }

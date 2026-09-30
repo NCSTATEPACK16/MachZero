@@ -1,0 +1,21 @@
+/* MachZero neon design tokens, shared by the in-race HUD (game/hud.css) and the menus (ui/ui.css). */
+:root {
+  --cyan: #19f0ff;
+  --magenta: #ff2bd6;
+  --violet: #8a4dff;
+  --amber: #ffb319;
+  --lime: #7dff3a;
+  --red: #ff3344;
+  --white: #f4f7ff;
+  --ink: rgba(8, 6, 26, 0.72);
+  --night: #05030f;
+  --panel-bg: linear-gradient(180deg, rgba(14, 10, 40, 0.86), rgba(8, 6, 26, 0.7));
+  --panel-border: rgba(25, 240, 255, 0.4);
+  --panel-glow: 0 0 1.4em rgba(25, 240, 255, 0.16), inset 0 0 1.6em rgba(138, 77, 255, 0.14);
+  --font: 'Avenir Next Condensed', 'Arial Narrow', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  /* Base unit: scales with the viewport, larger with the Large-text setting. */
+  --u: clamp(10px, min(1.28vw, 2.1vh), 20px);
+}
+:root.mz-large-text {
+  --u: clamp(12px, min(1.62vw, 2.65vh), 26px);
+}
