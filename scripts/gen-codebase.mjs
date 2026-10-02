@@ -3,8 +3,21 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
-const include = ['index.html', 'package.json', 'tsconfig.json', 'vite.config.ts', '.gitignore', 'scripts', 'src'];
-const langs = { '.ts': 'ts', '.mjs': 'js', '.js': 'js', '.json': 'json', '.html': 'html', '.css': 'css', '.md': 'md' };
+const include = [
+  'index.html',
+  'package.json',
+  'tsconfig.json',
+  'vite.config.ts',
+  'playwright.config.ts',
+  'netlify.toml',
+  '.nvmrc',
+  '.gitignore',
+  '.github',
+  'scripts',
+  'e2e',
+  'src',
+];
+const langs = { '.ts': 'ts', '.mjs': 'js', '.js': 'js', '.json': 'json', '.html': 'html', '.css': 'css', '.md': 'md', '.yml': 'yaml', '.toml': 'toml' };
 
 function walk(p, out) {
   const st = statSync(p);

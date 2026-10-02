@@ -211,5 +211,5 @@ One hand-designed track per world (3 laps, target lap time 30–45 s on Pilot), 
   - A Rookie-assisted autopilot (strong steering assist) on stock parts finishes top 3 against Rookie AI on every track.
   - An unassisted Pilot-level autopilot on stock parts finishes mid-pack against Pilot AI.
 - 60 fps on High on a desktop GPU; ≥ 30 fps (60 target) on Low on iPhone 12 / iPad 9th gen.
-- JS ≤ 1.5 MB gzipped; assets ≤ 15 MB total, loaded per world; first playable race ≤ 5 s on a 50 Mbps connection.
+- Size: app JS ≤ 600 KB gzipped plus the Rapier physics chunk ≤ 1.7 MB gzipped (≤ 1.2 MB if its WASM moves to a separate file); game content ≤ 15 MB, loaded per world; first playable race ≤ 5 s on a 50 Mbps connection.
 - No console errors in the smoke test. Saves survive every milestone's migration.
