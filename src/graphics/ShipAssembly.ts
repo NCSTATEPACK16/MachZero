@@ -24,6 +24,8 @@ export interface AssembledShip {
   glowMaterial: THREE.MeshBasicMaterial;
   glowColor: THREE.Color;
   layout: ShipLayout;
+  /** Recolour in place (livery editor); the decal pattern included. */
+  setLivery(livery: Loadout['livery']): void;
   dispose(): void;
 }
 
@@ -59,12 +61,16 @@ function roleOf(m: THREE.Material): string {
   return m.name.replace(/\.\d+$/, '');
 }
 
+const decalIndex = (d: number) => Math.max(0, Math.min(DECAL_COUNT - 1, d | 0));
+
 function makeMaterials(livery: Loadout['livery']) {
   const primary = new THREE.MeshPhysicalMaterial({ color: livery.primary, metalness: 0.55, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2, envMapIntensity: 1.5 });
-  const decalColor = new THREE.Color(livery.secondary);
+  // Shared with the compiled shader, so the livery editor can change them without a rebuild.
+  const decal = { value: decalIndex(livery.decal) };
+  const decalColor = { value: new THREE.Color(livery.secondary) };
   primary.onBeforeCompile = (shader) => {
-    shader.uniforms.uDecal = { value: Math.max(0, Math.min(DECAL_COUNT - 1, livery.decal | 0)) };
-    shader.uniforms.uDecalColor = { value: decalColor };
+    shader.uniforms.uDecal = decal;
+    shader.uniforms.uDecalColor = decalColor;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n#ifndef USE_COLOR\nattribute vec4 color;\n#endif\nvarying vec3 vBody;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBody = color.rgb;');
@@ -82,6 +88,8 @@ function makeMaterials(livery: Loadout['livery']) {
     glass: new THREE.MeshPhysicalMaterial({ color: 0x0a1630, metalness: 0.2, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 3, emissive: glowColor, emissiveIntensity: 0.06 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x0a0b12, metalness: 0.4, roughness: 0.6 }),
     glowColor,
+    decal,
+    decalColor,
   };
 }
 
@@ -100,6 +108,8 @@ function socketsOf(gltf: GLTF, chassisId: string): Map<string, THREE.Matrix4> {
   socketCache.set(gltf, map);
   return map;
 }
+
+const ROLE_NAMES = { livery_primary: 1, livery_secondary: 1, glow: 1, metal: 1, glass: 1, dark: 1 } as const;
 
 const PART_SOCKET: Record<PartSlot, string[]> = {
   engine: ['socket_engine'],
@@ -150,9 +160,9 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1): 
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const pick = (m: THREE.Material) => {
-      const role = roleOf(m) as keyof typeof mats;
+      const role = roleOf(m) as keyof typeof ROLE_NAMES;
       if (role === 'livery_primary' && inPart.has(mesh)) return partPrimary;
-      return role in mats && role !== 'glowColor' ? (mats[role] as THREE.Material) : mats.metal;
+      return role in ROLE_NAMES ? (mats[role] as THREE.Material) : mats.metal;
     };
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(pick) : pick(mesh.material);
     const onlyGlow = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).every((m) => m === mats.glow);
@@ -179,6 +189,16 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1): 
     glowMaterial: mats.glow,
     glowColor: mats.glowColor,
     layout,
+    setLivery: (l) => {
+      mats.livery_primary.color.set(l.primary);
+      partPrimary.color.set(l.primary);
+      mats.livery_secondary.color.set(l.secondary);
+      mats.decalColor.value.set(l.secondary);
+      mats.decal.value = decalIndex(l.decal);
+      mats.glowColor.set(l.glow);
+      mats.glow.color.set(l.glow);
+      mats.glass.emissive.set(l.glow);
+    },
     dispose: () => owned.forEach((m) => m.dispose()), // geometry is shared with the cached GLB
   };
 }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../core/config';
-import type { ShipState } from '../core/contracts';
+import type { Loadout, ShipState } from '../core/contracts';
 import { clamp, clamp01, damp } from '../core/math';
 import { CLASS_SCALE, chassisById } from '../content/ships';
 import type { AssembledShip, ShipLayout } from './ShipAssembly';
@@ -380,6 +380,7 @@ export class ShipModel {
   private readonly glowMat: THREE.MeshBasicMaterial;
   /** GLB ship: glow tint (the procedural ship tints glow through vertex colours instead). */
   private readonly glowBase: THREE.Color | null;
+  private readonly assembled: AssembledShip | null;
   private readonly layout: ShipLayout;
   private readonly flameMat: THREE.ShaderMaterial;
   private readonly poolMat: THREE.ShaderMaterial;
@@ -397,6 +398,7 @@ export class ShipModel {
   /** `assembled`: a GLB ship from ShipAssembly; without it the v1 procedural ship is built (fallback). */
   constructor(ship: ShipState, assembled: AssembledShip | null = null) {
     this.ship = ship;
+    this.assembled = assembled;
     // v1 roster (no loadout): the four original designs by id.
     const loadout = ship.def.loadout;
     const variant = loadout ? (CHASSIS_DESIGN[loadout.chassisId] ?? 0) : ship.def.id % 4;
@@ -761,6 +763,15 @@ export class ShipModel {
     const t = time + this.phase;
     this.bankGroup.position.y = Math.sin(t * 2.1) * 0.025 + Math.sin(t * 5.3) * 0.01;
     this.bankGroup.rotation.x = Math.sin(t * 1.3) * 0.008 - throttle * 0.006;
+  }
+
+  /** Recolour a GLB ship in place (livery editor). Returns false for a procedural ship, which must be rebuilt. */
+  setLivery(livery: Loadout['livery']): boolean {
+    if (!this.assembled || !this.glowBase) return false;
+    this.assembled.setLivery(livery);
+    this.glowBase.set(livery.glow);
+    this.glowColor.set(livery.glow);
+    return true;
   }
 
   /** Start a brief shield flicker (respawn). */

@@ -14,6 +14,8 @@ import { createFogUniforms, type FogUniforms } from './shaders/fog';
 import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
 import type { ShipAssets } from '../assets/AssetLoader';
 import { assembleShip } from './ShipAssembly';
+import { ShipPreview } from './ShipPreview';
+import type { Loadout } from '../core/contracts';
 
 const FOG_COLOR = 0x1a0a38;
 const FOG_DENSITY = 0.0006;
@@ -100,6 +102,9 @@ export class GraphicsSystem implements IGraphicsSystem {
   private fogUniforms!: FogUniforms;
   private hasRace = false;
   private shipAssets: ShipAssets | null = null;
+  private preview: ShipPreview | null = null;
+  /** The garage element the turntable is drawn into (null = no preview). */
+  private previewEl: HTMLElement | null = null;
 
   private playerId: ShipId = 0;
   private width: number;
@@ -334,6 +339,22 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.shipAssets = assets;
   }
 
+  /** Show `loadout` on the garage turntable inside `el` (its on-screen rectangle), or hide it with null. */
+  showPreview(el: HTMLElement | null, loadout: Loadout | null): void {
+    if (!el || !loadout) {
+      this.previewEl = null;
+      this.preview?.hide();
+      return;
+    }
+    this.preview ??= new ShipPreview(this.envTarget.texture);
+    this.preview.setLoadout(loadout, this.shipAssets);
+    this.previewEl = el;
+  }
+
+  nudgePreview(radians: number): void {
+    this.preview?.nudge(radians);
+  }
+
   addShip(ship: ShipState): void {
     if (this.models.has(ship.def.id)) return;
     // Ship LOD per preset: High LOD0; Med LOD0 for the player, LOD1 for rivals; Low LOD1.
@@ -393,13 +414,31 @@ export class GraphicsSystem implements IGraphicsSystem {
   }
 
   render(): void {
-    if (this.disposed || !this.hasRace) return;
+    if (this.disposed) return;
     this.renderer.info.reset();
+    if (this.previewEl && this.preview) {
+      // The garage covers the backdrop, so draw only its turntable on a cleared canvas (half the GPU cost).
+      this.renderer.setRenderTarget(null);
+      this.renderer.clear();
+      this.renderPreview(this.previewEl, this.preview);
+      return;
+    }
+    if (!this.hasRace) return;
     this.post.render(this.lastDt);
     if (this.debug) {
       const pm = this.models.get(this.playerId);
       this.debug.update(this.lastDt, this.renderer, pm ? pm.ship : null);
     }
+  }
+
+  private renderPreview(el: HTMLElement, preview: ShipPreview): void {
+    const r = el.getBoundingClientRect();
+    const c = this.renderer.domElement.getBoundingClientRect();
+    const x = Math.max(0, r.left - c.left);
+    const y = Math.max(0, c.bottom - r.bottom);
+    const w = Math.min(r.width, c.width - x);
+    const h = Math.min(r.height, c.height - y);
+    preview.render(this.renderer, x, y, w, h, performance.now() / 1000);
   }
 
   private pixelRatio(): number {
@@ -432,6 +471,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.speedLines.dispose();
     this.env.dispose();
     this.post.dispose();
+    this.preview?.dispose();
     this.envTarget.dispose();
     this.moon.shadow.map?.dispose();
     this.debug?.dispose();

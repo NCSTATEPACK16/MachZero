@@ -11,6 +11,7 @@ export type Route =
   | { name: 'menu' }
   | { name: 'settings'; back: 'menu' | 'pause' }
   | { name: 'soon'; feature: FeatureName; title: string }
+  | { name: 'garage' }
   | { name: 'loading' }
   | { name: 'race' };
 
@@ -20,7 +21,6 @@ export type RouteName = Route['name'];
 export const MENU_PLACEHOLDERS: ReadonlyArray<{ feature: FeatureName; title: string; blurb: string; milestone: string }> = [
   { feature: 'worlds', title: 'WORLD TOUR', blurb: 'Five worlds, one race each. Top 3 unlocks the next.', milestone: 'M3' },
   { feature: 'modes', title: 'TIME TRIAL', blurb: 'Race your ghost and the dev ghost for medals.', milestone: 'M8' },
-  { feature: 'garage', title: 'GARAGE', blurb: 'Ships, parts and the livery editor.', milestone: 'M2' },
 ];
 
 /**
