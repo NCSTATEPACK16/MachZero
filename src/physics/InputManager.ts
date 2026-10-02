@@ -1,15 +1,12 @@
 import { CONFIG } from '../core/config';
-import type { ControlInput, IInputManager, MenuAction } from '../core/contracts';
+import type { ControlInput, IInputManager, KeyBindings, KeyControl, MenuAction } from '../core/contracts';
 import { damp } from '../core/math';
 
-/** Logical keyboard controls. */
-type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost';
-
 /** Menu actions produced by keys / buttons, in a fixed order (index used for edge bookkeeping). */
-const MENU_ACTIONS: readonly MenuAction[] = ['pause', 'confirm', 'back', 'mute', 'restart', 'up', 'down'];
+const MENU_ACTIONS: readonly MenuAction[] = ['pause', 'confirm', 'back', 'mute', 'restart', 'up', 'down', 'left', 'right'];
 
-/** KeyboardEvent.code -> driving control(s). */
-const CODE_TO_CONTROL: Readonly<Record<string, KeyControl>> = {
+/** Default KeyboardEvent.code -> driving control (v1 layout; see save/schema DEFAULT_KEY_BINDINGS). */
+const DEFAULT_CODE_TO_CONTROL: Readonly<Record<string, KeyControl>> = {
   KeyW: 'throttle',
   ArrowUp: 'throttle',
   KeyS: 'brake',
@@ -36,6 +33,8 @@ const CODE_TO_MENU: Readonly<Record<string, readonly MenuAction[]>> = {
   KeyR: ['restart'],
   ArrowUp: ['up'],
   ArrowDown: ['down'],
+  ArrowLeft: ['left'],
+  ArrowRight: ['right'],
 };
 
 /** Fallback for events that carry no `code` (older browsers, synthetic events): lower-cased `key`. */
@@ -83,6 +82,8 @@ const PAD = {
   START: 9,
   DPAD_UP: 12,
   DPAD_DOWN: 13,
+  DPAD_LEFT: 14,
+  DPAD_RIGHT: 15,
 } as const;
 
 const STICK_DEADZONE = 0.15;
@@ -102,6 +103,20 @@ interface PadLike {
   buttons: ReadonlyArray<{ pressed: boolean; value: number }>;
 }
 
+/**
+ * Key events aimed at text fields or the menu UI (which handles its own keyboard focus) are not game input.
+ * The UI may re-render and detach the target between listeners of the same event (browsers run microtasks
+ * after each listener), so the UI root is looked up in the event path fixed at dispatch time.
+ */
+function isUiEvent(e: Event): boolean {
+  if (typeof HTMLElement === 'undefined') return false;
+  const t = e.target;
+  if (t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return true;
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+  for (const n of path) if (n instanceof HTMLElement && n.hasAttribute('data-ui-root')) return true;
+  return t instanceof HTMLElement && t.closest('[data-ui-root]') !== null;
+}
+
 function applyDeadzone(x: number, dead: number): number {
   const a = Math.abs(x);
   if (a <= dead) return 0;
@@ -111,6 +126,7 @@ function applyDeadzone(x: number, dead: number): number {
 /** Keyboard + gamepad input. Driving state is sampled, menu actions are edge-triggered. */
 export class InputManager implements IInputManager {
   private readonly held = new Set<string>();
+  private codeToControl: Record<string, KeyControl> = { ...DEFAULT_CODE_TO_CONTROL };
   private readonly pending = new Int32Array(MENU_ACTIONS.length);
   private boostLatch = false;
   private disposed = false;
@@ -127,11 +143,23 @@ export class InputManager implements IInputManager {
   private readonly padPrevButtons = new Uint8Array(16);
   private padPrevStickUp = false;
   private padPrevStickDown = false;
+  private padPrevStickLeft = false;
+  private padPrevStickRight = false;
 
   constructor(private readonly target: Window) {
     target.addEventListener('keydown', this.onKeyDown as EventListener);
     target.addEventListener('keyup', this.onKeyUp as EventListener);
     target.addEventListener('blur', this.onBlur);
+  }
+
+  /** Replace the keyboard driving layout (Settings → Controls). Menu keys are fixed. */
+  setBindings(bindings: Readonly<KeyBindings>): void {
+    const map: Record<string, KeyControl> = {};
+    for (const control of Object.keys(bindings) as KeyControl[]) {
+      for (const code of bindings[control]) if (map[code] === undefined) map[code] = control;
+    }
+    this.codeToControl = map;
+    this.held.clear();
   }
 
   /** Current driving controls; `boost` is true for exactly one sample per press. */
@@ -197,7 +225,7 @@ export class InputManager implements IInputManager {
 
   private isHeld(control: KeyControl): boolean {
     for (const code of this.held) {
-      if (CODE_TO_CONTROL[code] === control) return true;
+      if (this.codeToControl[code] === control) return true;
     }
     return false;
   }
@@ -214,9 +242,10 @@ export class InputManager implements IInputManager {
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone
+    if (isUiEvent(e)) return;
     const code = InputManager.codeOf(e);
     if (code === '') return;
-    const control = CODE_TO_CONTROL[code];
+    const control = this.codeToControl[code];
     const menu = CODE_TO_MENU[code];
     if (control === undefined && menu === undefined) return;
 
@@ -257,6 +286,8 @@ export class InputManager implements IInputManager {
       this.padPrevButtons.fill(0);
       this.padPrevStickUp = false;
       this.padPrevStickDown = false;
+      this.padPrevStickLeft = false;
+      this.padPrevStickRight = false;
       return;
     }
 
@@ -283,6 +314,8 @@ export class InputManager implements IInputManager {
     this.padEdge(PAD.B, down(PAD.B), 'back');
     this.padEdge(PAD.DPAD_UP, down(PAD.DPAD_UP), 'up');
     this.padEdge(PAD.DPAD_DOWN, down(PAD.DPAD_DOWN), 'down');
+    this.padEdge(PAD.DPAD_LEFT, down(PAD.DPAD_LEFT), 'left');
+    this.padEdge(PAD.DPAD_RIGHT, down(PAD.DPAD_RIGHT), 'right');
 
     // Left stick vertical acts as menu up/down.
     const stickY = pad.axes[1] ?? 0;
@@ -292,6 +325,14 @@ export class InputManager implements IInputManager {
     if (stickDown && !this.padPrevStickDown) this.press('down');
     this.padPrevStickUp = stickUp;
     this.padPrevStickDown = stickDown;
+    // ...and horizontal as menu left/right.
+    const stickX = pad.axes[0] ?? 0;
+    const stickLeft = stickX < -STICK_MENU_THRESHOLD;
+    const stickRight = stickX > STICK_MENU_THRESHOLD;
+    if (stickLeft && !this.padPrevStickLeft) this.press('left');
+    if (stickRight && !this.padPrevStickRight) this.press('right');
+    this.padPrevStickLeft = stickLeft;
+    this.padPrevStickRight = stickRight;
   }
 
   private padEdge(index: number, isDown: boolean, action: MenuAction): void {

@@ -201,6 +201,11 @@ export class Effects {
     });
   }
 
+  /** Forget every ship (between races). */
+  clearShips(): void {
+    this.emitters.clear();
+  }
+
   reset(): void {
     this.pCount.n = 0;
     this.sCount = 0;

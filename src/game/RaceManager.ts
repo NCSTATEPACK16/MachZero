@@ -46,6 +46,14 @@ function normaliseGridU(u: number): number {
   return u > 0.5 ? u - 1 : u;
 }
 
+/** Where the player's lap record lives. Default: v1's localStorage key; the App passes a profile-backed store. */
+export interface RecordStore {
+  load(): number | null;
+  save(lapTime: number): void;
+}
+
+export const localRecordStore: RecordStore = { load: () => readRecord(), save: (v) => writeRecord(v) };
+
 function readRecord(): number | null {
   try {
     if (typeof localStorage === 'undefined') return null;
@@ -92,6 +100,7 @@ export class RaceManager implements IRaceManager {
     private readonly track: TrackData,
     ships: ShipState[],
     private readonly bus: GameBus,
+    private readonly records: RecordStore = localRecordStore,
   ) {
     this.racers = ships.map((ship) => ({
       ship,
@@ -119,7 +128,7 @@ export class RaceManager implements IRaceManager {
     if (!player) throw new Error('RaceManager requires at least one ship');
     this.playerRacer = player;
     this.sorted = this.racers.map((r) => r.standing);
-    this.recordLap = readRecord();
+    this.recordLap = this.records.load();
     const s0 = track.samples[0];
     this.scratchSample = {
       u: 0,
@@ -188,7 +197,7 @@ export class RaceManager implements IRaceManager {
     this.wrongWayClock = 0;
     this.wrongWay = false;
     this.resumeState = 'racing';
-    this.recordLap = readRecord();
+    this.recordLap = this.records.load();
     for (const r of this.racers) {
       r.lapsDone = 0;
       r.lapStart = 0;
@@ -343,7 +352,7 @@ export class RaceManager implements IRaceManager {
     if (r === this.playerRacer && lapTime > 0 && (this.recordLap === null || lapTime < this.recordLap)) {
       isRecord = true;
       this.recordLap = lapTime;
-      writeRecord(lapTime);
+      this.records.save(lapTime);
     }
     r.ship.boostUnlocked = true;
     this.bus.emit('race:lap', { shipId: r.ship.def.id, lap: r.lapsDone, lapTime, isBest, isRecord });

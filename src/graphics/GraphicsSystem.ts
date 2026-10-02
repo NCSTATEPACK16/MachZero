@@ -93,6 +93,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   private readonly modelList: ShipModel[] = [];
   private readonly unsubs: Array<() => void> = [];
   private trackVisual: THREE.Object3D | null = null;
+  private hasRace = false;
 
   private playerId: ShipId = 0;
   private width: number;
@@ -104,7 +105,8 @@ export class GraphicsSystem implements IGraphicsSystem {
   private readonly tmpV = new THREE.Vector3();
   private readonly tmpDir = new THREE.Vector3();
 
-  constructor(container: HTMLElement, bus: GameBus) {
+  /** A bus given here is attached at once (v1 style); the App attaches one per race via attachBus(). */
+  constructor(container: HTMLElement, bus?: GameBus) {
     this.width = container.clientWidth || window.innerWidth;
     this.height = container.clientHeight || window.innerHeight;
 
@@ -170,7 +172,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.post = new PostFX(renderer, this.scene, this.camera, this.width, this.height);
     this.debug = debugFlag ? new DebugOverlay(document.body) : null;
 
-    this.subscribe(bus);
+    if (bus) this.attachBus(bus);
     if (debugFlag) {
       (window as unknown as Record<string, unknown>).__machzeroGfx = {
         renderer: this.renderer,
@@ -184,7 +186,10 @@ export class GraphicsSystem implements IGraphicsSystem {
     }
   }
 
-  private subscribe(bus: GameBus): void {
+  /** Listen to one race's events (replaces any previous race's subscriptions). */
+  attachBus(bus: GameBus): void {
+    for (const off of this.unsubs) off();
+    this.unsubs.length = 0;
     this.unsubs.push(
       bus.on('ship:railHit', (e) => {
         const model = this.models.get(e.shipId);
@@ -248,7 +253,43 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.chase.snap();
   }
 
+  /**
+   * Remove everything that belongs to the current race: bus subscriptions, ship models (disposed), effect
+   * emitters and the track visual (disposed by its owner, RaceSession). Renderer, post chain, environment
+   * map and sky stay alive for the next race.
+   */
+  clearRace(): void {
+    for (const off of this.unsubs) off();
+    this.unsubs.length = 0;
+    for (const m of this.modelList) {
+      this.scene.remove(m.root);
+      m.dispose();
+    }
+    this.modelList.length = 0;
+    this.models.clear();
+    this.fx.clearShips();
+    this.fx.reset();
+    this.speedLines.reset();
+    this.post.reset();
+    if (this.trackVisual) this.scene.remove(this.trackVisual);
+    this.trackVisual = null;
+    this.hasRace = false;
+  }
+
+  /** Comfort settings (SPEC §2). Applied on top of any quality preset. */
+  setComfort(opts: { reducedMotion: boolean }): void {
+    this.chase.reducedMotion = opts.reducedMotion;
+    this.post.reducedMotion = opts.reducedMotion;
+    this.speedLines.disabled = opts.reducedMotion;
+  }
+
+  /** Renderer memory counters (leak checks). */
+  get memoryInfo(): { geometries: number; textures: number } {
+    return { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures };
+  }
+
   setTrack(track: TrackData): void {
+    this.hasRace = true;
     if (this.trackVisual) this.scene.remove(this.trackVisual);
     this.trackVisual = track.visual;
     track.visual.traverse((o) => {
@@ -313,7 +354,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   }
 
   render(): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.hasRace) return;
     this.renderer.info.reset();
     this.post.render(this.lastDt);
     if (this.debug) {

@@ -63,11 +63,14 @@ export class ChaseCamera {
   private readonly rightV = new THREE.Vector3();
   private readonly upV = new THREE.Vector3();
 
+  /** Comfort: no shake, a gentler speed FOV and smaller FOV punches. */
+  reducedMotion = false;
+
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
   /** Brief FOV widening (degrees), decays over ~0.5 s. */
   punchFov(deg: number): void {
-    this.fovPunch = Math.min(14, this.fovPunch + deg);
+    this.fovPunch = Math.min(14, this.fovPunch + (this.reducedMotion ? deg * 0.3 : deg));
   }
 
   /** Camera shake impulse (0..1). */
@@ -153,7 +156,7 @@ export class ChaseCamera {
 
     // shake
     const boostShake = ship.boosting ? 0.012 : 0;
-    const amp = 0.008 * sf * sf + boostShake * sf + this.impact * 0.32;
+    const amp = this.reducedMotion ? 0 : 0.008 * sf * sf + boostShake * sf + this.impact * 0.32;
     let roll = 0;
     if (amp > 0.0005) {
       this.fwdV.subVectors(this.lookAt, this.camPos).normalize();
@@ -202,7 +205,8 @@ export class ChaseCamera {
     this.tOffset.set(0, height, dist).applyQuaternion(this.camQuat);
     this.tLook.set(0, 1.0, -(14 + speed * 0.14)).applyQuaternion(this.camQuat);
     this.tUp.set(0, 1, 0).applyQuaternion(this.camQuat);
-    return lerp(CONFIG.FOV_MIN, CONFIG.FOV_MAX, Math.pow(this.fovSpeed, 0.85)) + this.fovBoost;
+    const fovMax = this.reducedMotion ? CONFIG.FOV_MIN + (CONFIG.FOV_MAX - CONFIG.FOV_MIN) * 0.45 : CONFIG.FOV_MAX;
+    return lerp(CONFIG.FOV_MIN, fovMax, Math.pow(this.fovSpeed, 0.85)) + (this.reducedMotion ? this.fovBoost * 0.3 : this.fovBoost);
   }
 
   /** Swoop from front/side into the chase pose; identical to chaseTarget at speed 0 when finished. */

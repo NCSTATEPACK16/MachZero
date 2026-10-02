@@ -45,6 +45,15 @@ export interface ShipStats {
   mass: number;
 }
 
+/** Player assists (per profile). Stored from M1; physics applies them from M7. */
+export interface Assists {
+  autoAccelerate: boolean;
+  /** 0 off, 1 light, 2 strong. */
+  steering: 0 | 1 | 2;
+  noKO: boolean;
+  earlyBoost: boolean;
+}
+
 export interface Loadout {
   chassisId: string;
   parts: Record<PartSlot, PartTier>;
@@ -162,7 +171,12 @@ export interface ControlInput {
   boost: boolean;
 }
 
-export type MenuAction = 'pause' | 'confirm' | 'back' | 'mute' | 'restart' | 'up' | 'down';
+export type MenuAction = 'pause' | 'confirm' | 'back' | 'mute' | 'restart' | 'up' | 'down' | 'left' | 'right';
+
+/** Rebindable keyboard driving controls. */
+export type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost';
+/** KeyboardEvent.code values per control (first = primary). */
+export type KeyBindings = Record<KeyControl, string[]>;
 
 // ---------------------------------------------------------------------------
 // Ship state — single source of truth, shared by reference
@@ -358,4 +372,8 @@ export interface HudActions {
   onRestart(): void;
   onResume(): void;
   onToggleMute(): void;
+  /** Present when the app has menus: adds MENU to the pause and results screens. */
+  onMenu?(): void;
+  /** Present with the menu UI: adds SETTINGS to the pause screen. */
+  onSettings?(): void;
 }

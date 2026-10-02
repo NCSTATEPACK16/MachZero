@@ -55,6 +55,13 @@ export class EventBus<E extends object> {
   clear(): void {
     this.handlers.clear();
   }
+
+  /** Live subscriptions across all event types (leak checks). */
+  listenerCount(): number {
+    let n = 0;
+    for (const set of this.handlers.values()) n += set.size;
+    return n;
+  }
 }
 
 export type GameBus = EventBus<GameEvents>;

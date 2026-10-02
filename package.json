@@ -2,7 +2,7 @@
   "name": "machzero",
   "private": true,
   "version": "1.0.0",
-  "description": "MachZero \u2014 a procedural anti-gravity racer built with Three.js and Rapier",
+  "description": "MachZero — a procedural anti-gravity racer built with Three.js and Rapier",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
+    "@preact/signals": "^2.11.2",
+    "preact": "^10.29.8",
     "three": "^0.186.1"
   },
   "devDependencies": {

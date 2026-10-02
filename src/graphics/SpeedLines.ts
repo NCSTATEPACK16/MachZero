@@ -88,10 +88,13 @@ export class SpeedLines {
     this.object.visible = false;
   }
 
+  /** Comfort (reduced motion): never shown. */
+  disabled = false;
+
   update(dt: number, camera: THREE.PerspectiveCamera, velocity: THREE.Vector3, speed: number, boosting: boolean): void {
     const sf = clamp01((speed - 50) / 110);
     this.boostBlend = damp(this.boostBlend, boosting ? 1 : 0, 6, dt);
-    if (sf <= 0.001) {
+    if (sf <= 0.001 || this.disabled) {
       this.object.visible = false;
       return;
     }
