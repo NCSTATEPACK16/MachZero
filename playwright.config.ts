@@ -11,8 +11,11 @@ const CI = Boolean((globalThis as { process?: { env: Record<string, string | und
  */
 export default defineConfig({
   testDir: 'e2e',
-  timeout: 240_000,
+  // Hard ceiling: no test may run longer than 2 minutes (each takes 15–35 s on CI).
+  timeout: 120_000,
   retries: CI ? 1 : 0,
+  // Each worker is a SwiftShader (CPU) browser; more than two starve each other on a laptop.
+  workers: CI ? undefined : 2,
   reporter: CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',

@@ -19,7 +19,7 @@ test('boots, starts an autopilot race and runs without console errors', async ({
   await page.waitForFunction(
     () => (window as unknown as { __machzero?: MachZeroDebug }).__machzero?.race.state === 'racing',
     undefined,
-    { timeout: 150_000 },
+    { timeout: 60_000 },
   );
   await page.waitForFunction(
     () => (window as unknown as { __machzero: MachZeroDebug }).__machzero.race.snapshot().raceTime > 1,
