@@ -736,6 +736,26 @@
   margin-top: 0.4em;
 }
 
+.mz-credits {
+  display: flex;
+  gap: 1.2em;
+  align-items: baseline;
+  justify-content: center;
+  margin: -0.2em 0 0.8em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+.mz-credits .delta {
+  color: var(--amber);
+  font-size: 1.5em;
+  text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.6);
+}
+.mz-credits .total {
+  opacity: 0.75;
+  font-size: 0.85em;
+}
+
 /* ---------- animations ---------- */
 @keyframes mz-scan {
   from {

@@ -8,6 +8,7 @@ import type { App } from '../app/App';
 import { MENU_PLACEHOLDERS } from '../app/routes';
 import { Screen } from './components';
 import { navigate } from './nav';
+import { Garage } from './screens/Garage';
 import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -62,11 +63,12 @@ function Root({ app }: { app: App }) {
   if (r.name === 'profiles') screen = <ProfileSelect app={app} />;
   else if (r.name === 'menu') screen = <MainMenu app={app} />;
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
+  else if (r.name === 'garage') screen = <Garage app={app} />;
   else if (r.name === 'soon') screen = <ComingSoon app={app} />;
   else if (r.name === 'loading') screen = <Loading />;
   return (
     <>
-      <div ref={layer} class={`mzu-layer${screen ? ' on' : ''}${r.name === 'settings' && r.back === 'pause' ? ' over-race' : ''}`}>
+      <div ref={layer} class={`mzu-layer${screen ? ' on' : ''}${r.name === 'settings' && r.back === 'pause' ? ' over-race' : ''}${r.name === 'garage' ? ' bare' : ''}`}>
         {screen}
       </div>
       <Toasts app={app} />

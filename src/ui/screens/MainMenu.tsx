@@ -3,6 +3,7 @@ import type { App } from '../../app/App';
 import { MENU_PLACEHOLDERS } from '../../app/routes';
 import { Badge } from '../badges';
 import { MenuButton } from '../components';
+import { chassisById } from '../../content/ships';
 import { focusFirst, onUiKeyDown } from '../nav';
 import { useEffect, useRef } from 'preact/hooks';
 
@@ -56,6 +57,9 @@ export function MainMenu({ app }: { app: App }) {
         {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
           <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
         ))}
+        {app.features.garage && p ? (
+          <MenuButton icon={Icon.garage} label="GARAGE" sub={`${chassisById(p.loadout.chassisId).name} · ${p.credits.toLocaleString('en-US')} CREDITS`} onClick={() => app.openGarage()} />
+        ) : null}
         <MenuButton icon={Icon.settings} label="SETTINGS" sub="Sound, comfort, controls, saves" onClick={() => app.openSettings('menu')} />
       </div>
       {p ? (

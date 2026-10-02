@@ -162,11 +162,13 @@ describe('HUD (fake DOM smoke test)', () => {
     ships[0].energy = 0;
     for (let i = 0; i < 6 * 60; i++) race.fixedUpdate(1 / 60);
     expect(race.state).toBe('results');
+    bus.emit('economy:credits', { delta: 1200, total: 4350 }); // the App pays at race:results
     hud.update(race.snapshot(), 1 / 60);
     expect(container.dataset.state).toBe('results');
     const results = container.find('mz-results')!;
     expect(results.find('mz-heading')!.textContent).toBe('RETIRED');
     expect(results.find('mz-table')!.findAll('row').length).toBe(4);
+    expect(results.find('mz-credits')!.textContent).toBe('+1,200 CREDITS4,350 IN THE BANK');
     results.findAll('mz-btn')[0].click();
     expect(calls.restart).toBe(2);
 

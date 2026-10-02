@@ -2,7 +2,7 @@
  * Parts change race behaviour (M2 "done when"): the same autopilot on the v1 seed track, stock COMET vs a
  * COMET with the Prototype engine. The upgraded ship must reach a higher top speed and lap faster.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../core/config';
 import type { ControlInput, Loadout, ShipId } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
@@ -10,6 +10,10 @@ import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { AIDriver, RaceManager } from '../game';
 import { PhysicsSystem } from '../physics';
 import { generateTrack } from '../track';
+
+// Whole races in Rapier: tens of seconds alone, far more on a busy machine. The 60 s default is not a
+// budget for these; correctness is asserted below.
+vi.setConfig({ testTimeout: 300_000 });
 
 async function run(loadout: Loadout): Promise<{ maxSpeed: number; lap1: number }> {
   const bus = new EventBus<GameEvents>();

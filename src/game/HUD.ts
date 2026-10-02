@@ -86,6 +86,8 @@ export class HUD implements IHUD {
   private readonly wrongEl: HTMLElement;
   private readonly toastsEl: HTMLElement;
   private readonly resultsEl: HTMLElement;
+  /** Credits paid for this race (economy:credits), shown on the results screen. */
+  private earned: { delta: number; total: number } | null = null;
 
   // cached values
   private shownState: RaceState | null = null;
@@ -274,7 +276,9 @@ export class HUD implements IHUD {
       }),
       bus.on('race:state', (e) => {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
+        if (e.state === 'title' || e.state === 'countdown') this.earned = null;
       }),
+      bus.on('economy:credits', (e) => (this.earned = e)),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
   }
@@ -468,6 +472,11 @@ export class HUD implements IHUD {
       heading = 'RACE OVER';
     }
     el('h1', cls, heading, root);
+    if (this.earned) {
+      const cr = el('div', 'mz-credits', undefined, root);
+      el('span', 'delta', `+${this.earned.delta.toLocaleString('en-US')} CREDITS`, cr);
+      el('span', 'total', `${this.earned.total.toLocaleString('en-US')} IN THE BANK`, cr);
+    }
 
     const body = el('div', 'mz-results-body', undefined, root);
 

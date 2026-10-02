@@ -22,6 +22,8 @@ export interface GameEvents {
   'ship:lowEnergy': { shipId: ShipId };
   'ship:destroyed': { shipId: ShipId; position: THREE.Vector3 };
   'ship:respawn': { shipId: ShipId };
+  /** App → HUD/Audio: credits paid to the player's profile at the results. */
+  'economy:credits': { delta: number; total: number };
   /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */
   'audio:mute': { muted: boolean };
 }

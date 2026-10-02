@@ -2,7 +2,7 @@
  * 2.0 field: 8 ships (6 chassis across 3 weight classes, tier-fitted parts) on the v1 seed track.
  * Everyone must finish all laps without leaving the track, exploding or respawning more than once.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../core/config';
 import type { AITier, ControlInput, ShipId, ShipState } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
@@ -10,6 +10,10 @@ import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { AIDriver, RaceManager } from '../game';
 import { PhysicsSystem } from '../physics';
 import { generateTrack } from '../track';
+
+// Whole races in Rapier: tens of seconds alone, far more on a busy machine. The 60 s default is not a
+// budget for these; correctness is asserted below.
+vi.setConfig({ testTimeout: 300_000 });
 
 const TIERS: AITier[] = ['rookie', 'pilot', 'legend'];
 const MAX_SIM_SECONDS = 360;

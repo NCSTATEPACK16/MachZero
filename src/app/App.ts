@@ -5,10 +5,11 @@
  */
 import { batch, computed, effect, signal } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
-import type { AITier, HudActions, MenuAction } from '../core/contracts';
+import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { GameLoop } from '../core/loop';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
+import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
 import { AssetLoader } from '../assets/AssetLoader';
@@ -136,6 +137,8 @@ export class App {
         startRace: () => app.startRace(),
         restartRace: () => app.session?.restart(),
         memory: () => app.graphics.memoryInfo,
+        /** Add credits to the active profile (tests). */
+        grantCredits: (n: number) => app.updateProfile((p) => (p.credits += n)),
         /** Dispose the current race and build a fresh one (leak checks). */
         rebuildRace: async () => {
           app.sessionKey = '';
@@ -188,6 +191,44 @@ export class App {
 
   openSoon(feature: FeatureName, title: string): void {
     this.route.value = { name: 'soon', feature, title };
+  }
+
+  openGarage(): void {
+    this.route.value = { name: 'garage' };
+  }
+
+  closeGarage(): void {
+    this.route.value = { name: 'menu' };
+  }
+
+  /** Buy (pay, own and fit) a part for the active profile. */
+  buyPart(slot: PartSlot, tier: PartTier): PurchaseResult {
+    let result: PurchaseResult = 'invalid';
+    this.updateProfile((p) => (result = buyPart(p, slot, tier)), () => result === 'bought');
+    return result;
+  }
+
+  equipPart(slot: PartSlot, tier: PartTier): boolean {
+    let ok = false;
+    this.updateProfile((p) => (ok = equipPart(p, slot, tier)), () => ok);
+    return ok;
+  }
+
+  selectChassis(chassisId: string): void {
+    this.updateProfile((p) => selectChassis(p, chassisId));
+  }
+
+  setLivery(livery: Loadout['livery']): void {
+    this.updateProfile((p) => (p.loadout.livery = { ...livery }));
+  }
+
+  /** Garage turntable: draw `loadout` into `el`, or stop with null. */
+  showShipPreview(el: HTMLElement | null, loadout: Loadout | null): void {
+    this.graphics.showPreview(el, loadout);
+  }
+
+  nudgeShipPreview(radians: number): void {
+    this.graphics.nudgePreview(radians);
   }
 
   showProfiles(): void {
@@ -382,13 +423,29 @@ export class App {
     if (!profileId) return;
     s.bus.on('race:results', ({ standings }) => {
       const me = standings.find((r) => r.id === s.player.def.id);
+      let pay = 0;
+      let total = 0;
       this.updateSave((d) => {
         const p = d.profiles.find((x) => x.id === profileId);
         if (!p) return;
-        p.stats.races++;
-        if (me && me.position === 1 && me.status === 'finished') p.stats.wins++;
+        pay = settleRace(p, me, s.player.def.tier ?? 'rookie');
+        total = p.credits;
       });
+      if (pay > 0) s.bus.emit('economy:credits', { delta: pay, total });
     });
+  }
+
+  /** Change the active profile; `changed` false skips the write (nothing happened). */
+  private updateProfile(fn: (p: Profile) => void, changed: () => boolean = () => true): void {
+    const id = this.activeProfile.value?.id;
+    if (!id) return;
+    const draft = structuredClone(this.save.value);
+    const p = draft.profiles.find((x) => x.id === id);
+    if (!p) return;
+    fn(p);
+    if (!changed()) return;
+    this.save.value = draft;
+    if (this.menus) this.store.save(draft);
   }
 
   private updateSave(fn: (draft: SaveData) => void): void {
