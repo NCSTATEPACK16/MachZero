@@ -11,6 +11,7 @@ import { GameLoop } from '../core/loop';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
+import { AssetLoader } from '../assets/AssetLoader';
 import { InputManager } from '../physics';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
 import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
@@ -38,6 +39,15 @@ const FALLBACK_TEXT: Record<FallbackReason, string> = {
   'write-failed': 'Storage is full or blocked, so progress won’t be kept after you close the page.',
   'newer-version': 'Your save comes from a newer MachZero, so it’s read-only here.',
 };
+
+/** Resolves after the browser has had a chance to paint (with a fallback for hidden tabs, where rAF stalls). */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => setTimeout(resolve, 0);
+    requestAnimationFrame(done);
+    setTimeout(resolve, 100);
+  });
+}
 
 export class App {
   readonly flags: UrlFlags = readUrlFlags();
@@ -137,6 +147,7 @@ export class App {
 
   /** Build the first race, pick the first screen and start the loop. */
   async start(): Promise<void> {
+    if (this.features.garage) await this.loadShipAssets();
     await this.ensureSession();
     this.loop.start();
     const first = initialRoute(this.flags, this.features, this.save.value);
@@ -148,8 +159,13 @@ export class App {
   // Actions (UI + HUD)
   // -------------------------------------------------------------------------
 
+  /**
+   * The race is (re)built here, behind the loading screen, never in the background on a menu: building one
+   * blocks the main thread (≈ 0.3 s on a GPU, several seconds on SwiftShader), which froze menu input.
+   */
   async startRace(): Promise<void> {
     this.route.value = { name: 'loading' };
+    await nextPaint();
     const s = await this.ensureSession();
     s.start();
     this.route.value = { name: 'race' };
@@ -191,13 +207,11 @@ export class App {
     });
     this.toast(`Welcome, ${p.name}!`, 'good');
     this.route.value = { name: 'menu' };
-    void this.ensureSession();
   }
 
   selectProfile(id: string): void {
     this.updateSave((d) => (d.activeProfileId = id));
     this.route.value = { name: 'menu' };
-    void this.ensureSession();
   }
 
   deleteProfile(id: string): void {
@@ -239,7 +253,6 @@ export class App {
     });
     this.store.save(data);
     this.toast(`Imported ${data.profiles.length} profile${data.profiles.length === 1 ? '' : 's'}.`, 'good');
-    void this.ensureSession();
     return null;
   }
 
@@ -252,6 +265,15 @@ export class App {
   /** Label of the race the menu's RACE entry starts. */
   get raceLabel(): string {
     return this.flags.seed !== null ? `BONUS TRACK #${this.flags.seed}` : 'NEON BAY · CLASSIC';
+  }
+
+  /** Blender ships (M2). On failure the procedural v1 ships stay in use. */
+  private async loadShipAssets(): Promise<void> {
+    try {
+      this.graphics.setShipAssets(await new AssetLoader().loadShips());
+    } catch (e) {
+      console.warn('MachZero: ship models failed to load; using the built-in ships.', e);
+    }
   }
 
   // -------------------------------------------------------------------------

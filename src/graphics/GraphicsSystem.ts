@@ -12,6 +12,8 @@ import { ShipModel } from './ShipModel';
 import { SpeedLines } from './SpeedLines';
 import { createFogUniforms, type FogUniforms } from './shaders/fog';
 import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
+import type { ShipAssets } from '../assets/AssetLoader';
+import { assembleShip } from './ShipAssembly';
 
 const FOG_COLOR = 0x1a0a38;
 const FOG_DENSITY = 0.0006;
@@ -97,6 +99,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   private quality: QualityProfile = QUALITY_PROFILES.high;
   private fogUniforms!: FogUniforms;
   private hasRace = false;
+  private shipAssets: ShipAssets | null = null;
 
   private playerId: ShipId = 0;
   private width: number;
@@ -326,9 +329,18 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.env.buildSkyline(track);
   }
 
+  /** Blender GLB ships for the next races (null = v1 procedural ships). */
+  setShipAssets(assets: ShipAssets | null): void {
+    this.shipAssets = assets;
+  }
+
   addShip(ship: ShipState): void {
     if (this.models.has(ship.def.id)) return;
-    const model = new ShipModel(ship);
+    // Ship LOD per preset: High LOD0; Med LOD0 for the player, LOD1 for rivals; Low LOD1.
+    const q = this.quality.level;
+    const lod: 0 | 1 = q === 'high' || (q === 'med' && ship.def.isPlayer) ? 0 : 1;
+    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod) : null;
+    const model = new ShipModel(ship, assembled);
     this.models.set(ship.def.id, model);
     this.modelList.push(model);
     this.scene.add(model.root);
