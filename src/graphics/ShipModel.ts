@@ -4,6 +4,7 @@ import { CONFIG } from '../core/config';
 import type { ShipState } from '../core/contracts';
 import { clamp, clamp01, damp } from '../core/math';
 import { CLASS_SCALE, chassisById } from '../content/ships';
+import type { AssembledShip, ShipLayout } from './ShipAssembly';
 
 // ---------------------------------------------------------------------------
 // Design table: six silhouettes (one per chassis; the v1 roster uses the first four by id).
@@ -376,13 +377,14 @@ export class ShipModel {
   private readonly flapMat: THREE.MeshStandardMaterial;
   private readonly pool: THREE.Mesh;
   private readonly shield: THREE.Mesh;
-  private readonly hull: THREE.Mesh;
   private readonly glowMat: THREE.MeshBasicMaterial;
+  /** GLB ship: glow tint (the procedural ship tints glow through vertex colours instead). */
+  private readonly glowBase: THREE.Color | null;
+  private readonly layout: ShipLayout;
   private readonly flameMat: THREE.ShaderMaterial;
   private readonly poolMat: THREE.ShaderMaterial;
   private readonly shieldMat: THREE.ShaderMaterial;
   private readonly disposables: { dispose(): void }[] = [];
-  private readonly design: Design;
   /** Class size (content/ships CLASS_SCALE), matching the physics collider. */
   private readonly scale: number;
   private readonly phase: number;
@@ -392,7 +394,8 @@ export class ShipModel {
   private readonly nozzleLocal: [THREE.Vector3, THREE.Vector3];
   private poseInit = false;
 
-  constructor(ship: ShipState) {
+  /** `assembled`: a GLB ship from ShipAssembly; without it the v1 procedural ship is built (fallback). */
+  constructor(ship: ShipState, assembled: AssembledShip | null = null) {
     this.ship = ship;
     // v1 roster (no loadout): the four original designs by id.
     const loadout = ship.def.loadout;
@@ -400,7 +403,8 @@ export class ShipModel {
     const d = DESIGNS[variant];
     this.scale = loadout ? CLASS_SCALE[chassisById(loadout.chassisId).cls] : 1;
     this.root.scale.setScalar(this.scale);
-    this.design = d;
+    this.layout = assembled ? assembled.layout : { podX: d.podX, podR: d.podR, podZ1: d.podZ1, nozzleY: NOZZLE_Y, hullHW: d.hullHW };
+    const lay = this.layout;
     this.phase = ship.def.id * 1.7;
     const livery = ship.def.livery;
     const primary = new THREE.Color(livery.primary);
@@ -411,175 +415,183 @@ export class ShipModel {
     this.root.name = `ship-${ship.def.id}`;
     this.root.add(this.bankGroup);
 
-    // ---------------- hull ----------------
-    const top = d.hullTop;
-    const hw = d.hullHW;
-    const prof: Array<[number, number, number, number]> = [
-      [0.0, 0.0, -0.14, -0.14],
-      [0.05, 0.16, -0.3, -0.02],
-      [0.18, 0.42, -0.38, 0.05],
-      [0.38, 0.72, -0.42, top],
-      [0.58, 0.9, -0.42, top + 0.02],
-      [0.78, 0.96, -0.4, top],
-      [0.92, 0.86, -0.34, top - 0.05],
-      [1.0, 0.72, -0.3, top - 0.1],
-    ];
-    const z0 = -2.25;
-    const z1 = 2.15;
-    const sections: Section[] = prof.map(([s, w, y0, y1]) => ({ z: z0 + s * (z1 - z0), hw: w * hw, y0, y1 }));
-    const hullGeo = loft(sections, 16, 2.6, true);
-    const liveryTex = makeLiveryTexture(livery.primary, livery.secondary, livery.glow, variant, d.stripes);
-    const hullMat = new THREE.MeshStandardMaterial({ map: liveryTex, metalness: 0.55, roughness: 0.3, envMapIntensity: 1.5 });
-    this.hull = new THREE.Mesh(hullGeo, hullMat);
-    this.hull.castShadow = true;
-    this.bankGroup.add(this.hull);
-    this.disposables.push(hullGeo, hullMat, liveryTex);
+    if (assembled) {
+      this.bankGroup.add(assembled.root);
+      this.glowMat = assembled.glowMaterial;
+      this.glowBase = assembled.glowColor.clone();
+      this.disposables.push(assembled);
+    } else {
+      this.glowBase = null;
+      // ---------------- hull ----------------
+      const top = d.hullTop;
+      const hw = d.hullHW;
+      const prof: Array<[number, number, number, number]> = [
+        [0.0, 0.0, -0.14, -0.14],
+        [0.05, 0.16, -0.3, -0.02],
+        [0.18, 0.42, -0.38, 0.05],
+        [0.38, 0.72, -0.42, top],
+        [0.58, 0.9, -0.42, top + 0.02],
+        [0.78, 0.96, -0.4, top],
+        [0.92, 0.86, -0.34, top - 0.05],
+        [1.0, 0.72, -0.3, top - 0.1],
+      ];
+      const z0 = -2.25;
+      const z1 = 2.15;
+      const sections: Section[] = prof.map(([s, w, y0, y1]) => ({ z: z0 + s * (z1 - z0), hw: w * hw, y0, y1 }));
+      const hullGeo = loft(sections, 16, 2.6, true);
+      const liveryTex = makeLiveryTexture(livery.primary, livery.secondary, livery.glow, variant, d.stripes);
+      const hullMat = new THREE.MeshStandardMaterial({ map: liveryTex, metalness: 0.55, roughness: 0.3, envMapIntensity: 1.5 });
+      const hull = new THREE.Mesh(hullGeo, hullMat);
+      hull.castShadow = true;
+      this.bankGroup.add(hull);
+      this.disposables.push(hullGeo, hullMat, liveryTex);
 
-    // ---------------- accent parts (pods, wings, fins, nozzle tubes) merged with vertex colours ----------------
-    const accent: THREE.BufferGeometry[] = [];
-    const dark = new THREE.Color(0x0a0b12);
-    const podColor = primary.clone().multiplyScalar(0.8);
-    const wingColor = secondary.clone();
-    const trimGeos: THREE.BufferGeometry[] = [];
-    const podLen = d.podZ1 - d.podZ0;
-    for (const sign of [-1, 1]) {
-      // pod
-      const podSections: Section[] = [
-        [0.0, 0.05],
-        [0.08, 0.55],
-        [0.28, 0.92],
-        [0.75, 1.0],
-        [1.0, 0.86],
-      ].map(([s, r]) => ({ z: d.podZ0 + s * podLen, hw: r * d.podR, y0: POD_Y - r * d.podR, y1: POD_Y + r * d.podR }));
-      const pod = loft(podSections, 14, 2, true);
-      pod.translate(sign * d.podX, 0, 0);
-      accent.push(forMerge(pod, podColor));
+      // ---------------- accent parts (pods, wings, fins, nozzle tubes) merged with vertex colours ----------------
+      const accent: THREE.BufferGeometry[] = [];
+      const dark = new THREE.Color(0x0a0b12);
+      const podColor = primary.clone().multiplyScalar(0.8);
+      const wingColor = secondary.clone();
+      const trimGeos: THREE.BufferGeometry[] = [];
+      const podLen = d.podZ1 - d.podZ0;
+      for (const sign of [-1, 1]) {
+        // pod
+        const podSections: Section[] = [
+          [0.0, 0.05],
+          [0.08, 0.55],
+          [0.28, 0.92],
+          [0.75, 1.0],
+          [1.0, 0.86],
+        ].map(([s, r]) => ({ z: d.podZ0 + s * podLen, hw: r * d.podR, y0: POD_Y - r * d.podR, y1: POD_Y + r * d.podR }));
+        const pod = loft(podSections, 14, 2, true);
+        pod.translate(sign * d.podX, 0, 0);
+        accent.push(forMerge(pod, podColor));
 
-      // wing joining hull and pod
-      const x0 = sign * d.hullHW * 0.75;
-      const xt = sign * d.podX;
-      const [r0, r1] = d.wingRoot;
-      const wing = extrudeXZ(
-        [
-          [x0, r0],
-          [xt, r0 + d.wingSweep],
-          [xt, r1 + d.wingSweep * 0.3],
-          [x0, r1],
-        ],
-        0.05,
-        -0.11,
-      );
-      accent.push(forMerge(wing, wingColor));
-
-      // tail fin on the pod
-      const yb = POD_Y + d.podR * 0.8;
-      const fz1 = d.podZ1 - 0.05;
-      const fz0 = fz1 - d.finLen;
-      const fin = extrudeFin(
-        [
-          [fz0, yb],
-          [fz1, yb],
-          [fz1 + 0.06, yb + d.finH],
-          [fz1 - d.finLen * 0.55, yb + d.finH],
-        ],
-        0.05,
-        sign * d.podX,
-      );
-      accent.push(forMerge(fin, wingColor));
-
-      // canards
-      if (d.canards) {
-        const cn = extrudeXZ(
+        // wing joining hull and pod
+        const x0 = sign * d.hullHW * 0.75;
+        const xt = sign * d.podX;
+        const [r0, r1] = d.wingRoot;
+        const wing = extrudeXZ(
           [
-            [sign * 0.28, -1.55],
-            [sign * 1.0, -1.05],
-            [sign * 1.0, -0.8],
-            [sign * 0.28, -0.65],
+            [x0, r0],
+            [xt, r0 + d.wingSweep],
+            [xt, r1 + d.wingSweep * 0.3],
+            [x0, r1],
           ],
-          0.04,
-          -0.12,
+          0.05,
+          -0.11,
         );
-        accent.push(forMerge(cn, wingColor));
+        accent.push(forMerge(wing, wingColor));
+
+        // tail fin on the pod
+        const yb = POD_Y + d.podR * 0.8;
+        const fz1 = d.podZ1 - 0.05;
+        const fz0 = fz1 - d.finLen;
+        const fin = extrudeFin(
+          [
+            [fz0, yb],
+            [fz1, yb],
+            [fz1 + 0.06, yb + d.finH],
+            [fz1 - d.finLen * 0.55, yb + d.finH],
+          ],
+          0.05,
+          sign * d.podX,
+        );
+        accent.push(forMerge(fin, wingColor));
+
+        // canards
+        if (d.canards) {
+          const cn = extrudeXZ(
+            [
+              [sign * 0.28, -1.55],
+              [sign * 1.0, -1.05],
+              [sign * 1.0, -0.8],
+              [sign * 0.28, -0.65],
+            ],
+            0.04,
+            -0.12,
+          );
+          accent.push(forMerge(cn, wingColor));
+        }
+
+        // nozzle tube
+        const nr = d.podR * 0.85;
+        const tube = new THREE.CylinderGeometry(nr * 0.88, nr, 0.42, 18, 1, true);
+        tube.rotateX(Math.PI / 2);
+        tube.translate(sign * d.podX, NOZZLE_Y, d.podZ1 - 0.08);
+        accent.push(forMerge(tube, dark));
+
+        // emissive trims: pod side strip, wing edge, nozzle disc
+        const strip = new THREE.BoxGeometry(0.03, 0.05, podLen * 0.55);
+        strip.translate(sign * (d.podX + d.podR * 0.93), POD_Y + 0.02, d.podZ0 + podLen * 0.55);
+        trimGeos.push(forMerge(strip, glow, 0.9));
+        const edge = new THREE.BoxGeometry(0.62, 0.02, 0.04);
+        edge.translate(sign * (d.hullHW * 0.75 + d.podX) * 0.5, -0.115, r0 + d.wingSweep * 0.5 + 0.02);
+        trimGeos.push(forMerge(edge, glow, 0.9));
+        const disc = new THREE.CircleGeometry(nr * 0.78, 20);
+        disc.translate(sign * d.podX, NOZZLE_Y, d.podZ1 + 0.04);
+        trimGeos.push(forMerge(disc, glow, 2.4));
       }
+      if (d.centerFin > 0) {
+        const yb = top - 0.03;
+        const cf = extrudeFin(
+          [
+            [0.6, yb],
+            [2.1, yb],
+            [2.2, yb + d.centerFin],
+            [1.45, yb + d.centerFin],
+          ],
+          0.05,
+          0,
+        );
+        accent.push(forMerge(cf, wingColor));
+      }
+      const belly = new THREE.BoxGeometry(0.44 * (d.hullHW / 0.6), 0.02, 2.2);
+      belly.translate(0, -0.435, 0.2);
+      trimGeos.push(forMerge(belly, glow, 1.1));
 
-      // nozzle tube
-      const nr = d.podR * 0.85;
-      const tube = new THREE.CylinderGeometry(nr * 0.88, nr, 0.42, 18, 1, true);
-      tube.rotateX(Math.PI / 2);
-      tube.translate(sign * d.podX, NOZZLE_Y, d.podZ1 - 0.08);
-      accent.push(forMerge(tube, dark));
+      const accentGeo = mergeGeometries(accent)!;
+      const accentMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide });
+      const accentMesh = new THREE.Mesh(accentGeo, accentMat);
+      accentMesh.castShadow = true;
+      this.bankGroup.add(accentMesh);
+      this.disposables.push(accentGeo, accentMat);
+      for (const g of accent) g.dispose();
 
-      // emissive trims: pod side strip, wing edge, nozzle disc
-      const strip = new THREE.BoxGeometry(0.03, 0.05, podLen * 0.55);
-      strip.translate(sign * (d.podX + d.podR * 0.93), POD_Y + 0.02, d.podZ0 + podLen * 0.55);
-      trimGeos.push(forMerge(strip, glow, 0.9));
-      const edge = new THREE.BoxGeometry(0.62, 0.02, 0.04);
-      edge.translate(sign * (d.hullHW * 0.75 + d.podX) * 0.5, -0.115, r0 + d.wingSweep * 0.5 + 0.02);
-      trimGeos.push(forMerge(edge, glow, 0.9));
-      const disc = new THREE.CircleGeometry(nr * 0.78, 20);
-      disc.translate(sign * d.podX, NOZZLE_Y, d.podZ1 + 0.04);
-      trimGeos.push(forMerge(disc, glow, 2.4));
+      const trimGeo = mergeGeometries(trimGeos)!;
+      this.glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+      const trimMesh = new THREE.Mesh(trimGeo, this.glowMat);
+      this.bankGroup.add(trimMesh);
+      this.disposables.push(trimGeo, this.glowMat);
+      for (const g of trimGeos) g.dispose();
+
+      // ---------------- canopy ----------------
+      const canopyGeo = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+      const canopyMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0a1630,
+        metalness: 0.2,
+        roughness: 0.05,
+        clearcoat: 1,
+        clearcoatRoughness: 0.03,
+        envMapIntensity: 3,
+        emissive: glow,
+        emissiveIntensity: 0.06,
+      });
+      const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+      canopy.scale.set(d.canopy.w, d.canopy.h, d.canopy.l);
+      canopy.position.set(0, top - 0.05, d.canopy.z);
+      canopy.castShadow = true;
+      this.bankGroup.add(canopy);
+      this.disposables.push(canopyGeo, canopyMat);
     }
-    if (d.centerFin > 0) {
-      const yb = top - 0.03;
-      const cf = extrudeFin(
-        [
-          [0.6, yb],
-          [2.1, yb],
-          [2.2, yb + d.centerFin],
-          [1.45, yb + d.centerFin],
-        ],
-        0.05,
-        0,
-      );
-      accent.push(forMerge(cf, wingColor));
-    }
-    const belly = new THREE.BoxGeometry(0.44 * (d.hullHW / 0.6), 0.02, 2.2);
-    belly.translate(0, -0.435, 0.2);
-    trimGeos.push(forMerge(belly, glow, 1.1));
-
-    const accentGeo = mergeGeometries(accent)!;
-    const accentMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide });
-    const accentMesh = new THREE.Mesh(accentGeo, accentMat);
-    accentMesh.castShadow = true;
-    this.bankGroup.add(accentMesh);
-    this.disposables.push(accentGeo, accentMat);
-    for (const g of accent) g.dispose();
-
-    const trimGeo = mergeGeometries(trimGeos)!;
-    this.glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-    const trimMesh = new THREE.Mesh(trimGeo, this.glowMat);
-    this.bankGroup.add(trimMesh);
-    this.disposables.push(trimGeo, this.glowMat);
-    for (const g of trimGeos) g.dispose();
-
-    // ---------------- canopy ----------------
-    const canopyGeo = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
-    const canopyMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0a1630,
-      metalness: 0.2,
-      roughness: 0.05,
-      clearcoat: 1,
-      clearcoatRoughness: 0.03,
-      envMapIntensity: 3,
-      emissive: glow,
-      emissiveIntensity: 0.06,
-    });
-    const canopy = new THREE.Mesh(canopyGeo, canopyMat);
-    canopy.scale.set(d.canopy.w, d.canopy.h, d.canopy.l);
-    canopy.position.set(0, top - 0.05, d.canopy.z);
-    canopy.castShadow = true;
-    this.bankGroup.add(canopy);
-    this.disposables.push(canopyGeo, canopyMat);
 
     // ---------------- flames (one merged draw call) ----------------
     const coneGeos: THREE.BufferGeometry[] = [];
-    const nr = d.podR * 0.85;
+    const nr = lay.podR * 0.85;
     for (const sign of [-1, 1]) {
       const cone = new THREE.ConeGeometry(nr * 0.8, 1, 16, 1, true);
       cone.translate(0, 0.5, 0);
       cone.rotateX(Math.PI / 2);
-      cone.translate(sign * d.podX, NOZZLE_Y, d.podZ1 + 0.02);
+      cone.translate(sign * lay.podX, lay.nozzleY, lay.podZ1 + 0.02);
       coneGeos.push(cone);
     }
     const flameGeo = mergeGeometries(coneGeos)!;
@@ -592,11 +604,11 @@ export class ShipModel {
         uCore: { value: new THREE.Color(1, 0.95, 0.85) },
         uIntensity: { value: 0.5 },
         uTime: { value: 0 },
-        uBaseZ: { value: d.podZ1 + 0.02 },
+        uBaseZ: { value: lay.podZ1 + 0.02 },
         uLen: { value: 1 },
         uRad: { value: 1 },
-        uPodX: { value: d.podX },
-        uNy: { value: NOZZLE_Y },
+        uPodX: { value: lay.podX },
+        uNy: { value: lay.nozzleY },
       },
       transparent: true,
       depthWrite: false,
@@ -613,13 +625,13 @@ export class ShipModel {
     const flapGeo = new THREE.BoxGeometry(0.42, 0.025, 0.9);
     flapGeo.translate(0.21, 0, 0);
     this.disposables.push(flapGeo, this.flapMat);
-    const flapY = POD_Y + d.podR * 0.78;
-    const flapZ = d.podZ1 - 1.45;
+    const flapY = lay.nozzleY + lay.podR * 0.78;
+    const flapZ = lay.podZ1 - 1.45;
     this.flapR = new THREE.Group();
-    this.flapR.position.set(d.podX + d.podR * 0.35, flapY, flapZ);
+    this.flapR.position.set(lay.podX + lay.podR * 0.35, flapY, flapZ);
     this.flapR.add(new THREE.Mesh(flapGeo, this.flapMat));
     this.flapL = new THREE.Group();
-    this.flapL.position.set(-(d.podX + d.podR * 0.35), flapY, flapZ);
+    this.flapL.position.set(-(lay.podX + lay.podR * 0.35), flapY, flapZ);
     const flapMeshL = new THREE.Mesh(flapGeo, this.flapMat);
     flapMeshL.scale.x = -1;
     this.flapL.add(flapMeshL);
@@ -638,7 +650,7 @@ export class ShipModel {
       side: THREE.DoubleSide,
     });
     this.pool = new THREE.Mesh(poolGeo, this.poolMat);
-    this.pool.scale.set(3.6 * (0.9 + d.hullHW * 0.2), 1, 6.4);
+    this.pool.scale.set(3.6 * (0.9 + lay.hullHW * 0.2), 1, 6.4);
     this.pool.position.set(0, -(CONFIG.HOVER_HEIGHT - 0.07), 0.2);
     this.pool.renderOrder = 5;
     this.pool.frustumCulled = false;
@@ -662,14 +674,14 @@ export class ShipModel {
     this.disposables.push(shieldGeo, this.shieldMat);
 
     this.nozzleLocal = [
-      new THREE.Vector3(-d.podX, NOZZLE_Y, d.podZ1 + 0.12).multiplyScalar(this.scale),
-      new THREE.Vector3(d.podX, NOZZLE_Y, d.podZ1 + 0.12).multiplyScalar(this.scale),
+      new THREE.Vector3(-lay.podX, lay.nozzleY, lay.podZ1 + 0.12).multiplyScalar(this.scale),
+      new THREE.Vector3(lay.podX, lay.nozzleY, lay.podZ1 + 0.12).multiplyScalar(this.scale),
     ];
   }
 
   /** Local-space hull dimensions used by camera/effects for scale reasoning. */
   get podHalfWidth(): number {
-    return this.design.podX * this.scale;
+    return this.layout.podX * this.scale;
   }
 
   /** Interpolate the render pose from the physics state (does not mutate the state). */
@@ -718,7 +730,9 @@ export class ShipModel {
     const throttle = live ? clamp01(controls.throttle) : 0;
     const target = s.boosting ? 2.3 : 0.42 + 0.58 * throttle + (live ? 0.1 : 0);
     this.engine = damp(this.engine, target, 9, dt);
-    this.glowMat.color.setScalar(0.55 + this.engine * 0.75);
+    const glowK = 0.55 + this.engine * 0.75;
+    if (this.glowBase) this.glowMat.color.copy(this.glowBase).multiplyScalar(glowK);
+    else this.glowMat.color.setScalar(glowK);
 
     const boostK = clamp01((this.engine - 1.0) / 1.3);
     const fu = this.flameMat.uniforms;

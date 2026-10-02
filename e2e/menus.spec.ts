@@ -28,6 +28,18 @@ const route = (page: Page) => page.evaluate(() => (window as unknown as { __mach
 const raceState = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.race?.state);
 const focusedText = (page: Page) => page.evaluate(() => document.activeElement?.textContent ?? '');
 
+/** Records main-thread long tasks so the menus can be held to "never freezes". */
+async function watchLongTasks(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __long: { start: number; duration: number }[] };
+    w.__long = [];
+    new PerformanceObserver((l) => l.getEntries().forEach((e) => w.__long.push({ start: e.startTime, duration: e.duration }))).observe({ type: 'longtask', buffered: true });
+  });
+}
+const now = (page: Page) => page.evaluate(() => performance.now());
+const longestTaskSince = (page: Page, t: number) =>
+  page.evaluate((t0) => Math.max(0, ...(window as unknown as { __long: { start: number; duration: number }[] }).__long.filter((e) => e.start >= t0).map((e) => e.duration)), t);
+
 /** A fake standard-mapping gamepad whose buttons the test presses; counts polls so presses span real fixed steps. */
 async function installPad(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -67,6 +79,7 @@ async function padPress(page: Page, index: number): Promise<void> {
 test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu, persistence', async ({ page }) => {
   const errors = collectErrors(page);
   await installPad(page);
+  await watchLongTasks(page);
   await page.goto(URL);
 
   // Fresh device: the create-a-pilot screen, name field focused.
@@ -74,6 +87,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(page.locator('input[type=text]')).toBeFocused();
   await page.keyboard.type('tess');
   await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).click();
+  const created = await now(page);
   await page.getByRole('button', { name: "LET'S RACE" }).click();
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
@@ -105,6 +119,9 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(screen(page)).toHaveAttribute('data-screen', 'settings');
   await padPress(page, 1); // B
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
+
+  // The menus never froze (races are built behind the loading screen, not in the background).
+  expect(await longestTaskSince(page, created)).toBeLessThan(2000);
 
   // Race from the menu, pause with Escape, quit to the menu from the pause screen.
   await page.getByRole('button', { name: /^RACE/ }).click();
