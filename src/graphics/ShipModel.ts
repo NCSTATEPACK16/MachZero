@@ -3,9 +3,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../core/config';
 import type { ShipState } from '../core/contracts';
 import { clamp, clamp01, damp } from '../core/math';
+import { CLASS_SCALE, chassisById } from '../content/ships';
 
 // ---------------------------------------------------------------------------
-// Design table: four distinct silhouettes (indexed by ship id).
+// Design table: six silhouettes (one per chassis; the v1 roster uses the first four by id).
 // ---------------------------------------------------------------------------
 
 interface Design {
@@ -34,7 +35,14 @@ const DESIGNS: readonly Design[] = [
   { hullHW: 0.47, hullTop: 0.12, podX: 0.86, podR: 0.22, podZ0: -0.4, podZ1: 2.15, wingSweep: 0.55, wingRoot: [0.0, 1.0], finH: 0.3, finLen: 0.8, centerFin: 0.72, canards: false, canopy: { w: 0.27, h: 0.28, l: 1.25, z: -0.55 }, stripes: 2 },
   // VIOLET WISP: fat rounded hull, big winglets
   { hullHW: 0.66, hullTop: 0.14, podX: 1.0, podR: 0.34, podZ0: -0.6, podZ1: 2.1, wingSweep: 0.45, wingRoot: [-0.5, 1.5], finH: 0.85, finLen: 1.0, centerFin: 0, canards: false, canopy: { w: 0.4, h: 0.36, l: 0.9, z: -0.3 }, stripes: 3 },
+  // TITAN: heavy brawler, wide hull, fat full-length pods and a short centre fin
+  { hullHW: 0.74, hullTop: 0.16, podX: 1.1, podR: 0.4, podZ0: -1.2, podZ1: 2.25, wingSweep: 0.7, wingRoot: [-0.3, 1.4], finH: 0.45, finLen: 1.2, centerFin: 0.4, canards: true, canopy: { w: 0.42, h: 0.28, l: 0.8, z: -0.1 }, stripes: 1 },
+  // BASTION: armoured hauler, tall hull, stubby pods, low twin fins
+  { hullHW: 0.78, hullTop: 0.2, podX: 1.04, podR: 0.38, podZ0: -0.3, podZ1: 2.2, wingSweep: 0.35, wingRoot: [-0.45, 1.6], finH: 0.35, finLen: 1.4, centerFin: 0, canards: false, canopy: { w: 0.44, h: 0.34, l: 0.85, z: -0.5 }, stripes: 2 },
 ];
+
+/** Procedural stand-in design per chassis until the GLB ships of M2. */
+const CHASSIS_DESIGN: Readonly<Record<string, number>> = { comet: 0, dart: 1, arrow: 2, wisp: 3, titan: 4, bastion: 5 };
 
 const POD_Y = -0.16;
 
@@ -375,6 +383,8 @@ export class ShipModel {
   private readonly shieldMat: THREE.ShaderMaterial;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly design: Design;
+  /** Class size (content/ships CLASS_SCALE), matching the physics collider. */
+  private readonly scale: number;
   private readonly phase: number;
   private flickerTime = 0;
   private openL = 0;
@@ -384,8 +394,12 @@ export class ShipModel {
 
   constructor(ship: ShipState) {
     this.ship = ship;
-    const variant = ship.def.id % DESIGNS.length;
+    // v1 roster (no loadout): the four original designs by id.
+    const loadout = ship.def.loadout;
+    const variant = loadout ? (CHASSIS_DESIGN[loadout.chassisId] ?? 0) : ship.def.id % 4;
     const d = DESIGNS[variant];
+    this.scale = loadout ? CLASS_SCALE[chassisById(loadout.chassisId).cls] : 1;
+    this.root.scale.setScalar(this.scale);
     this.design = d;
     this.phase = ship.def.id * 1.7;
     const livery = ship.def.livery;
@@ -647,12 +661,15 @@ export class ShipModel {
     this.bankGroup.add(this.shield);
     this.disposables.push(shieldGeo, this.shieldMat);
 
-    this.nozzleLocal = [new THREE.Vector3(-d.podX, NOZZLE_Y, d.podZ1 + 0.12), new THREE.Vector3(d.podX, NOZZLE_Y, d.podZ1 + 0.12)];
+    this.nozzleLocal = [
+      new THREE.Vector3(-d.podX, NOZZLE_Y, d.podZ1 + 0.12).multiplyScalar(this.scale),
+      new THREE.Vector3(d.podX, NOZZLE_Y, d.podZ1 + 0.12).multiplyScalar(this.scale),
+    ];
   }
 
   /** Local-space hull dimensions used by camera/effects for scale reasoning. */
   get podHalfWidth(): number {
-    return this.design.podX;
+    return this.design.podX * this.scale;
   }
 
   /** Interpolate the render pose from the physics state (does not mutate the state). */

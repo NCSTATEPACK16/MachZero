@@ -307,7 +307,11 @@ export class AIDriver implements IAIDriver {
           ram = true;
         } else {
           if (this.time >= this.avoidUntil || this.avoidSide === 0) {
-            this.avoidSide = maxLat - nearest.lateral > nearest.lateral + maxLat ? 1 : -1;
+            // Stay on the side of the rival we're already on (crossing its line grinds both hulls);
+            // switch only when that side has no room to the rail.
+            const mySide = ship.lateral >= nearest.lateral ? 1 : -1;
+            const room = mySide > 0 ? maxLat - nearest.lateral : nearest.lateral + maxLat;
+            this.avoidSide = room >= AVOID_OFFSET ? mySide : -mySide;
             this.avoidUntil = this.time + AVOID_HOLD;
           }
           desired = nearest.lateral + this.avoidSide * AVOID_OFFSET;
@@ -322,7 +326,7 @@ export class AIDriver implements IAIDriver {
     let pitSlow = false;
     if (this.pitMode && this.pitZone) {
       desired = (this.pitZone.lateralMin + this.pitZone.lateralMax) * 0.5;
-      pitSlow = inLoopRange(u, this.pitZone.uStart, this.pitZone.uEnd) && ship.energy < PIT_FULL_ENERGY - 3;
+      pitSlow = inLoopRange(u, this.pitZone.uStart, this.pitZone.uEnd) && this.energyPct < PIT_FULL_ENERGY - 3;
       ram = false;
     }
 
@@ -353,7 +357,7 @@ export class AIDriver implements IAIDriver {
     out.steer = this.steer;
 
     // --- speed control ---
-    let vTarget: number = CONFIG.BOOST_TOP_SPEED;
+    let vTarget: number = this.ship.def.stats.boostTopSpeed;
     for (let d = 0; d <= SCAN_RANGE; d += SCAN_STEP) {
       const ak = Math.abs(this.curvatureAt(u, d));
       if (ak < 1e-5) continue;
@@ -410,13 +414,19 @@ export class AIDriver implements IAIDriver {
     return this.track.samples[idx].curvature;
   }
 
+  /** Energy as a percentage of this ship's max (thresholds are tuned on v1's 0..100 scale). */
+  private get energyPct(): number {
+    return (this.ship.energy / this.ship.def.stats.energyMax) * 100;
+  }
+
   /** Highest speed at which a curve of curvature |κ| is considered safe. */
   private safeSpeed(absK: number): number {
     const p = this.profile;
     const vBudget = Math.sqrt(p.latBudget / absK);
     // Steering is yaw-rate limited: v·κ ≤ yawFactor·ω(v), ω falling linearly with speed.
-    const slope = (CONFIG.STEER_RATE - CONFIG.STEER_RATE_HIGH_SPEED) / CONFIG.TOP_SPEED;
-    const vYaw = (p.yawFactor * CONFIG.STEER_RATE) / (absK + p.yawFactor * slope);
+    const st = this.ship.def.stats;
+    const slope = (st.steerRate - st.steerRateHighSpeed) / st.topSpeed;
+    const vYaw = (p.yawFactor * st.steerRate) / (absK + p.yawFactor * slope);
     return Math.max(25, Math.min(vBudget, vYaw));
   }
 
@@ -424,7 +434,7 @@ export class AIDriver implements IAIDriver {
     const ship = this.ship;
     if (!ship.boostUnlocked || ship.boosting || ship.status !== 'racing') return false;
     if (this.pitMode || this.time < this.boostReadyAt) return false;
-    if (ship.energy < this.boostEnergy || ship.energy <= CONFIG.BOOST_COST + 6) return false;
+    if (this.energyPct < this.boostEnergy || ship.energy <= ship.def.stats.boostCost + 6) return false;
     if (Math.abs(this.steer) > BOOST_MAX_STEER) return false;
     if (kMaxLine > BOOST_STRAIGHT_CURV) return false;
     // low curvature must extend the full boost scan distance (LINE_SCAN may be shorter)
@@ -439,8 +449,9 @@ export class AIDriver implements IAIDriver {
     if (!zone) return;
     const inside = inLoopRange(u, zone.uStart, zone.uEnd);
     const distToStart = wrap01(zone.uStart - u) * this.length;
+    const energyPct = (ship.energy / ship.def.stats.energyMax) * 100;
     if (!this.pitMode) {
-      if (ship.energy < this.profile.pitEnergy && (inside || distToStart <= PIT_APPROACH)) {
+      if (energyPct < this.profile.pitEnergy && (inside || distToStart <= PIT_APPROACH)) {
         this.pitMode = true;
         this.pitWasInside = inside;
       }
@@ -449,7 +460,7 @@ export class AIDriver implements IAIDriver {
     if (inside) this.pitWasInside = true;
     const passed = this.pitWasInside && !inside;
     const missed = !inside && !this.pitWasInside && distToStart > PIT_APPROACH * 1.5;
-    if (ship.energy >= PIT_FULL_ENERGY || passed || missed) {
+    if (energyPct >= PIT_FULL_ENERGY || passed || missed) {
       this.pitMode = false;
       this.pitWasInside = false;
     }

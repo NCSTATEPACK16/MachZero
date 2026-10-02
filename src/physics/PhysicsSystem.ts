@@ -16,6 +16,7 @@ import { neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import { clamp01 } from '../core/math';
 import { ShipController, TUNING } from './ShipController';
+import { CLASS_SCALE, chassisById } from '../content/ships';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -32,7 +33,7 @@ interface ContactAccumulator {
 }
 
 function pairKey(a: ShipId, b: ShipId): number {
-  return a < b ? a * 4 + b : b * 4 + a;
+  return a < b ? a * 1024 + b : b * 1024 + a;
 }
 
 /**
@@ -124,6 +125,8 @@ export class PhysicsSystem implements IPhysicsSystem {
 
   addShip(def: ShipDefinition, slot: GridSlot): ShipState {
     if (this.controllers.has(def.id)) throw new Error(`PhysicsSystem: ship ${def.id} already added`);
+    // Heavier chassis are bigger (content/ships CLASS_SCALE); Balanced = v1 dimensions.
+    const scale = def.loadout ? CLASS_SCALE[chassisById(def.loadout.chassisId).cls] : 1;
 
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
@@ -136,7 +139,8 @@ export class PhysicsSystem implements IPhysicsSystem {
         .lockRotations(),
     );
     const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(CONFIG.SHIP_WIDTH / 2, CONFIG.SHIP_HEIGHT / 2, CONFIG.SHIP_LENGTH / 2)
+      RAPIER.ColliderDesc.cuboid((CONFIG.SHIP_WIDTH * scale) / 2, (CONFIG.SHIP_HEIGHT * scale) / 2, (CONFIG.SHIP_LENGTH * scale) / 2)
+        .setDensity(def.stats.mass)
         .setCollisionGroups(COLLISION.SHIP)
         .setFriction(0)
         .setRestitution(0.3)
@@ -157,7 +161,7 @@ export class PhysicsSystem implements IPhysicsSystem {
       forwardSpeed: 0,
       bank: 0,
       grounded: true,
-      energy: CONFIG.ENERGY_MAX,
+      energy: def.stats.energyMax,
       boosting: false,
       boostTimer: 0,
       inPit: false,

@@ -1,4 +1,5 @@
-import { CONFIG, SHIP_ROSTER, readUrlFlags } from './core/config';
+import { CONFIG, readUrlFlags } from './core/config';
+import { buildRaceField, defaultLoadout } from './content/pilots';
 import type { ControlInput, FrameContext, ShipId, ShipState } from './core/contracts';
 import { neutralControls } from './core/controls';
 import { EventBus, type GameEvents } from './core/events';
@@ -22,7 +23,9 @@ async function boot(): Promise<void> {
   const graphics = new GraphicsSystem(appEl, bus);
   graphics.setTrack(track);
 
-  const ships: ShipState[] = SHIP_ROSTER.map((def) => physics.addShip(def, track.startGrid[def.gridIndex]));
+  // 8-ship field: a stock COMET for the player and 7 stock rivals, player at the back (v1 difficulty until M5 tiers).
+  const field = buildRaceField({ playerName: 'YOU', playerLoadout: defaultLoadout(), tier: 'rookie' });
+  const ships: ShipState[] = field.map((def) => physics.addShip(def, track.startGrid[def.gridIndex]));
   for (const ship of ships) graphics.addShip(ship);
   const player = ships.find((s) => s.def.isPlayer)!;
 

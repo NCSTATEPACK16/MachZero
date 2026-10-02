@@ -7,7 +7,49 @@
  */
 import type * as THREE from 'three';
 
-export type ShipId = 0 | 1 | 2 | 3; // 0 = player
+/** Racer id, 0 = player. A race has up to 8 ships (ids 0..7). */
+export type ShipId = number;
+
+// ---------------------------------------------------------------------------
+// Ships, parts and stats (2.0)
+// ---------------------------------------------------------------------------
+
+export type ShipClass = 'light' | 'balanced' | 'heavy';
+export type PartSlot = 'engine' | 'booster' | 'stabilizer' | 'hull';
+/** 0 = Stock, 1 = Mk II, 2 = Mk III, 3 = Prototype. */
+export type PartTier = 0 | 1 | 2 | 3;
+export type AITier = 'rookie' | 'pilot' | 'ace' | 'legend';
+
+/** Per-ship handling, resolved once from a loadout (physics/ShipStatsResolver). Balanced Stock = v1 CONFIG. */
+export interface ShipStats {
+  /** m/s */
+  topSpeed: number;
+  /** m/s² at zero speed (already scaled by mass / (mass + part weight)). */
+  thrustAccel: number;
+  boostTopSpeed: number;
+  boostAccel: number;
+  /** Energy spent per boost. */
+  boostCost: number;
+  /** Seconds per boost. */
+  boostTime: number;
+  /** rad/s yaw rate at mid speed / at top speed. */
+  steerRate: number;
+  steerRateHighSpeed: number;
+  /** 1/s decay of sideways velocity; while air-braking. */
+  lateralGrip: number;
+  airbrakeGrip: number;
+  energyMax: number;
+  /** Multiplies all collision damage. */
+  damageTakenScale: number;
+  /** Relative mass (1 = v1): collider density for ship–ship pushes. */
+  mass: number;
+}
+
+export interface Loadout {
+  chassisId: string;
+  parts: Record<PartSlot, PartTier>;
+  livery: ShipLivery & { decal: number };
+}
 
 // ---------------------------------------------------------------------------
 // Track → Physics / AI / Graphics / Game
@@ -93,7 +135,7 @@ export interface TrackData {
   /** Nearest point on the centerline. O(window) with hintU, O(N) without. */
   project(pos: THREE.Vector3, hintU?: number): TrackProjection;
   zones: TrackZone[];
-  /** 4 slots behind the start line; index = grid position (0 = pole). */
+  /** 8 slots behind the start line (4 rows × 2 staggered); index = grid position (0 = pole). */
   startGrid: GridSlot[];
   collision: TrackCollisionData;
   /** Surface, rails, neon strips, dash plates, pit, start gate, pylons. */
@@ -143,6 +185,12 @@ export interface ShipDefinition {
   livery: ShipLivery;
   personality?: AIPersonality;
   gridIndex: number;
+  /** Resolved handling for this race (Balanced Stock = v1). */
+  stats: ShipStats;
+  /** Chassis, parts and full livery; absent for the v1 classic roster. */
+  loadout?: Loadout;
+  pilotId?: string;
+  tier?: AITier;
 }
 
 export interface ShipState {
@@ -166,7 +214,7 @@ export interface ShipState {
    */
   bank: number;
   grounded: boolean;
-  /** 0..CONFIG.ENERGY_MAX */
+  /** 0..def.stats.energyMax */
   energy: number;
   boosting: boolean;
   /** Seconds of boost remaining. */

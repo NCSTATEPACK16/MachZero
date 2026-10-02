@@ -319,7 +319,7 @@ export class AudioSystem implements IAudioSystem {
     const humOn = live && p.inPit;
     this.humGain?.gain.setTargetAtTime(humOn ? 0.05 : 0, t, humOn ? 0.15 : 0.3);
     if (humOn) {
-      const rise = 1 + (p.energy / CONFIG.ENERGY_MAX) * 0.5;
+      const rise = 1 + (p.energy / p.def.stats.energyMax) * 0.5;
       this.humOscs.forEach((o, i) => o.frequency.setTargetAtTime([196, 294.3, 392.6][i] * rise, t, 0.2));
     }
 
@@ -328,7 +328,7 @@ export class AudioSystem implements IAudioSystem {
     this.scrapeFilter?.frequency.setTargetAtTime(900 + this.scrape * 3200, t, 0.04);
 
     // Low-energy alarm
-    if (driving && p.energy < CONFIG.LOW_ENERGY_THRESHOLD && p.energy > 0) {
+    if (driving && p.energy < (CONFIG.LOW_ENERGY_THRESHOLD / 100) * p.def.stats.energyMax && p.energy > 0) {
       this.alarmClock += dt;
       if (this.alarmClock >= 1.1) {
         this.alarmClock = 0;
