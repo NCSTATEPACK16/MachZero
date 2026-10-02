@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { FEATURE_DEFAULTS, FEATURE_NAMES, resolveFeatures } from './features';
 
 describe('feature flags', () => {
-  it('ship everything off on main by default', () => {
+  it('ship only completed milestones on main by default', () => {
+    const shipped: readonly string[] = ['profiles']; // M1
     expect(resolveFeatures('')).toEqual(FEATURE_DEFAULTS);
-    for (const n of FEATURE_NAMES) expect(FEATURE_DEFAULTS[n]).toBe(false);
+    for (const n of FEATURE_NAMES) expect(FEATURE_DEFAULTS[n], n).toBe(shipped.includes(n));
   });
   it('enables all, a list, or none from the query string', () => {
     const all = resolveFeatures('?features=all');

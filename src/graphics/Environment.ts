@@ -282,6 +282,9 @@ export class Environment {
   private readonly ground: THREE.Mesh;
   private readonly mountains: THREE.Mesh;
   private towers: THREE.InstancedMesh | null = null;
+  private towerTotal = 0;
+  /** Quality: fraction of skyline towers drawn (towers are generated in random spatial order). */
+  private density = 1;
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly groundMat: THREE.ShaderMaterial;
   private readonly towerMat: THREE.ShaderMaterial;
@@ -490,6 +493,13 @@ export class Environment {
     mesh.name = 'skyline';
     this.group.add(mesh);
     this.towers = mesh;
+    this.towerTotal = matrices.length;
+    this.setDensity(this.density);
+  }
+
+  setDensity(fraction: number): void {
+    this.density = Math.min(1, Math.max(0, fraction));
+    if (this.towers) this.towers.count = Math.round(this.towerTotal * this.density);
   }
 
   update(camera: THREE.Camera, time: number): void {

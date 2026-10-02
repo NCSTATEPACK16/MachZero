@@ -50,6 +50,8 @@ export interface SettingsData {
   largeText: boolean;
   keyBindings: KeyBindings;
   quality: QualitySetting;
+  /** What 'auto' resolved to on this device (device hint or first-launch benchmark); null = not yet. */
+  detectedQuality: 'low' | 'med' | 'high' | null;
   touchSteer: TouchSteer;
 }
 
@@ -92,6 +94,7 @@ export function defaultSettings(): SettingsData {
     largeText: false,
     keyBindings: cloneBindings(DEFAULT_KEY_BINDINGS),
     quality: 'auto',
+    detectedQuality: null,
     touchSteer: 'slider',
   };
 }
@@ -253,6 +256,7 @@ export function sanitizeSettings(v: unknown): SettingsData {
     largeText: bool(v.largeText, d.largeText),
     keyBindings: sanitizeBindings(v.keyBindings),
     quality: oneOf(v.quality, ['auto', 'low', 'med', 'high'] as const, d.quality),
+    detectedQuality: v.detectedQuality === 'low' || v.detectedQuality === 'med' || v.detectedQuality === 'high' ? v.detectedQuality : null,
     touchSteer: oneOf(v.touchSteer, ['slider', 'tilt'] as const, d.touchSteer),
   };
 }

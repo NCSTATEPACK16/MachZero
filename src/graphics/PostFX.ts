@@ -6,6 +6,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from '../core/config';
 import { clamp01, damp } from '../core/math';
+import type { QualityProfile } from '../settings/QualityManager';
 import { SpeedBlurShader } from './shaders/speedBlur';
 import { ChromaticShader } from './shaders/chromatic';
 
@@ -62,6 +63,13 @@ export class MsaaScenePass extends Pass {
     this.target.setSize(Math.max(1, width), Math.max(1, height));
   }
 
+  /** Change the MSAA sample count (the target is rebuilt on its next use). */
+  setSamples(samples: number): void {
+    if (this.target.samples === samples) return;
+    this.target.samples = samples;
+    this.target.dispose();
+  }
+
   override render(renderer: THREE.WebGLRenderer, _writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
     renderer.setRenderTarget(this.target);
     renderer.clear();
@@ -74,6 +82,25 @@ export class MsaaScenePass extends Pass {
     this.target.dispose();
     this.copyMat.dispose();
     this.quad.dispose();
+  }
+}
+
+/** UnrealBloom whose input resolution is scaled (1 = its native half resolution, 0.5 = quarter). */
+export class ScaledBloomPass extends UnrealBloomPass {
+  private scale = 1;
+  private w = 1;
+  private h = 1;
+
+  setScale(scale: number): void {
+    if (scale === this.scale) return;
+    this.scale = scale;
+    this.setSize(this.w, this.h);
+  }
+
+  override setSize(width: number, height: number): void {
+    this.w = width;
+    this.h = height;
+    super.setSize(Math.max(2, Math.round(width * this.scale)), Math.max(2, Math.round(height * this.scale)));
   }
 }
 
@@ -117,12 +144,14 @@ export interface PostFxParams {
 export class PostFX {
   readonly composer: EffectComposer;
   readonly renderPass: MsaaScenePass;
-  readonly bloomPass: UnrealBloomPass;
+  readonly bloomPass: ScaledBloomPass;
   readonly speedBlurPass: SpeedBlurPass;
   readonly chromaticPass: ChromaticPass;
   readonly outputPass: OutputPass;
 
   private blur = 0;
+  private blurAllowed = true;
+  private readonly msaaSupported: boolean;
   /** Comfort: no radial speed blur and no chromatic aberration (the vignette stays). */
   reducedMotion = false;
   private kick = 0;
@@ -137,10 +166,11 @@ export class PostFX {
   ) {
     // MSAA on a float target needs EXT_color_buffer_float (WebGL2 desktop: universal).
     const msaa = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
+    this.msaaSupported = msaa;
     this.composer = new EffectComposer(renderer);
 
     this.renderPass = new MsaaScenePass(scene, camera, msaa ? 4 : 0);
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD);
+    this.bloomPass = new ScaledBloomPass(new THREE.Vector2(width, height), CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD);
     this.speedBlurPass = new SpeedBlurPass();
     this.chromaticPass = new ChromaticPass();
     this.outputPass = new OutputPass();
@@ -161,6 +191,18 @@ export class PostFX {
     this.composer.setSize(width, height);
   }
 
+  /** Quality preset: MSAA samples, bloom resolution, blur taps, chromatic pass. */
+  setQuality(q: QualityProfile): void {
+    this.renderPass.setSamples(this.msaaSupported ? q.msaa : 0);
+    this.bloomPass.setScale(q.bloomScale);
+    this.blurAllowed = q.blurTaps > 0;
+    if (q.blurTaps > 0 && this.speedBlurPass.material.defines.TAPS !== q.blurTaps) {
+      this.speedBlurPass.material.defines.TAPS = q.blurTaps;
+      this.speedBlurPass.material.needsUpdate = true;
+    }
+    this.chromaticPass.enabled = q.chromatic;
+  }
+
   /** Add a chromatic-aberration kick (0..1) that decays over ~0.4 s. */
   kickAberration(amount: number): void {
     this.kick = Math.min(1.6, this.kick + amount);
@@ -174,7 +216,7 @@ export class PostFX {
 
   update(dt: number, p: PostFxParams): void {
     const sf = clamp01((p.speed - 40) / (CONFIG.BOOST_TOP_SPEED - 40));
-    const targetBlur = sf <= 0 || this.reducedMotion ? 0 : 0.15 * Math.pow(sf, 1.15) + (p.boosting ? 0.07 * Math.min(1, sf * 2) : 0);
+    const targetBlur = sf <= 0 || this.reducedMotion || !this.blurAllowed ? 0 : 0.15 * Math.pow(sf, 1.15) + (p.boosting ? 0.07 * Math.min(1, sf * 2) : 0);
     this.blur = damp(this.blur, targetBlur, 6, dt);
     if (targetBlur === 0 && this.blur < 0.0006) this.blur = 0;
     this.speedBlurPass.enabled = this.blur > 0.0008;

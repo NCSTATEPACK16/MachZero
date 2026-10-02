@@ -2,11 +2,12 @@ import * as THREE from 'three';
 
 /**
  * Radial "zoom" blur about the projected motion focus point. The centre of the
- * screen stays sharp (uInner) and blur ramps up towards the edges. 10 taps with
- * per-pixel interleaved-gradient jitter to hide banding.
+ * screen stays sharp (uInner) and blur ramps up towards the edges. TAPS taps (a define: 10 on High,
+ * 6 on Med) with per-pixel interleaved-gradient jitter to hide banding.
  */
 export const SpeedBlurShader = {
   name: 'SpeedBlurShader',
+  defines: { TAPS: 10 },
   uniforms: {
     tDiffuse: { value: null as unknown },
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
@@ -42,7 +43,6 @@ export const SpeedBlurShader = {
         gl_FragColor = texture2D(tDiffuse, vUv);
         return;
       }
-      const int TAPS = 10;
       float jitter = ign(gl_FragCoord.xy);
       vec3 acc = vec3(0.0);
       float wsum = 0.0;

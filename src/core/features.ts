@@ -16,9 +16,9 @@ export const FEATURE_NAMES = [
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 export type FeatureSet = Readonly<Record<FeatureName, boolean>>;
 
-/** Defaults shipped on `main`. */
+/** Defaults shipped on `main`. A flag turns on in the PR that completes its milestone. */
 export const FEATURE_DEFAULTS: FeatureSet = {
-  profiles: false,
+  profiles: true, // M1 complete
   garage: false,
   worlds: false,
   tiers: false,

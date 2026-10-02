@@ -652,6 +652,33 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* segmented choice (e.g. quality) */
+.mzu-seg-opts {
+  display: flex;
+  gap: 0.3em;
+}
+.mzu-seg-opts button {
+  min-width: 4.4em;
+  min-height: 2.4em;
+  padding: 0 0.8em;
+  border: 1px solid rgba(244, 247, 255, 0.28);
+  background: rgba(5, 3, 15, 0.7);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  transform: skewX(-10deg);
+}
+.mzu-seg-opts button.on {
+  border-color: var(--lime);
+  color: var(--lime);
+  background: rgba(125, 255, 58, 0.12);
+  box-shadow: 0 0 0.8em rgba(125, 255, 58, 0.3);
+}
+.mzu-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* key bindings */
 .mzu-binds {
   display: flex;
@@ -843,6 +870,9 @@
   }
 }
 @media (max-width: 560px) {
+  .mzu-seg {
+    flex-wrap: wrap;
+  }
   .mzu-presets {
     grid-template-columns: 1fr;
   }

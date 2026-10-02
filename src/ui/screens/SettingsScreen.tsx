@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import type { KeyControl } from '../../core/contracts';
 import { KEY_CONTROLS } from '../../save/schema';
-import { Screen, Slider, Toggle, keyName } from '../components';
+import type { QualitySetting } from '../../save/schema';
+import { Screen, Segmented, Slider, Toggle, keyName } from '../components';
 
-type Tab = 'audio' | 'comfort' | 'controls' | 'data';
+type Tab = 'audio' | 'graphics' | 'comfort' | 'controls' | 'data';
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'audio', label: 'SOUND' },
+  { id: 'graphics', label: 'GRAPHICS' },
   { id: 'comfort', label: 'COMFORT' },
   { id: 'controls', label: 'CONTROLS' },
   { id: 'data', label: 'SAVES' },
@@ -94,6 +96,42 @@ function Controls({ app }: { app: App }) {
   );
 }
 
+const QUALITY_OPTIONS: ReadonlyArray<{ value: QualitySetting; label: string }> = [
+  { value: 'auto', label: 'AUTO' },
+  { value: 'low', label: 'LOW' },
+  { value: 'med', label: 'MED' },
+  { value: 'high', label: 'HIGH' },
+];
+const LEVEL_NAME = { low: 'LOW', med: 'MEDIUM', high: 'HIGH' } as const;
+
+function Graphics({ app }: { app: App }) {
+  const s = app.settings;
+  const auto = s.quality.value === 'auto';
+  const forced = app.flags.quality !== null;
+  return (
+    <div class="mzu-section">
+      <Segmented label="QUALITY" options={QUALITY_OPTIONS} value={s.quality.value} onChange={(v) => (s.quality.value = v)} />
+      <p class="mzu-note">
+        {forced
+          ? `Forced to ${LEVEL_NAME[app.qualityLevel.value]} by the page address.`
+          : app.benchmarking.value
+            ? 'Checking what this device can do…'
+            : auto
+              ? `Auto picked ${LEVEL_NAME[app.qualityLevel.value]} for this device.`
+              : `Using ${LEVEL_NAME[app.qualityLevel.value]}.`}{' '}
+        Lower quality runs smoother on phones and older computers: less blur, fewer buildings and particles, shorter view distance.
+      </p>
+      {auto && !forced ? (
+        <div class="mzu-actions">
+          <button type="button" class="mzu-chip" disabled={app.benchmarking.value} onClick={() => app.redetectQuality()}>
+            CHECK AGAIN
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Data({ app }: { app: App }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
@@ -151,6 +189,7 @@ export function SettingsScreen({ app }: { app: App }) {
           <Toggle label="MUTE" hint="Also M on the keyboard" value={s.muted.value} onChange={(v) => (s.muted.value = v)} />
         </div>
       ) : null}
+      {tab === 'graphics' ? <Graphics app={app} /> : null}
       {tab === 'comfort' ? (
         <div class="mzu-section">
           <Toggle label="REDUCED MOTION" hint="No motion blur, camera shake, colour fringing or speed lines; a calmer field of view." value={s.reducedMotion.value} onChange={(v) => (s.reducedMotion.value = v)} />

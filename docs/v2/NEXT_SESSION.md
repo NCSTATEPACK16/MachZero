@@ -1,9 +1,9 @@
-# Next-session brief — build MachZero 2.0 (milestones M1 → M8)
+# Next-session brief — build MachZero 2.0 (milestones M2 → M8; M0–M1 done)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-09-29)
+## Where things stand (2026-09-29, end of the M1 session)
 
 - **v1 is live** at https://machzero.netlify.app. Netlify site `machzero` is connected to `NCSTATEPACK16/MachZero`: each merge to `main` deploys, and each PR gets a deploy preview at `https://deploy-preview-<N>--machzero.netlify.app`.
 - **The 2.0 design is agreed and merged:**
@@ -11,8 +11,18 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
   - `docs/v2/IMPLEMENTATION.md` (how, milestone by milestone, pinned to v1's files)
   
   Every design decision in them was settled in a design interview with the user. **Do not re-open them.** Ask the user only when something genuinely isn't covered.
-- **M0 is done** on branch `v2/m0-wrapup` (a PR into `main`). It adds CI (GitHub Actions: `verify` + `smoke`), `netlify.toml`, size budgets, the Playwright smoke test, feature flags (`src/core/features.ts`), `CODEBASE.md` and the README. If that PR isn't merged when you start, stack M1 on `v2/m0-wrapup` and say so in the M1 PR body.
-- **Tests:** 117 unit/integration tests, including full 3-lap headless race sims (real track + Rapier + AI) and a corkscrew hold test. Read `docs/TDD.md` §7 before touching `physics/ShipController.ts`: it records four hard-won physics invariants.
+- **M0 is done:** PR #2 (`v2/m0-wrapup`). It adds CI (GitHub Actions: `verify` + `smoke`), `netlify.toml`, size budgets, the Playwright smoke test, feature flags (`src/core/features.ts`), `CODEBASE.md` and the README.
+- **M1 is done** as three stacked PRs (IMPLEMENTATION §M1 has the as-built notes; read them first):
+  - #3 `v2/m1-stats-ships`: per-ship stats, 6 chassis, parts, 8-ship field.
+  - #4 `v2/m1-app-shell`: App + RaceSession, saves, settings, Preact menus.
+  - #5 `v2/m1-quality`: quality presets and auto-detect. This PR also flips `profiles` on.
+  
+  Stack order: #2 ← #3 ← #4 ← #5. If any are still open when you start, stack M2 on `v2/m1-quality` and say so in the PR body. Rebase after merges.
+- **Tests:**
+  - 170 unit/integration tests. They include the full 3-lap headless race sims (v1 4-ship, 8-ship at rookie/pilot/legend fits), a corkscrew hold test, save migrations and a RaceSession lifecycle test (10 races, no leaks).
+  - 4 Playwright tests: smoke; menus by keyboard, gamepad and touch; 10 race rebuilds with no GPU-memory growth.
+  - Read `docs/TDD.md` §7 before touching `physics/ShipController.ts`: it records four hard-won physics invariants.
+- **Next:** M2 (Blender ships, parts, garage, livery editor), behind the `garage` flag.
 
 ## Environment facts (already verified; don't rediscover)
 
@@ -24,8 +34,8 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
 | Netlify CLI | Logged in (team NCSTATEPACK16). The folder is not `netlify link`ed and doesn't need to be; previews come from the GitHub integration |
 | Blender (headless) | `/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup -P <script.py> -- <args>` works (5.2.0 LTS; a GLB export was verified) |
 | Blender MCP | Add-on v1.7 / protocol 11, on port 9876. The user must have Blender open with **Start MCP Server** clicked (N panel → MCP tab). The first call after a Blender restart can fail with "broken pipe"; retry once. Treat it as an optional preview tool: canonical assets come from the headless scripts in `blender/` |
-| Playwright | `@playwright/test` installed; Chromium downloaded locally. `npm run smoke` runs against `vite preview` on port 4173 (about 45 s) |
-| Bundle | App JS 197 KB gz (game 53 KB, three.js 145 KB) + Rapier 1,615 KB gz (base64 WASM). See IMPLEMENTATION §M0 for the optional separate-WASM task |
+| Playwright | `@playwright/test` installed; Chromium downloaded locally. `npm run smoke` runs every spec in `e2e/` against `vite preview` on port 4173 (about 3 min; SwiftShader). The browser pane's `requestAnimationFrame` stops while the pane is hidden, so drive timing-sensitive UI checks through Playwright |
+| Bundle | After M1: app JS 220 KB gz (game plus Preact UI 75 KB, three.js 145 KB) + Rapier 1,615 KB gz (base64 WASM). See IMPLEMENTATION §M0 for the optional separate-WASM task |
 
 ## Paste this prompt
 
@@ -40,7 +50,7 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: implement milestones M1 → M8 in order, as far as this session allows, each shippable on its own.
+GOAL: implement milestones M2 → M8 in order (M0 and M1 are done), as far as this session allows, each shippable on its own.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - You (Opus) implement everything yourself, sequentially. No parallel Sonnet builders. Sub-agents only for
@@ -81,5 +91,5 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming M0's PR state (gh pr list), then begin M1.
+Start by confirming the open PRs' state (gh pr list), then begin M2.
 ```

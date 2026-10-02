@@ -90,6 +90,8 @@ export class SpeedLines {
 
   /** Comfort (reduced motion): never shown. */
   disabled = false;
+  /** Quality: fraction of the lines used. */
+  budget = 1;
 
   update(dt: number, camera: THREE.PerspectiveCamera, velocity: THREE.Vector3, speed: number, boosting: boolean): void {
     const sf = clamp01((speed - 50) / 110);
@@ -100,7 +102,7 @@ export class SpeedLines {
     }
     this.object.visible = true;
 
-    const active = Math.max(1, Math.floor(this.count * (0.25 + 0.75 * sf)));
+    const active = Math.max(1, Math.floor(this.count * this.budget * (0.25 + 0.75 * sf)));
     this.geometry.setDrawRange(0, active * 2);
     const opacity = 0.85 * smoothstep(0, 1, sf) * (1 + 0.25 * this.boostBlend);
     this.material.uniforms.uOpacity.value = opacity;

@@ -145,8 +145,10 @@ test.describe('touch', () => {
 });
 
 test('ten race rebuilds do not grow GPU memory', async ({ page }) => {
+  test.setTimeout(420_000);
   const errors = collectErrors(page);
-  await page.goto(URL);
+  // A fixed preset: no first-launch benchmark switching render targets mid-measurement, and cheap frames.
+  await page.goto(`${URL}&quality=low`);
   await expect(screen(page)).toBeVisible({ timeout: 120_000 });
   const frames = () => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
   const mem = () => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.memory());
