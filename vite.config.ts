@@ -21,6 +21,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: ['e2e/**', 'node_modules/**'],
-    testTimeout: 60000,
+    // Hard ceiling: no test may run longer than 2 minutes (the whole-race sims take ~20 s on CI).
+    testTimeout: 120_000,
   },
 });

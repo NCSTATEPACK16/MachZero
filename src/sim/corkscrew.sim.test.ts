@@ -3,7 +3,7 @@
  * twisting surface. On a twisting ribbon the surface at lateral offset L moves along its own
  * normal at L·ω, so the hover spring has to track the surface, not world space.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { CONFIG, SHIP_ROSTER } from '../core/config';
 import type { ControlInput, GridSlot, ShipId } from '../core/contracts';
@@ -12,9 +12,6 @@ import { EventBus, type GameEvents } from '../core/events';
 import { PhysicsSystem } from '../physics';
 import { generateTrack } from '../track';
 
-// Whole races in Rapier: tens of seconds alone, far more on a busy machine. The 60 s default is not a
-// budget for these; correctness is asserted below.
-vi.setConfig({ testTimeout: 300_000 });
 
 function slotAt(track: ReturnType<typeof generateTrack>, u: number, lateral: number): GridSlot {
   const s = track.sampleAt(u);
