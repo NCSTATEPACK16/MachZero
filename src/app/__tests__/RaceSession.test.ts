@@ -1,12 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../../core/config';
 import { buildRaceField, defaultLoadout } from '../../content/pilots';
 import type { RecordStore } from '../../game';
 import { RaceSession, type RaceSetup } from '../RaceSession';
 
-// Whole races in Rapier: tens of seconds alone, far more on a busy machine. The 60 s default is not a
-// budget for these; correctness is asserted below.
-vi.setConfig({ testTimeout: 300_000 });
 
 function setup(overrides: Partial<RaceSetup> = {}): RaceSetup {
   return {

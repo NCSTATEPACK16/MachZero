@@ -1,12 +1,13 @@
 /** Small building blocks shared by the menu screens. */
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useRef, useLayoutEffect } from 'preact/hooks';
 import { focusFirst, onUiKeyDown } from './nav';
 
 /** A full-screen menu page: heading, optional back button, scrollable body. Focuses its first control. */
 export function Screen(props: { title: string; kicker?: string; onBack?: () => void; backLabel?: string; wide?: boolean; children: ComponentChildren; id: string }) {
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
+  // Layout effect: focus lands with the first paint, so keys pressed right away reach the screen (not <body>).
+  useLayoutEffect(() => {
     if (ref.current) focusFirst(ref.current);
   }, [props.id]);
   return (

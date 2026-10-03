@@ -34,13 +34,10 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-// SwiftShader renders the turntable at a few fps, so every click waits several frames to settle.
-test.setTimeout(420_000);
-
 test('buy and fit a part, paint the ship, persist, race with it', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto(URL);
-  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 120_000 });
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => {
     const d = (window as unknown as { __machzero: Debug }).__machzero;
     d.app.createProfile('GARAGE', 3, 'rookie');
@@ -96,13 +93,13 @@ test('buy and fit a part, paint the ship, persist, race with it', async ({ page 
 
   // Reload: everything persisted.
   await page.reload();
-  await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 120_000 });
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await expect(page.getByRole('button', { name: /^GARAGE/ })).toContainText('BASTION · 500 CREDITS');
   expect((await profile(page)).owned.engine).toEqual([0, 2]);
 
   // The race uses the garage loadout.
   await page.getByRole('button', { name: /^RACE/ }).click();
-  await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 120_000 }).toMatch(/countdown|racing/);
+  await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 60_000 }).toMatch(/countdown|racing/);
   const ship = await dbg(page, (d) => d.ships![0].def.loadout);
   expect(ship).toMatchObject({ chassisId: 'bastion', parts: { engine: 2 }, livery: { decal: 5 } });
 
@@ -112,7 +109,7 @@ test('buy and fit a part, paint the ship, persist, race with it', async ({ page 
 test('cycling ships on the turntable does not grow GPU memory', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto(URL);
-  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 120_000 });
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('LEAK', 0, 'classic'));
   await page.getByRole('button', { name: /^GARAGE/ }).click();
   await expect(screen(page)).toHaveAttribute('data-screen', 'garage');

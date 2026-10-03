@@ -26,7 +26,12 @@ function collectErrors(page: Page): string[] {
 const screen = (page: Page) => page.locator('[data-screen]');
 const route = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.route.value.name);
 const raceState = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.race?.state);
-const focusedText = (page: Page) => page.evaluate(() => document.activeElement?.textContent ?? '');
+/** Text of the focused control; '' when nothing is focused (<body>'s text would contain every label). */
+const focusedText = (page: Page) =>
+  page.evaluate(() => {
+    const a = document.activeElement;
+    return a && a !== document.body ? (a.textContent ?? '') : '';
+  });
 
 /** Records main-thread long tasks so the menus can be held to "never freezes". */
 async function watchLongTasks(page: Page): Promise<void> {
@@ -83,7 +88,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await page.goto(URL);
 
   // Fresh device: the create-a-pilot screen, name field focused.
-  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 120_000 });
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await expect(page.locator('input[type=text]')).toBeFocused();
   await page.keyboard.type('tess');
   await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).click();
@@ -128,7 +133,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
 
   // Race from the menu, pause with Escape, quit to the menu from the pause screen.
   await page.getByRole('button', { name: /^RACE/ }).click();
-  await expect.poll(() => raceState(page), { timeout: 120_000 }).toMatch(/countdown|racing/);
+  await expect.poll(() => raceState(page), { timeout: 60_000 }).toMatch(/countdown|racing/);
   expect(await route(page)).toBe('race');
   await page.keyboard.press('Escape');
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toBe('paused');
@@ -138,7 +143,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
 
   // Reload: the single active profile goes straight to the menu with its settings.
   await page.reload();
-  await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 120_000 });
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
   await expect(page.locator('html')).toHaveClass(/mz-large-text/);
 
@@ -151,7 +156,7 @@ test.describe('touch', () => {
   test('menus work by tapping', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto(URL);
-    await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 120_000 });
+    await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
     await page.locator('input[type=text]').fill('KID');
     await page.getByRole('radio', { name: /I'VE RACED BEFORE/ }).tap();
     await page.getByRole('button', { name: "LET'S RACE" }).tap();
@@ -165,11 +170,10 @@ test.describe('touch', () => {
 });
 
 test('ten race rebuilds do not grow GPU memory', async ({ page }) => {
-  test.setTimeout(420_000);
   const errors = collectErrors(page);
   // A fixed preset: no first-launch benchmark switching render targets mid-measurement, and cheap frames.
   await page.goto(`${URL}&quality=low`);
-  await expect(screen(page)).toBeVisible({ timeout: 120_000 });
+  await expect(screen(page)).toBeVisible({ timeout: 60_000 });
   const frames = () => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
   const mem = () => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.memory());
   const rebuild = () => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.rebuildRace());
