@@ -5,7 +5,7 @@ import { Badge } from '../badges';
 import { MenuButton } from '../components';
 import { chassisById } from '../../content/ships';
 import { focusFirst, onUiKeyDown } from '../nav';
-import { useEffect, useRef } from 'preact/hooks';
+import { useRef, useLayoutEffect } from 'preact/hooks';
 
 const Icon = {
   race: (
@@ -42,7 +42,8 @@ const Icon = {
 
 export function MainMenu({ app }: { app: App }) {
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
+  // Layout effect: focus lands with the first paint, so keys pressed right away reach the screen (not <body>).
+  useLayoutEffect(() => {
     if (ref.current) focusFirst(ref.current);
   }, []);
   const p = app.activeProfile.value;

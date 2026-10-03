@@ -26,7 +26,12 @@ function collectErrors(page: Page): string[] {
 const screen = (page: Page) => page.locator('[data-screen]');
 const route = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.route.value.name);
 const raceState = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.race?.state);
-const focusedText = (page: Page) => page.evaluate(() => document.activeElement?.textContent ?? '');
+/** Text of the focused control; '' when nothing is focused (<body>'s text would contain every label). */
+const focusedText = (page: Page) =>
+  page.evaluate(() => {
+    const a = document.activeElement;
+    return a && a !== document.body ? (a.textContent ?? '') : '';
+  });
 
 /** Records main-thread long tasks so the menus can be held to "never freezes". */
 async function watchLongTasks(page: Page): Promise<void> {

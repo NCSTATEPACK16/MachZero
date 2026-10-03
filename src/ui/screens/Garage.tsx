@@ -3,7 +3,7 @@
  * drawn by GraphicsSystem into the transparent stage element; hovering or focusing an option previews it on
  * the turntable and as ghost stat bars. Chassis are free, parts cost credits, nothing can be sold.
  */
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
 import type { App } from '../../app/App';
 import type { Loadout, PartSlot, PartTier } from '../../core/contracts';
 import { owns, partPrice } from '../../content/economy';
@@ -302,7 +302,8 @@ export function Garage({ app }: { app: App }) {
   const loadout = p?.loadout ?? null;
   const shown = preview ?? loadout;
 
-  useEffect(() => {
+  // Layout effect: focus lands with the first paint, so keys pressed right away reach the screen (not <body>).
+  useLayoutEffect(() => {
     if (ref.current) focusFirst(ref.current);
   }, []);
   // The turntable follows the previewed (else the fitted) loadout; stop drawing it on the way out.
