@@ -60,8 +60,7 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
   let stepMs = 0;
   let steps = 0;
   race.start();
-  // Run until every ship is done (not just the player) so rivals' jumps and laps are all exercised.
-  while (t < MAX_SIM_SECONDS && ships.some((s) => s.status === 'racing' || s.status === 'grid')) {
+  while (t < MAX_SIM_SECONDS && race.state !== 'results') {
     for (const d of drivers) controls.set(d.shipId, d.update(dt));
     const t0 = performance.now();
     physics.step(dt, controls);

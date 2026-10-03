@@ -41,7 +41,7 @@ export const WORLDS: readonly WorldDef[] = [
     tagline: 'Chrome canyon under an airbrushed sky',
     gimmick: 'JUMP RAMPS',
     trackId: 'sunset-mesa',
-    palette: { left: 0xffa13a, right: 0xff4f6e, accent: 0xfff06a, pit: 0x6affc8 },
+    palette: { left: 0xffa13a, right: 0xff4f6e, accent: 0xffc23a, pit: 0x6affc8 },
     ui: { from: '#ffb347', to: '#ff4f6e' },
     built: true,
   },

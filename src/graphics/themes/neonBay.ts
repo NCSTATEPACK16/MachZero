@@ -1,8 +1,15 @@
+/**
+ * World 1, Neon Bay: v1's synthwave look (sky dome with the striped sun and a ringed planet, neon grid
+ * sea, distant mountains, instanced procedural skyline) plus Blender landmarks: stepped neon towers,
+ * pyramids and giant palm silhouettes.
+ */
 import * as THREE from 'three';
-import { CONFIG } from '../core/config';
-import type { TrackData } from '../core/contracts';
-import { Rng } from '../core/rng';
-import { FOG_GLSL, type FogUniforms } from './shaders/fog';
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { CONFIG, PALETTE } from '../../core/config';
+import type { TrackData } from '../../core/contracts';
+import { Rng } from '../../core/rng';
+import { FOG_GLSL, type FogUniforms } from '../shaders/fog';
+import { PropInstancer, nearestTrack, placement, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
 
@@ -273,10 +280,30 @@ function smooth01(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Sky dome, neon grid ground, distant mountains and an instanced procedural skyline. */
-export class Environment {
+const NEON_TINTS = [PALETTE.cyan, PALETTE.magenta, PALETTE.violet, PALETTE.amber];
+
+/** Sky dome, neon grid ground, distant mountains, an instanced procedural skyline and Blender landmarks. */
+export class NeonBayTheme implements WorldTheme {
+  readonly id = 'neon-bay';
   readonly group = new THREE.Group();
   readonly sunDirection = new THREE.Vector3(0.28, 0.1, -0.95).normalize();
+  readonly shimmer = 0;
+  readonly lighting: ThemeLighting = {
+    hemiSky: 0x6a55d8,
+    hemiGround: 0x1a0b33,
+    hemiIntensity: 0.85,
+    keyColor: 0xa9bcff,
+    keyIntensity: 1.5,
+    keyDirection: new THREE.Vector3(-0.35, 0.85, 0.4).normalize(),
+    fillColor: 0xff4fa0,
+    fillIntensity: 0.7,
+    fogColor: 0x1a0a38,
+    fogDensity: 0.0006,
+    clearColor: PALETTE.night,
+    environmentIntensity: 0.85,
+  };
+  private props: PropInstancer | null = null;
+  private readonly propMaterials = new Map<string, THREE.Material>();
 
   private readonly sky: THREE.Mesh;
   private readonly ground: THREE.Mesh;
@@ -426,8 +453,72 @@ export class Environment {
     return geo;
   }
 
+  buildScenery(track: TrackData, props: GLTF | null): void {
+    this.buildSkyline(track);
+    this.props?.dispose();
+    this.props = null;
+    if (props) {
+      this.props = new PropInstancer(props, this.landmarks(track), (role) => this.propMaterial(role));
+      this.group.add(this.props.group);
+      this.props.setDensity(this.density);
+    }
+  }
+
+  /** Landmark towers and pyramids among the skyline, palms closer in; deterministic per track. */
+  private landmarks(track: TrackData): PropInstance[] {
+    const rng = new Rng((track.seed ^ 0x2c1b3c6d) >>> 0);
+    const plan = trackPlan(track);
+    const b = planBounds(plan);
+    const out: PropInstance[] = [];
+    const tint = new THREE.Color();
+    const tryPlace = (prop: string, count: number, minClear: number, maxClear: number, scale: [number, number], footprint: number) => {
+      for (let k = 0, placed = 0; k < count * 60 && placed < count; k++) {
+        const x = rng.range(b.minX - maxClear, b.maxX + maxClear);
+        const z = rng.range(b.minZ - maxClear, b.maxZ + maxClear);
+        const s = rng.range(scale[0], scale[1]);
+        const { dist } = nearestTrack(plan, x, z);
+        if (dist < minClear + footprint * s || dist > maxClear) continue;
+        if (out.some((o) => o.matrix.elements[12] !== undefined && Math.hypot(o.matrix.elements[12] - x, o.matrix.elements[14] - z) < footprint * s + 30)) continue;
+        tint.setHex(NEON_TINTS[Math.floor(rng.next() * NEON_TINTS.length)]);
+        out.push({ prop, matrix: placement(x, CONFIG.GROUND_Y - 1, z, rng.range(0, Math.PI * 2), s), neon: tint.clone() });
+        placed++;
+      }
+    };
+    tryPlace('tower_0', 8, 140, 1100, [0.8, 1.3], 30);
+    tryPlace('tower_1', 8, 140, 1100, [0.8, 1.3], 25);
+    tryPlace('tower_2', 6, 220, 1400, [0.9, 1.4], 35);
+    tryPlace('pyramid_0', 3, 300, 1500, [1, 1.8], 60);
+    for (const palm of ['palm_0', 'palm_1', 'palm_2']) tryPlace(palm, 14, 40, 260, [2.6, 3.8], 4);
+    // Random order so a density fraction keeps a spatially even subset.
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rng.next() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+
+  private propMaterial(role: string): THREE.Material {
+    let m = this.propMaterials.get(role);
+    if (m) return m;
+    switch (role) {
+      case 'neon':
+        m = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3) });
+        break;
+      case 'chrome':
+        m = new THREE.MeshStandardMaterial({ color: 0xc8d0ff, metalness: 1, roughness: 0.18 });
+        break;
+      case 'foliage':
+        m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, emissive: 0x12051e });
+        break;
+      default:
+        m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.6 });
+    }
+    this.propMaterials.set(role, m);
+    return m;
+  }
+
   /** Scatter towers outside the track footprint (>= 80 m from any centerline sample). */
-  buildSkyline(track: TrackData): void {
+  private buildSkyline(track: TrackData): void {
     if (this.towers) {
       this.group.remove(this.towers);
       this.towers.geometry.dispose();
@@ -500,6 +591,7 @@ export class Environment {
   setDensity(fraction: number): void {
     this.density = Math.min(1, Math.max(0, fraction));
     if (this.towers) this.towers.count = Math.round(this.towerTotal * this.density);
+    this.props?.setDensity(this.density);
   }
 
   update(camera: THREE.Camera, time: number): void {
@@ -514,6 +606,8 @@ export class Environment {
   }
 
   dispose(): void {
+    this.props?.dispose();
+    for (const m of this.propMaterials.values()) m.dispose();
     if (this.towers) {
       this.towers.geometry.dispose();
       this.towers.dispose();

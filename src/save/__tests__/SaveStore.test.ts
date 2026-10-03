@@ -109,6 +109,15 @@ describe('SaveStore', () => {
     expect(d.settings.keyBindings.left).toEqual(DEFAULT_KEY_BINDINGS.left);
   });
 
+  it('keeps the selected world when it is built, otherwise falls back to the first world', () => {
+    const p = (world: unknown) => sanitizeSave({ version: 2, profiles: [{ id: 'a', name: 'A', world }] }).profiles[0].world;
+    expect(createProfile('KID', 0, 'rookie').world).toBe('neon-bay');
+    expect(p('sunset-mesa')).toBe('sunset-mesa');
+    expect(p('cryo-station')).toBe('neon-bay'); // not built yet
+    expect(p('atlantis')).toBe('neon-bay');
+    expect(p(undefined)).toBe('neon-bay');
+  });
+
   it('a key bound to two controls keeps only its first use', () => {
     const d = sanitizeSave({ version: 2, settings: { keyBindings: { throttle: ['KeyA'], left: ['KeyA', 'KeyZ'] } } });
     expect(d.settings.keyBindings.throttle).toEqual(['KeyA']);

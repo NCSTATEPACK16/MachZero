@@ -157,13 +157,15 @@ export const SHIP_ROSTER: readonly ShipDefinition[] = [
   { id: 3, name: 'VIOLET WISP', isPlayer: false, personality: 'erratic', gridIndex: 2, stats: CLASSIC_STATS, livery: { primary: 0x8a2be2, secondary: 0x00e5a8, glow: 0xff2bd6 } },
 ];
 
-/** URL flags: ?autopilot=1 ?debug=1 ?seed=N ?quality=low|med|high */
+/** URL flags: ?autopilot=1 ?debug=1 ?seed=N ?quality=low|med|high ?world=<id> */
 export interface UrlFlags {
   autopilot: boolean;
   debug: boolean;
   seed: number | null;
   /** ?quality=low|med|high forces a preset for this page load (QA); not saved. */
   quality: 'low' | 'med' | 'high' | null;
+  /** ?world=<id> races that world (with the `worlds` feature; QA and screenshots); not saved. */
+  world: string | null;
 }
 
 export function readUrlFlags(search: string = typeof location !== 'undefined' ? location.search : ''): UrlFlags {
@@ -172,5 +174,6 @@ export function readUrlFlags(search: string = typeof location !== 'undefined' ? 
   const seed = seedRaw !== null && seedRaw !== '' && Number.isFinite(Number(seedRaw)) ? Number(seedRaw) : null;
   const q = p.get('quality');
   const quality = q === 'low' || q === 'med' || q === 'high' ? q : null;
-  return { autopilot: p.get('autopilot') === '1', debug: p.get('debug') === '1', seed, quality };
+  const world = p.get('world');
+  return { autopilot: p.get('autopilot') === '1', debug: p.get('debug') === '1', seed, quality, world: world || null };
 }

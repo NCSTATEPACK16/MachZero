@@ -55,6 +55,7 @@ export function MainMenu({ app }: { app: App }) {
       </div>
       <div class="mzu-menu">
         <MenuButton big autofocus icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
+        {app.features.worlds ? <MenuButton icon={Icon.worlds} label="WORLDS" sub="Neon Bay, Sunset Mesa and more to come" onClick={() => app.openWorlds()} /> : null}
         {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
           <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
         ))}

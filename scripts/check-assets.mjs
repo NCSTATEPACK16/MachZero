@@ -5,7 +5,7 @@
  *
  *   node scripts/check-assets.mjs      # prints problems, exits 1 if any
  */
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
@@ -16,7 +16,13 @@ export const CHASSIS = ['dart', 'wisp', 'comet', 'arrow', 'titan', 'bastion'];
 export const SOCKETS = ['socket_engine', 'socket_booster_L', 'socket_booster_R', 'socket_stabilizer', 'socket_hull', 'socket_exhaust_L', 'socket_exhaust_R'];
 export const PART_SLOTS = ['engine', 'booster', 'stabilizer', 'hull'];
 export const ROLES = ['livery_primary', 'livery_secondary', 'glow', 'metal', 'glass', 'dark'];
-export const BUDGET = { lod0: 12000, lod1: 4000, part: 1500, shipBytes: 400 * 1024, partsBytes: 600 * 1024 };
+export const BUDGET = { lod0: 12000, lod1: 4000, part: 1500, shipBytes: 400 * 1024, partsBytes: 600 * 1024, worldBytes: 2.5 * 1024 * 1024, prop: 6000 };
+/** World prop bundles (public/game/worlds/<world>/props.glb) and the props each theme instances. */
+export const WORLD_PROPS = {
+  'neon-bay': ['tower_0', 'tower_1', 'tower_2', 'pyramid_0', 'palm_0', 'palm_1', 'palm_2'],
+  'sunset-mesa': ['mesa_0', 'mesa_1', 'mesa_2', 'spire_0', 'spire_1', 'pylon_0', 'billboard_0', 'cactus_0', 'cactus_1'],
+};
+export const PROP_ROLES = ['sandstone', 'chrome', 'dark', 'neon', 'foliage'];
 
 function triangles(mesh) {
   let n = 0;
@@ -33,13 +39,20 @@ function worldPosition(node) {
   return [m[12], m[13], m[14]];
 }
 
-function materialProblems(doc, where) {
+function materialProblems(doc, where, roles = ROLES) {
   const out = [];
   for (const mat of doc.getRoot().listMaterials()) {
     const name = mat.getName().replace(/\.\d+$/, '');
-    if (!ROLES.includes(name)) out.push(`${where}: material "${mat.getName()}" is not a role (${ROLES.join(', ')})`);
+    if (!roles.includes(name)) out.push(`${where}: material "${mat.getName()}" is not a role (${roles.join(', ')})`);
   }
   return out;
+}
+
+/** Total bytes of every file under `dir`. */
+function dirBytes(dir) {
+  let n = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) n += e.isDirectory() ? dirBytes(join(dir, e.name)) : statSync(join(dir, e.name)).size;
+  return n;
 }
 
 export async function checkAssets(root = resolve(import.meta.dirname, '..')) {
@@ -110,6 +123,34 @@ export async function checkAssets(root = resolve(import.meta.dirname, '..')) {
     problems.push(...materialProblems(doc, 'parts.glb'));
   } catch (e) {
     problems.push(`parts.glb: cannot read (${e.message})`);
+  }
+
+  for (const [world, props] of Object.entries(WORLD_PROPS)) {
+    const where = `worlds/${world}/props.glb`;
+    const file = join(root, 'public/game', where);
+    try {
+      const doc = await io.readBinary(new Uint8Array(readFileSync(file)));
+      const bytes = dirBytes(join(root, 'public/game/worlds', world));
+      if (bytes > BUDGET.worldBytes) problems.push(`worlds/${world}: ${(bytes / 1024).toFixed(0)} KB > ${BUDGET.worldBytes / 1024} KB`);
+      const nodes = new Map(doc.getRoot().listNodes().map((n) => [n.getName(), n]));
+      for (const name of props) {
+        // Quantisation may move a prop's mesh onto an unnamed child node: count the whole subtree.
+        const meshes = [];
+        nodes.get(name)?.traverse((n) => n.getMesh() && meshes.push(n.getMesh()));
+        if (meshes.length === 0) {
+          problems.push(`${where}: missing prop "${name}"`);
+          continue;
+        }
+        const tris = meshes.reduce((a, m) => a + triangles(m), 0);
+        report[`${world}/${name}`] = tris;
+        if (tris > BUDGET.prop) problems.push(`${where}: "${name}" has ${tris} triangles > ${BUDGET.prop}`);
+        if (!meshes.every((m) => m.listPrimitives().every((p) => p.getAttribute('COLOR_0')))) problems.push(`${where}: "${name}" lacks COLOR_0 (baked colours)`);
+      }
+      if (world === 'sunset-mesa' && !nodes.has('screen')) problems.push(`${where}: billboard lacks its "screen" empty`);
+      problems.push(...materialProblems(doc, where, PROP_ROLES));
+    } catch (e) {
+      problems.push(`${where}: cannot read (${e.message})`);
+    }
   }
 
   return { problems, report };

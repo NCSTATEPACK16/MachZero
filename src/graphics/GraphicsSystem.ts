@@ -6,7 +6,8 @@ import { clamp } from '../core/math';
 import { ChaseCamera } from './ChaseCamera';
 import { DebugOverlay } from './DebugOverlay';
 import { Effects } from './Effects';
-import { Environment } from './Environment';
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { createTheme, type WorldTheme } from './themes';
 import { PostFX } from './PostFX';
 import { ShipModel } from './ShipModel';
 import { SpeedLines } from './SpeedLines';
@@ -17,8 +18,6 @@ import { assembleShip } from './ShipAssembly';
 import { ShipPreview } from './ShipPreview';
 import type { Loadout } from '../core/contracts';
 
-const FOG_COLOR = 0x1a0a38;
-const FOG_DENSITY = 0.0006;
 
 /** Procedural neon "studio": gradient dome + emissive light strips, prefiltered with PMREM. */
 function buildEnvironmentMap(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
@@ -85,7 +84,12 @@ export class GraphicsSystem implements IGraphicsSystem {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly post: PostFX;
-  private readonly env: Environment;
+  private theme: WorldTheme;
+  /** Blender props per world id (public/game/worlds/<id>/props.glb). */
+  private readonly worldProps = new Map<string, GLTF>();
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly sunLight: THREE.DirectionalLight;
+  private fogBase = 0.0006;
   private readonly fx: Effects;
   private readonly speedLines: SpeedLines;
   private readonly chase: ChaseCamera;
@@ -141,12 +145,12 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.camera.position.set(0, 60, 0);
 
     // ---- fog / lighting / reflections ----
-    this.scene.fog = new THREE.FogExp2(FOG_COLOR, FOG_DENSITY);
-    const fogUniforms = createFogUniforms(FOG_COLOR, FOG_DENSITY);
+    this.scene.fog = new THREE.FogExp2(0x1a0a38, this.fogBase);
+    const fogUniforms = createFogUniforms(0x1a0a38, this.fogBase);
     this.fogUniforms = fogUniforms;
 
-    const hemi = new THREE.HemisphereLight(0x6a55d8, 0x1a0b33, 0.85);
-    this.scene.add(hemi);
+    this.hemi = new THREE.HemisphereLight(0x6a55d8, 0x1a0b33, 0.85);
+    this.scene.add(this.hemi);
 
     this.moon = new THREE.DirectionalLight(0xa9bcff, 1.5);
     this.moon.castShadow = true;
@@ -162,16 +166,12 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.moon.shadow.normalBias = 0.06;
     this.scene.add(this.moon, this.moon.target);
 
-    this.env = new Environment(fogUniforms);
-    const sunLight = new THREE.DirectionalLight(0xff4fa0, 0.7);
-    sunLight.position.copy(this.env.sunDirection).multiplyScalar(100);
-    this.scene.add(sunLight);
+    this.sunLight = new THREE.DirectionalLight(0xff4fa0, 0.7);
+    this.scene.add(this.sunLight);
 
     this.envTarget = buildEnvironmentMap(renderer);
     this.scene.environment = this.envTarget.texture;
     this.scene.environmentIntensity = 0.85;
-
-    this.scene.add(this.env.group);
 
     this.fx = new Effects();
     this.fx.setCamera(this.camera);
@@ -182,6 +182,9 @@ export class GraphicsSystem implements IGraphicsSystem {
 
     this.chase = new ChaseCamera(this.camera);
     this.post = new PostFX(renderer, this.scene, this.camera, this.width, this.height);
+    this.theme = createTheme('neon-bay', fogUniforms);
+    this.scene.add(this.theme.group);
+    this.applyTheme();
     this.debug = debugFlag ? new DebugOverlay(document.body) : null;
 
     if (bus) this.attachBus(bus);
@@ -298,13 +301,63 @@ export class GraphicsSystem implements IGraphicsSystem {
       this.moon.shadow.map?.dispose();
       this.moon.shadow.map = null;
     }
-    this.env.setDensity(q.scenery);
+    this.theme.setDensity(q.scenery);
     this.fx.setBudget(q.particles);
     this.speedLines.budget = q.particles;
-    const density = FOG_DENSITY * q.fog;
+    this.applyFogDensity();
+    this.resize(this.width, this.height);
+  }
+
+  private applyFogDensity(): void {
+    const density = this.fogBase * this.quality.fog;
     (this.scene.fog as THREE.FogExp2).density = density;
     this.fogUniforms.uFogDensity.value = density;
-    this.resize(this.width, this.height);
+  }
+
+  /** Switch the world look (sky, fog, lights, scenery set) for the next track. */
+  setWorld(worldId: string): void {
+    if (this.theme.id === worldId) return;
+    const next = createTheme(worldId, this.fogUniforms);
+    if (next.id === this.theme.id) {
+      next.dispose();
+      return;
+    }
+    this.scene.remove(this.theme.group);
+    this.theme.dispose();
+    this.theme = next;
+    this.scene.add(next.group);
+    this.applyTheme();
+  }
+
+  get worldId(): string {
+    return this.theme.id;
+  }
+
+  /** Blender props for a world (scenery falls back to procedural-only without them). */
+  setWorldProps(worldId: string, props: GLTF): void {
+    this.worldProps.set(worldId, props);
+  }
+
+  private applyTheme(): void {
+    const t = this.theme;
+    const l = t.lighting;
+    this.hemi.color.setHex(l.hemiSky);
+    this.hemi.groundColor.setHex(l.hemiGround);
+    this.hemi.intensity = l.hemiIntensity;
+    this.moon.color.setHex(l.keyColor);
+    this.moon.intensity = l.keyIntensity;
+    this.moonDir.copy(l.keyDirection);
+    this.sunLight.color.setHex(l.fillColor);
+    this.sunLight.intensity = l.fillIntensity;
+    this.sunLight.position.copy(t.sunDirection).multiplyScalar(100);
+    (this.scene.fog as THREE.FogExp2).color.setHex(l.fogColor);
+    this.fogUniforms.uFogColor.value.setHex(l.fogColor);
+    this.fogBase = l.fogDensity;
+    this.applyFogDensity();
+    this.renderer.setClearColor(l.clearColor, 1);
+    this.scene.environmentIntensity = l.environmentIntensity;
+    this.post.setShimmer(t.shimmer);
+    t.setDensity(this.quality.scenery);
   }
 
   get qualityLevel(): QualityProfile['level'] {
@@ -331,7 +384,7 @@ export class GraphicsSystem implements IGraphicsSystem {
       if ((o as THREE.Mesh).isMesh) o.receiveShadow = true;
     });
     this.scene.add(track.visual);
-    this.env.buildSkyline(track);
+    this.theme.buildScenery(track, this.worldProps.get(this.theme.id) ?? null);
   }
 
   /** Blender GLB ships for the next races (null = v1 procedural ships). */
@@ -391,7 +444,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     for (const m of this.modelList) m.updateVisuals(dt, time);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
     this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
-    this.env.update(this.camera, time);
+    this.theme.update(this.camera, time);
 
     if (pm) {
       // tight shadow frustum following the player
@@ -410,7 +463,22 @@ export class GraphicsSystem implements IGraphicsSystem {
       cu = clamp(this.tmpV.x * 0.5 + 0.5, 0.2, 0.8);
       cv = clamp(this.tmpV.y * 0.5 + 0.5, 0.2, 0.8);
     }
-    this.post.update(dt, { speed: state === 'results' ? 0 : speed, boosting: player.boosting && state !== 'results', centerU: cu, centerV: cv });
+    // Horizon line on screen (heat shimmer band): a far point straight ahead at eye height.
+    this.camera.getWorldDirection(this.tmpDir);
+    this.tmpDir.y = 0;
+    let horizonV = 0.5;
+    if (this.tmpDir.lengthSq() > 1e-6) {
+      this.tmpV.copy(this.camera.position).addScaledVector(this.tmpDir.normalize(), 4000).project(this.camera);
+      horizonV = clamp(this.tmpV.y * 0.5 + 0.5, -0.5, 1.5);
+    }
+    this.post.update(dt, {
+      speed: state === 'results' ? 0 : speed,
+      boosting: player.boosting && state !== 'results',
+      centerU: cu,
+      centerV: cv,
+      horizonV,
+      time,
+    });
   }
 
   render(): void {
@@ -469,7 +537,8 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.models.clear();
     this.fx.dispose();
     this.speedLines.dispose();
-    this.env.dispose();
+    this.scene.remove(this.theme.group);
+    this.theme.dispose();
     this.post.dispose();
     this.preview?.dispose();
     this.envTarget.dispose();

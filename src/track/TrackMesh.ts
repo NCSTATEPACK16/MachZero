@@ -457,10 +457,10 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     pitTexture.offset.x = -((t * 0.7) % 1);
   };
   const overlayOffset = { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 } as const;
-  const chevronMaterial = (hex: number): THREE.MeshBasicMaterial =>
+  const chevronMaterial = (hex: number, k = 3): THREE.MeshBasicMaterial =>
     new THREE.MeshBasicMaterial({
       map: chevronTexture,
-      color: new THREE.Color(hex).multiplyScalar(3),
+      color: new THREE.Color(hex).multiplyScalar(k),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -489,9 +489,10 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     const rampAcc = new GeometryAccumulator();
     for (const g of gaps) {
       const fr = framesFromRange(query, length, g.dStart - RAMP_MARK_LENGTH, g.dStart - 0.5, 1.5);
-      for (const lat of [-6.5, 6.5]) rampAcc.add(sweepProfile(fr, ribbonProfile(lat - 3.5, lat + 3.5, 0.04), false, { uTile: 4 }));
+      for (const lat of [-7, 7]) rampAcc.add(sweepProfile(fr, ribbonProfile(lat - 2.2, lat + 2.2, 0.04), false, { uTile: 4.4 }));
     }
-    const rampMesh = meshOf(rampAcc, chevronMaterial(palette.accent), 'TrackJumpRamps');
+    // Dimmer than dash plates: the ramp is long and fills the view on the approach.
+    const rampMesh = meshOf(rampAcc, chevronMaterial(palette.accent, 1.1), 'TrackJumpRamps');
     rampMesh.renderOrder = 2;
     rampMesh.onBeforeRender = animateOverlays;
     group.add(rampMesh);
