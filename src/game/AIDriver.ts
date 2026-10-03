@@ -449,6 +449,9 @@ export class AIDriver implements IAIDriver {
     if (!ship.boostUnlocked || ship.boosting || ship.status !== 'racing') return false;
     if (this.pitMode || this.time < this.boostReadyAt) return false;
     if (this.energyPct < this.boostEnergy || ship.energy <= ship.def.stats.boostCost + 6) return false;
+    // Keep a reserve: never boost below the pit threshold unless the pit is close enough to reach.
+    const after = ((ship.energy - ship.def.stats.boostCost) / ship.def.stats.energyMax) * 100;
+    if (after < this.profile.pitEnergy && !this.pitWithinReach(u)) return false;
     if (Math.abs(this.steer) > BOOST_MAX_STEER) return false;
     if (kMaxLine > BOOST_STRAIGHT_CURV) return false;
     // low curvature must extend the full boost scan distance (LINE_SCAN may be shorter)
@@ -456,6 +459,13 @@ export class AIDriver implements IAIDriver {
       if (Math.abs(this.curvatureAt(u, d)) > BOOST_STRAIGHT_CURV) return false;
     }
     return true;
+  }
+
+  /** The pit strip starts within PIT_APPROACH metres ahead (or we're on it). */
+  private pitWithinReach(u: number): boolean {
+    const zone = this.pitZone;
+    if (!zone) return true;
+    return inLoopRange(u, zone.uStart, zone.uEnd) || wrap01(zone.uStart - u) * this.length <= PIT_APPROACH;
   }
 
   private updatePit(u: number, ship: ShipState): void {
