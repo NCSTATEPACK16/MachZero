@@ -13,7 +13,10 @@
     "codebase": "node scripts/gen-codebase.mjs",
     "size": "node scripts/check-size.mjs",
     "smoke": "playwright test",
-    "assets": "node scripts/build-assets.mjs"
+    "assets": "node scripts/build-assets.mjs",
+    "tracks:design": "node scripts/track-design.mjs",
+    "tracks:check": "node scripts/track-preview.mjs --check",
+    "tracks:preview": "node scripts/track-preview.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
