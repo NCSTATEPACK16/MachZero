@@ -98,6 +98,10 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
   }
 
   return {
+    id: 'test-synthetic',
+    worldId: 'test',
+    name: 'SYNTHETIC',
+    laps: 3,
     seed: 0,
     length,
     halfWidth,
@@ -111,6 +115,11 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
     collision: { surface, rails },
     visual: new THREE.Group(),
     corkscrew: { uStart: 0.5, uEnd: 0.6 },
+    features: [],
+    jumps: [],
+    airGravityScale: 1,
+    surfaceKindAt: () => 'road',
+    safeRespawnU: (u) => u,
   };
 }
 

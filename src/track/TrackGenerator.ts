@@ -1,15 +1,15 @@
 /**
- * Track generation orchestrator: layout -> frames -> queries -> zones/grid -> collision + visual.
- * Runs headless in Node (no DOM/canvas; textures are DataTextures).
+ * Track building: layout (seeded or authored, see TrackSource) -> frames -> queries -> zones/grid ->
+ * collision + visual. Runs headless in Node (no DOM/canvas; textures are DataTextures).
  */
 import * as THREE from 'three';
-import { CONFIG } from '../core/config';
-import type { GridSlot, TrackData, TrackZone } from '../core/contracts';
-import { wrap01 } from '../core/math';
+import { CONFIG, PALETTE } from '../core/config';
+import type { GridSlot, SurfaceKind, TrackData, TrackFeature, TrackJump, TrackZone } from '../core/contracts';
+import { inLoopRange, wrap01 } from '../core/math';
 import { Rng } from '../core/rng';
-import { buildFrames, toTrackSamples } from './TrackFrames';
+import { buildFrames, toTrackSamples, type BankOptions, type CorkscrewRange, type Differentials, type ResampledCurve } from './TrackFrames';
 import { createLayout, type LayoutStats } from './TrackLayout';
-import { buildTrackCollision, buildTrackVisual, type DashPlate, type VisualStats } from './TrackMesh';
+import { buildTrackCollision, buildTrackVisual, type DashPlate, type TrackPalette, type VisualStats } from './TrackMesh';
 import { TrackQuery } from './TrackQuery';
 
 const PIT_START = 30;
@@ -19,17 +19,50 @@ const GRID_SPACING = 12;
 const GRID_LATERAL = 5;
 const GRID_SLOTS = 8;
 const DASH_COUNT_RANGE: [number, number] = [3, 4];
+/** A ship whose last valid position is this far before a jump lip is respawned on the landing side. */
+const JUMP_RESPAWN_BEFORE = 200;
+const JUMP_RESPAWN_AFTER = 30;
+
+/** v1's neon colours (the Bonus Track and the default for every theme that doesn't override them). */
+export const DEFAULT_TRACK_PALETTE: TrackPalette = {
+  left: PALETTE.cyan,
+  right: PALETTE.magenta,
+  accent: PALETTE.amber,
+  pit: PALETTE.lime,
+};
 
 export interface TrackStats {
-  layout: LayoutStats;
+  layout: LayoutStats | null;
   visual: VisualStats;
   collision: { surfaceTriangles: number; railTriangles: number };
   generationMs: number;
 }
 
+/** Everything buildTrack needs: a resampled closed centerline plus its identity and features (final metres). */
+export interface BuiltLayout {
+  id: string;
+  worldId: string;
+  name: string;
+  laps: number;
+  seed: number;
+  curve: THREE.CatmullRomCurve3;
+  resampled: ResampledCurve;
+  differentials: Differentials;
+  features: TrackFeature[];
+  bank?: BankOptions;
+  airGravityScale: number;
+  stats: LayoutStats | null;
+  /** Seeded tracks place their dash plates once the curvature is known. */
+  placeDashPlates?: (length: number, curvatureAt: (d: number) => number) => DashPlate[];
+}
+
+export interface BuildOptions {
+  palette?: TrackPalette;
+}
+
 const statsByTrack = new WeakMap<TrackData, TrackStats>();
 
-/** Diagnostics recorded for a track produced by `generateTrack` (undefined for foreign objects). */
+/** Diagnostics recorded for a built track (undefined for foreign objects). */
 export function getTrackStats(track: TrackData): TrackStats | undefined {
   return statsByTrack.get(track);
 }
@@ -40,7 +73,8 @@ function loopGap(a: number, b: number, length: number): number {
   return Math.min(d, length - d);
 }
 
-function placeDashPlates(
+/** v1 dash-plate placement for seeded tracks (deterministic by seed). */
+export function placeSeededDashPlates(
   seed: number,
   length: number,
   corkscrew: { dStart: number; dEnd: number },
@@ -68,24 +102,72 @@ function placeDashPlates(
   return plates.sort((a, b) => a.distance - b.distance);
 }
 
-export function generateTrack(opts: { seed: number }): TrackData {
-  const t0 = performance.now();
-  const seed = opts.seed;
+/** v1: the seeded random circuit (now the hidden Bonus Track, ?seed=N). */
+export function generateTrack(opts: { seed: number }, build: BuildOptions = {}): TrackData {
+  return buildTrack(seededLayout(opts.seed), build);
+}
+
+export function seededLayout(seed: number): BuiltLayout {
   const layout = createLayout(seed);
+  const length = layout.resampled.length;
+  const corkscrew = { dStart: layout.corkscrew.uStart * length, dEnd: layout.corkscrew.uEnd * length };
+  return {
+    id: `bonus-${seed}`,
+    worldId: 'neon-bay',
+    name: `BONUS TRACK #${seed}`,
+    laps: CONFIG.TOTAL_LAPS,
+    seed,
+    curve: layout.curve,
+    resampled: layout.resampled,
+    differentials: layout.differentials,
+    features: [
+      { type: 'corkscrew', dStart: corkscrew.dStart, dEnd: corkscrew.dEnd },
+      { type: 'pit', dStart: PIT_START, dEnd: PIT_END, lateralMin: CONFIG.PIT_LATERAL_MIN, lateralMax: CONFIG.PIT_LATERAL_MAX },
+    ],
+    airGravityScale: 1,
+    stats: layout.stats,
+    placeDashPlates: (len, curvatureAt) => placeSeededDashPlates(seed, len, corkscrew, curvatureAt),
+  };
+}
+
+/** frames -> query -> zones -> grid -> collision -> visual. */
+export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): TrackData {
+  const t0 = performance.now();
   const { resampled, differentials } = layout;
   const length = resampled.length;
 
-  const corkscrew = { uStart: layout.corkscrew.uStart, uEnd: layout.corkscrew.uEnd };
-  const frames = buildFrames(resampled, differentials, corkscrew);
+  const corkscrewFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'corkscrew' }> => f.type === 'corkscrew');
+  const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
+  const frames = buildFrames(resampled, differentials, rolls, layout.bank);
   const samples = toTrackSamples(frames);
   const query = new TrackQuery(frames, CONFIG.TRACK_HALF_WIDTH);
+  const curvatureAt = (d: number): number => query.sampleAt(d / length).curvature;
+
+  // ---- Features in final metres ----
+  const features: TrackFeature[] = [...layout.features];
+  if (layout.placeDashPlates) {
+    for (const p of layout.placeDashPlates(length, curvatureAt)) {
+      features.push({ type: 'dash', dStart: p.distance - 6, dEnd: p.distance + 6, lateralMin: p.lateral - 4, lateralMax: p.lateral + 4 });
+    }
+  }
+  type ZoneFeature = Extract<TrackFeature, { lateralMin: number }>;
+  const pitFeature = features.find((f): f is ZoneFeature => f.type === 'pit');
+  if (!pitFeature) throw new Error(`buildTrack(${layout.id}): a track needs a pit strip`);
+  const pit = { dStart: pitFeature.dStart, dEnd: pitFeature.dEnd };
+  const dashPlates: DashPlate[] = features.flatMap((f) =>
+    f.type === 'dash' ? [{ distance: (f.dStart + f.dEnd) / 2, lateral: (f.lateralMin + f.lateralMax) / 2 }] : [],
+  );
+
+  // Jumps snap to frame samples so the open gap in the geometry and surfaceKindAt agree exactly.
+  const n = frames.count;
+  const jumps: TrackJump[] = features.flatMap((f) => {
+    if (f.type !== 'jump') return [];
+    const iT = Math.round(f.dTakeoff / frames.ds) % n;
+    const iL = Math.round(f.dLanding / frames.ds) % n;
+    return [{ uTakeoff: iT / n, uLanding: iL / n, dTakeoff: iT * frames.ds, dLanding: iL * frames.ds }];
+  });
 
   // ---- Zones ----
-  const corkDist = { dStart: corkscrew.uStart * length, dEnd: corkscrew.uEnd * length };
-  const pit = { dStart: PIT_START, dEnd: PIT_END };
-  const curvatureAt = (d: number): number => query.sampleAt(d / length).curvature;
-  const dashPlates = placeDashPlates(seed, length, corkDist, curvatureAt);
-
   const zones: TrackZone[] = [
     {
       type: 'startLine',
@@ -94,21 +176,9 @@ export function generateTrack(opts: { seed: number }): TrackData {
       lateralMin: -CONFIG.TRACK_HALF_WIDTH,
       lateralMax: CONFIG.TRACK_HALF_WIDTH,
     },
-    {
-      type: 'pit',
-      uStart: pit.dStart / length,
-      uEnd: pit.dEnd / length,
-      lateralMin: CONFIG.PIT_LATERAL_MIN,
-      lateralMax: CONFIG.PIT_LATERAL_MAX,
-    },
-    ...dashPlates.map(
-      (p): TrackZone => ({
-        type: 'dash',
-        uStart: (p.distance - 6) / length,
-        uEnd: (p.distance + 6) / length,
-        lateralMin: p.lateral - 4,
-        lateralMax: p.lateral + 4,
-      }),
+    { type: 'pit', uStart: pit.dStart / length, uEnd: pit.dEnd / length, lateralMin: pitFeature.lateralMin, lateralMax: pitFeature.lateralMax },
+    ...features.flatMap((f): TrackZone[] =>
+      f.type === 'dash' ? [{ type: 'dash', uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length), lateralMin: f.lateralMin, lateralMax: f.lateralMax }] : [],
     ),
   ];
 
@@ -128,11 +198,40 @@ export function generateTrack(opts: { seed: number }): TrackData {
     startGrid.push({ u, lateral, position, quaternion });
   }
 
-  const collision = buildTrackCollision(frames);
-  const { group, stats: visualStats } = buildTrackVisual({ frames, query, corkscrew: corkDist, pit, dashPlates });
+  const gaps = jumps.map((j) => ({ dStart: j.dTakeoff, dEnd: j.dLanding }));
+  const corkDists = corkscrewFeatures.map((f) => ({ dStart: f.dStart, dEnd: f.dEnd }));
+  const collision = buildTrackCollision(frames, gaps);
+  const { group, stats: visualStats } = buildTrackVisual({
+    frames,
+    query,
+    corkscrews: corkDists,
+    pit,
+    dashPlates,
+    gaps,
+    palette: build.palette ?? DEFAULT_TRACK_PALETTE,
+  });
 
+  const surfaceKindAt = (u: number): SurfaceKind => {
+    for (const j of jumps) if (inLoopRange(wrap01(u), j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
+    return 'road';
+  };
+  const safeRespawnU = (u: number): number => {
+    const d = wrap01(u) * length;
+    for (const j of jumps) {
+      const from = j.dTakeoff - JUMP_RESPAWN_BEFORE;
+      const rel = (((d - from) % length) + length) % length;
+      if (rel <= j.dLanding - from) return wrap01((j.dLanding + JUMP_RESPAWN_AFTER) / length);
+    }
+    return u;
+  };
+
+  const first = rolls[0];
   const track: TrackData = {
-    seed,
+    id: layout.id,
+    worldId: layout.worldId,
+    name: layout.name,
+    laps: layout.laps,
+    seed: layout.seed,
     length,
     halfWidth: CONFIG.TRACK_HALF_WIDTH,
     railHeight: CONFIG.RAIL_HEIGHT,
@@ -144,7 +243,12 @@ export function generateTrack(opts: { seed: number }): TrackData {
     startGrid,
     collision,
     visual: group,
-    corkscrew,
+    corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
+    features,
+    jumps,
+    airGravityScale: layout.airGravityScale,
+    surfaceKindAt,
+    safeRespawnU,
   };
   statsByTrack.set(track, {
     layout: layout.stats,

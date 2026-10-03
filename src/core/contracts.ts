@@ -129,7 +129,64 @@ export interface GridSlot {
   quaternion: THREE.Quaternion;
 }
 
+// ---------------------------------------------------------------------------
+// Authored tracks (2.0): control points + features
+// ---------------------------------------------------------------------------
+
+/**
+ * Track features in metres along the lap. The seeded generator emits only a corkscrew, dash plates and the pit.
+ * A `jump` is an open-air gap: no surface and no rails between dTakeoff and dLanding. The builder raises a
+ * ramp of `kick` metres over the RAMP_LENGTH before the lip, and bends the centerline through the gap along
+ * the flight path of a ship at `designSpeed` (m/s), so project() and the AI keep working in the air.
+ */
+export type TrackFeature =
+  | { type: 'corkscrew'; dStart: number; dEnd: number; turns?: number }
+  | { type: 'jump'; dTakeoff: number; dLanding: number; kick: number; designSpeed?: number }
+  | { type: 'pipe'; dStart: number; dEnd: number; radius: number; transition: number }
+  | { type: 'loop'; dStart: number; dEnd: number; sideOffset: number }
+  | { type: 'branch'; id: string; dFork: number; dMerge: number; points: [number, number, number][]; halfWidth: number }
+  | { type: 'dash' | 'pit'; dStart: number; dEnd: number; lateralMin: number; lateralMax: number }
+  | { type: 'ice'; dStart: number; dEnd: number; lateralMin: number; lateralMax: number; grip: number }
+  | { type: 'gate'; d: number; period: number; phase: number; closedFraction: number }
+  | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number };
+
+/** content/tracks/<id>.json */
+export interface TrackDefinition {
+  id: string;
+  worldId: string;
+  name: string;
+  laps: number;
+  /** Closed centripetal Catmull-Rom control points (m). points[0] is the start line, on the main straight. */
+  points: [number, number, number][];
+  bankFactor?: number;
+  maxBank?: number;
+  /** Gravity multiplier while airborne (Orbital Ring < 1). */
+  airGravityScale?: number;
+  /** Lowest / highest allowed centerline elevation (validation). */
+  elevation?: [number, number];
+  features: TrackFeature[];
+  /** Total 3-lap time of the dev ghost (filled by bake-ghosts). */
+  devTime?: number;
+}
+
+export type SurfaceKind = 'road' | 'air' | 'pipe' | 'ice';
+
+/** A jump gap resolved onto the built track. */
+export interface TrackJump {
+  /** Lip and landing edge in u (the open-air span is (uTakeoff, uLanding)). */
+  uTakeoff: number;
+  uLanding: number;
+  dTakeoff: number;
+  dLanding: number;
+}
+
 export interface TrackData {
+  /** 'bonus-<seed>' for seeded tracks, the definition id for authored ones. */
+  id: string;
+  worldId: string;
+  name: string;
+  laps: number;
+  /** RNG seed (seeded tracks: the layout seed; authored: a hash of the id). */
   seed: number;
   /** Lap length in metres. */
   length: number;
@@ -149,7 +206,19 @@ export interface TrackData {
   collision: TrackCollisionData;
   /** Surface, rails, neon strips, dash plates, pit, start gate, pylons. */
   visual: THREE.Group;
-  corkscrew: { uStart: number; uEnd: number };
+  /** The (first) corkscrew, or null when the track has none. */
+  corkscrew: { uStart: number; uEnd: number } | null;
+  features: TrackFeature[];
+  jumps: TrackJump[];
+  /** Gravity multiplier while airborne. */
+  airGravityScale: number;
+  /** What a ship at (u, lateral) is driving on. */
+  surfaceKindAt(u: number, lateral: number): SurfaceKind;
+  /**
+   * Where a ship whose last valid position was u is put back: u itself, except near or inside a jump, where it
+   * is the landing side (respawning before the ramp at low speed would only miss the jump again).
+   */
+  safeRespawnU(u: number): number;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +308,8 @@ export interface ShipState {
   trackU: number;
   lateral: number;
   heightAboveTrack: number;
+  /** In the air over a jump gap (no surface under the hover rays). */
+  airborne: boolean;
   lastControls: ControlInput;
 
   // --- written by GAME only ---

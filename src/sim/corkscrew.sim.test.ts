@@ -26,7 +26,7 @@ describe.each([-9, -5, 0, 5, 9])('corkscrew hold at lateral %i m', (targetLatera
     const track = generateTrack({ seed: CONFIG.TRACK_SEED });
     const physics = await PhysicsSystem.create(track, bus);
     const ship = physics.addShip(SHIP_ROSTER[0], track.startGrid[0]);
-    physics.resetShip(0, slotAt(track, wrap01(track.corkscrew.uStart - 0.12), targetLateral));
+    physics.resetShip(0, slotAt(track, wrap01(track.corkscrew!.uStart - 0.12), targetLateral));
     ship.status = 'racing';
     let respawns = 0;
     bus.on('ship:respawn', () => respawns++);
@@ -36,13 +36,13 @@ describe.each([-9, -5, 0, 5, 9])('corkscrew hold at lateral %i m', (targetLatera
     let airborneSteps = 0;
     let insideSteps = 0;
     let prevLat = ship.lateral;
-    for (let i = 0; i < 120 * 12 && !(insideSteps > 0 && !inLoopRange(ship.trackU, track.corkscrew.uStart, track.corkscrew.uEnd)); i++) {
+    for (let i = 0; i < 120 * 12 && !(insideSteps > 0 && !inLoopRange(ship.trackU, track.corkscrew!.uStart, track.corkscrew!.uEnd)); i++) {
       const latVel = (ship.lateral - prevLat) / CONFIG.FIXED_DT;
       prevLat = ship.lateral;
       const steer = clamp(0.06 * (targetLateral - ship.lateral) - 0.05 * latVel, -1, 1);
       controls.set(0, { throttle: 1, brake: 0, steer, airbrakeLeft: 0, airbrakeRight: 0, boost: false });
       physics.step(CONFIG.FIXED_DT, controls);
-      if (inLoopRange(ship.trackU, track.corkscrew.uStart, track.corkscrew.uEnd)) {
+      if (inLoopRange(ship.trackU, track.corkscrew!.uStart, track.corkscrew!.uEnd)) {
         insideSteps++;
         worstHeightError = Math.max(worstHeightError, Math.abs(ship.heightAboveTrack - CONFIG.HOVER_HEIGHT));
         if (!ship.grounded) airborneSteps++;

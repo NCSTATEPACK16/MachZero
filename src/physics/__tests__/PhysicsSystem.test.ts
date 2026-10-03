@@ -38,6 +38,8 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'ship:dash': [],
     'ship:pit': [],
     'ship:lowEnergy': [],
+    'ship:jump': [],
+    'ship:land': [],
     'ship:destroyed': [],
     'ship:respawn': [],
   };

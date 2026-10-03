@@ -95,6 +95,7 @@ const BOOST_STRAIGHT_LEN = 200; // m
 const BOOST_MAX_STEER = 0.3;
 
 const PIT_APPROACH = 400; // m
+const JUMP_APPROACH = 160; // m before a jump lip where the line straightens toward the centre
 const PIT_FULL_ENERGY = 95;
 const PIT_SPEED = 58; // m/s inside the pit lane while recharging
 
@@ -110,6 +111,8 @@ export class AIDriver implements IAIDriver {
   private readonly length: number;
   private readonly count: number;
   private readonly pitZone: TrackZone | null;
+  /** u ranges (padded) driven near the centreline: corkscrews and jump approaches/gaps. */
+  private readonly centreRanges: [number, number][];
 
   private readonly out: ControlInput = neutralControls();
   private readonly sample: TrackSample;
@@ -160,6 +163,14 @@ export class AIDriver implements IAIDriver {
     this.length = track.length;
     this.count = track.samples.length;
     this.pitZone = track.zones.find((z) => z.type === 'pit') ?? null;
+    const L = track.length;
+    const corks = track.features.flatMap((f) => (f.type === 'corkscrew' ? [[f.dStart / L, f.dEnd / L] as [number, number]] : []));
+    if (corks.length === 0 && track.corkscrew) corks.push([track.corkscrew.uStart, track.corkscrew.uEnd]);
+    const pad = 60 / L;
+    this.centreRanges = [
+      ...corks.map(([a, b]): [number, number] => [wrap01(a - pad), wrap01(b + pad)]),
+      ...track.jumps.map((j): [number, number] => [wrap01((j.dTakeoff - JUMP_APPROACH) / L), wrap01((j.dLanding + 30) / L)]),
+    ];
 
     const s0 = track.samples[0];
     this.sample = {
@@ -238,10 +249,8 @@ export class AIDriver implements IAIDriver {
     const setup = clamp(kFar / CURV_REF, -1, 1);
     let lineLat = maxLat * (0.8 * inside - 0.4 * setup * (1 - Math.abs(inside)));
 
-    // The corkscrew is driven dead centre; the frame there rolls a full turn.
-    const cork = this.track.corkscrew;
-    const corkPad = 60 / this.length;
-    const inCork = inLoopRange(wrap01(targetU), wrap01(cork.uStart - corkPad), wrap01(cork.uEnd + corkPad));
+    // Corkscrews and jumps are driven near the centre: the frame rolls a full turn / the rails end.
+    const inCork = this.inCentreSection(wrap01(targetU));
     if (inCork) lineLat *= 0.15;
 
     // --- personality flavour ---
@@ -403,6 +412,11 @@ export class AIDriver implements IAIDriver {
   // ---------------------------------------------------------------------
   // helpers
   // ---------------------------------------------------------------------
+
+  private inCentreSection(u: number): boolean {
+    for (const [a, b] of this.centreRanges) if (inLoopRange(u, a, b)) return true;
+    return false;
+  }
 
   private rollBoostEnergy(): number {
     return Number.isNaN(this.profile.boostEnergy) ? this.rng.range(30, 70) : this.profile.boostEnergy;

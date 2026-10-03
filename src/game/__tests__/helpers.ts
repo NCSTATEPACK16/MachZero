@@ -57,6 +57,10 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
   if (options.pit) zones.push({ type: 'pit', uStart: 0.9, uEnd: 0.05, lateralMin: -13, lateralMax: -7 });
 
   const track: TrackData = {
+    id: 'test-circle',
+    worldId: 'test',
+    name: 'TEST CIRCLE',
+    laps: 3,
     seed: 1,
     length,
     halfWidth,
@@ -80,6 +84,11 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
     collision: { surface: { vertices: new Float32Array(0), indices: new Uint32Array(0) }, rails: { vertices: new Float32Array(0), indices: new Uint32Array(0) } },
     visual: new THREE.Group(),
     corkscrew: { uStart: 0.5, uEnd: 0.55 },
+    features: [],
+    jumps: [],
+    airGravityScale: 1,
+    surfaceKindAt: () => 'road',
+    safeRespawnU: (u) => u,
   };
   return track;
 }
@@ -113,6 +122,7 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     trackU: 0.99,
     lateral: 0,
     heightAboveTrack: 1.2,
+    airborne: false,
     lastControls: neutralControls(),
     status: 'grid',
     boostUnlocked: false,
