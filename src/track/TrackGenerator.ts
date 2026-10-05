@@ -11,6 +11,7 @@ import { buildFrames, toTrackSamples, type BankOptions, type CorkscrewRange, typ
 import { createLayout, type LayoutStats } from './TrackLayout';
 import { buildTrackCollision, buildTrackVisual, type DashPlate, type TrackPalette, type VisualStats } from './TrackMesh';
 import { TrackQuery } from './TrackQuery';
+import { curlSamples, type PipeSpan } from './features/pipe';
 
 const PIT_START = 30;
 const PIT_END = 250;
@@ -138,7 +139,9 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
 
   const corkscrewFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'corkscrew' }> => f.type === 'corkscrew');
   const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
-  const frames = buildFrames(resampled, differentials, rolls, layout.bank);
+  const pipeSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'pipe' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
+  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans);
+  const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl);
   const samples = toTrackSamples(frames);
   const query = new TrackQuery(frames, CONFIG.TRACK_HALF_WIDTH);
   const curvatureAt = (d: number): number => query.sampleAt(d / length).curvature;
@@ -205,14 +208,33 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     frames,
     query,
     corkscrews: corkDists,
+    pipes: pipeSpans,
+    ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
     pit,
     dashPlates,
     gaps,
     palette: build.palette ?? DEFAULT_TRACK_PALETTE,
   });
 
-  const surfaceKindAt = (u: number): SurfaceKind => {
-    for (const j of jumps) if (inLoopRange(wrap01(u), j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
+  const pipes = pipeSpans.map((p) => ({
+    uStart: wrap01(p.dStart / length),
+    uEnd: wrap01(p.dEnd / length),
+    uClosedStart: wrap01((p.dStart + p.transition) / length),
+    uClosedEnd: wrap01((p.dEnd - p.transition) / length),
+  }));
+  const ice = features.flatMap((f) =>
+    f.type === 'ice' ? [{ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip }] : [],
+  );
+  const gripAt = (u: number, lateral: number): number => {
+    const uw = wrap01(u);
+    for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return z.grip;
+    return 1;
+  };
+  const surfaceKindAt = (u: number, lateral: number): SurfaceKind => {
+    const uw = wrap01(u);
+    for (const j of jumps) if (inLoopRange(uw, j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
+    for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return 'ice';
+    for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
     return 'road';
   };
   const safeRespawnU = (u: number): number => {
@@ -239,6 +261,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     samples,
     sampleAt: (u, out) => query.sampleAt(u, out),
     project: (pos, hintU) => query.project(pos, hintU),
+    surfacePoint: (u, lateral, out, outUp) => query.surfacePoint(u, lateral, out, outUp),
     zones,
     startGrid,
     collision,
@@ -246,8 +269,10 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
     features,
     jumps,
+    pipes,
     airGravityScale: layout.airGravityScale,
     surfaceKindAt,
+    gripAt,
     safeRespawnU,
   };
   statsByTrack.set(track, {

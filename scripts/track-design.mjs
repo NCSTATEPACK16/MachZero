@@ -1,7 +1,8 @@
 // Authoring tool for MachZero's hand-designed tracks: each world's circuit is written below as a sequence of
 // turtle segments (straights and constant-radius arcs, each with an end elevation), which this script turns
 // into the closed Catmull-Rom control points of src/content/tracks/<id>.json, plus the features placed on
-// those segments (corkscrew, jumps, dash plates, pit) in metres along the lap.
+// those segments (corkscrew, jumps, pipes, ice, dash plates, pit) in metres along the lap. A pipe or ice patch
+// may run on past its segment (`len` instead of `to`).
 //
 //   node scripts/track-design.mjs            # write every track
 //   node scripts/track-design.mjs neon-bay   # one track
@@ -67,6 +68,29 @@ const TRACKS = {
       { s: 170, y: 44 },
     ],
   },
+  // World 3. Ice planet research station under an aurora: a clockwise lap whose signature is a 500 m frosted
+  // glass tube bending gently across the glacier (drive anywhere around its inside), with ice patches on the
+  // fast back straight, the pipe's left wall and the hairpin exit.
+  'cryo-station': {
+    worldId: 'cryo-station',
+    name: 'CRYO STATION',
+    elevation: [24, 66],
+    segments: [
+      { s: 380, y: 40, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
+      { r: 260, a: 90, y: 44 },
+      { s: 380, y: 50, adjust: true, f: [{ type: 'dash', at: 110, lateral: -4 }, { type: 'ice', from: 220, to: 290, lateralMin: 0, lateralMax: 14, grip: 0.3 }] },
+      { r: 180, a: 60, y: 52 },
+      // The pipe: 80 m closing on the straight, the closed tube through the 50° bend, 80 m opening after it.
+      { s: 180, y: 52, f: [{ type: 'pipe', from: 40, len: 560, transition: 80 }, { type: 'ice', from: 260, len: 70, lateralMin: -13, lateralMax: -6, grip: 0.3 }] },
+      { r: 420, a: 50, y: 56 },
+      { s: 180, y: 56 },
+      { r: 220, a: -40, y: 50 },
+      { r: 150, a: 120, y: 42, f: [{ type: 'ice', from: 270, to: 330, lateralMin: -14, lateralMax: -3, grip: 0.3 }] },
+      { s: 560, y: 36, f: [{ type: 'dash', at: 240, lateral: 3 }] },
+      { r: 240, a: 80, y: 38 },
+      { s: 200, y: 40, adjust: true },
+    ],
+  },
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -124,6 +148,11 @@ function walk(segments, lengths, emit) {
           feats.push(f.type === 'pit' ? { ...base, lateralMin: f.lateralMin, lateralMax: f.lateralMax } : base);
         } else if (f.type === 'dash') {
           feats.push({ type: 'dash', dStart: +(d0 + f.at - 6).toFixed(2), dEnd: +(d0 + f.at + 6).toFixed(2), lateralMin: f.lateral - 4, lateralMax: f.lateral + 4 });
+        } else if (f.type === 'pipe') {
+          feats.push({ type: 'pipe', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.from + f.len).toFixed(2), transition: f.transition });
+        } else if (f.type === 'ice') {
+          const to = f.to ?? f.from + f.len;
+          feats.push({ type: 'ice', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + to).toFixed(2), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip });
         } else if (f.type === 'jump') {
           const j = { type: 'jump', dTakeoff: +(d0 + f.lip).toFixed(2), dLanding: +(d0 + f.lip + f.gap).toFixed(2), kick: f.kick };
           if (f.designSpeed) j.designSpeed = f.designSpeed;

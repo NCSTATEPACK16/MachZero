@@ -16,6 +16,7 @@ import type { TriMesh } from '../core/contracts';
 import type { FrameSet } from './TrackFrames';
 import type { TrackQuery } from './TrackQuery';
 import { wrap01 } from '../core/math';
+import { CURL_EPS, curlPoint, type CurledPoint } from './features/pipe';
 
 export interface SweepFrames {
   /** Number of distinct rings (excluding the duplicated seam ring of a closed loop). */
@@ -30,6 +31,13 @@ export interface SweepFrames {
   totalLength: number;
   /** FrameSet sample index of each ring (sections cut from a FrameSet); used to slice per-ring colours. */
   src?: Int32Array;
+  /** Pipe curl per ring (features/pipe.ts); absent = flat. Profiles are bent onto the curled deck. */
+  curl?: Float64Array;
+}
+
+export interface BendOptions {
+  /** Multiplier on profile heights above the deck (y > 0) as a function of curl: rails shrink as a pipe closes. */
+  heightScale?: (curl: number) => number;
 }
 
 /** An open-air gap in metres along the lap (no surface, no rails). */
@@ -78,7 +86,7 @@ export function mirrorProfile(points: ProfilePoint[]): ProfilePoint[] {
 export function framesFromFrameSet(fs: FrameSet): SweepFrames {
   const dist = new Float64Array(fs.count);
   for (let i = 0; i < fs.count; i++) dist[i] = i * fs.ds;
-  return { count: fs.count, closed: true, pos: fs.pos, right: fs.right, up: fs.up, dist, totalLength: fs.length };
+  return { count: fs.count, closed: true, pos: fs.pos, right: fs.right, up: fs.up, dist, totalLength: fs.length, curl: fs.curl };
 }
 
 /**
@@ -101,9 +109,11 @@ export function roadSections(fs: FrameSet, gaps: readonly GapRange[]): SweepFram
     const up = new Float64Array(count * 3);
     const dist = new Float64Array(count);
     const src = new Int32Array(count);
+    const curl = new Float64Array(count);
     for (let r = 0; r < count; r++) {
       const i = (from + r) % n;
       src[r] = i;
+      curl[r] = fs.curl[i];
       for (let c = 0; c < 3; c++) {
         pos[r * 3 + c] = fs.pos[i * 3 + c];
         right[r * 3 + c] = fs.right[i * 3 + c];
@@ -111,9 +121,87 @@ export function roadSections(fs: FrameSet, gaps: readonly GapRange[]): SweepFram
       }
       dist[r] = (from + r) * fs.ds;
     }
-    out.push({ count, closed: false, pos, right, up, dist, totalLength: (count - 1) * fs.ds, src });
+    out.push({ count, closed: false, pos, right, up, dist, totalLength: (count - 1) * fs.ds, src, curl });
   }
   return out;
+}
+
+/**
+ * Open sub-sections of `sec` made of the runs of rings where `keep(curl)` holds. With `pad`, each run also takes
+ * the ring on either side, so two complementary splits meet edge to edge.
+ */
+export function splitByCurl(sec: SweepFrames, keep: (curl: number) => boolean, pad = false): SweepFrames[] {
+  const n = sec.count;
+  const curlOf = (r: number): number => (sec.curl ? sec.curl[r] : 0);
+  const kept = new Uint8Array(n);
+  let any = false;
+  let all = true;
+  for (let r = 0; r < n; r++) {
+    kept[r] = keep(curlOf(r)) ? 1 : 0;
+    if (kept[r]) any = true;
+    else all = false;
+  }
+  if (!any) return [];
+  if (all) return [sec];
+  if (pad) {
+    const grown = kept.slice();
+    for (let r = 0; r < n; r++) {
+      if (!kept[r]) continue;
+      if (r > 0 || sec.closed) grown[(r - 1 + n) % n] = 1;
+      if (r < n - 1 || sec.closed) grown[(r + 1) % n] = 1;
+    }
+    kept.set(grown);
+  }
+  // Start scanning just after a dropped ring so closed loops don't split a run at the seam.
+  let start = 0;
+  if (sec.closed) {
+    for (let r = 0; r < n; r++) if (!kept[r]) start = (r + 1) % n;
+  }
+  const out: SweepFrames[] = [];
+  const span = sec.closed ? n : n - start;
+  let runStart = -1;
+  const flush = (endExclusive: number): void => {
+    const count = endExclusive - runStart;
+    if (count >= 2) out.push(sliceRings(sec, start + runStart, count));
+    runStart = -1;
+  };
+  for (let k = 0; k < span; k++) {
+    const r = (start + k) % n;
+    if (kept[r]) {
+      if (runStart < 0) runStart = k;
+    } else if (runStart >= 0) {
+      flush(k);
+    }
+  }
+  if (runStart >= 0) flush(span);
+  return out;
+}
+
+function sliceRings(sec: SweepFrames, from: number, count: number): SweepFrames {
+  const n = sec.count;
+  const pos = new Float64Array(count * 3);
+  const right = new Float64Array(count * 3);
+  const up = new Float64Array(count * 3);
+  const dist = new Float64Array(count);
+  const curl = new Float64Array(count);
+  const src = new Int32Array(count);
+  let d0 = 0;
+  for (let k = 0; k < count; k++) {
+    const r = (from + k) % n;
+    for (let c = 0; c < 3; c++) {
+      pos[k * 3 + c] = sec.pos[r * 3 + c];
+      right[k * 3 + c] = sec.right[r * 3 + c];
+      up[k * 3 + c] = sec.up[r * 3 + c];
+    }
+    // Keep distances increasing across a closed loop's seam.
+    let d = sec.dist[r];
+    if (k === 0) d0 = d;
+    else if (d < d0) d += sec.totalLength;
+    dist[k] = d;
+    curl[k] = sec.curl ? sec.curl[r] : 0;
+    src[k] = sec.src ? sec.src[r] : r;
+  }
+  return { count, closed: false, pos, right, up, dist, totalLength: dist[count - 1] - dist[0], src, curl };
 }
 
 /** Per-ring colours of a section, sliced from colours indexed by FrameSet sample. */
@@ -140,9 +228,11 @@ export function framesFromRange(query: TrackQuery, length: number, dStart: numbe
   const right = new Float64Array(count * 3);
   const up = new Float64Array(count * 3);
   const dist = new Float64Array(count);
+  const curl = new Float64Array(count);
   for (let k = 0; k < count; k++) {
     const d = (span * k) / (count - 1);
     const s = query.sampleAt(wrap01((dStart + d) / length));
+    curl[k] = query.curlAt(wrap01((dStart + d) / length));
     pos[k * 3] = s.position.x;
     pos[k * 3 + 1] = s.position.y;
     pos[k * 3 + 2] = s.position.z;
@@ -154,7 +244,20 @@ export function framesFromRange(query: TrackQuery, length: number, dStart: numbe
     up[k * 3 + 2] = s.up.z;
     dist[k] = d;
   }
-  return { count, closed: false, pos, right, up, dist, totalLength: span };
+  return { count, closed: false, pos, right, up, dist, totalLength: span, curl };
+}
+
+/** Bend a profile point for ring `ri` into `out` (identity on flat rings). */
+function bendInto(frames: SweepFrames, ri: number, x: number, y: number, bend: BendOptions | undefined, out: CurledPoint): CurledPoint {
+  const c = frames.curl ? frames.curl[ri] : 0;
+  if (c < CURL_EPS) {
+    out.x = x;
+    out.y = y;
+    out.phi = 0;
+    return out;
+  }
+  const yy = y > 0 && bend?.heightScale ? y * bend.heightScale(c) : y;
+  return curlPoint(x, yy, c, out);
 }
 
 /**
@@ -167,6 +270,7 @@ export function sweepProfile(
   closedProfile: boolean,
   uv: UvOptions,
   ringColors?: Float32Array,
+  bend?: BendOptions,
 ): MeshData {
   const P = points.length;
   const segs = closedProfile ? P : P - 1;
@@ -178,6 +282,7 @@ export function sweepProfile(
   const uvs = new Float32Array(vertCount * 2);
   const colors = ringColors ? new Float32Array(vertCount * 3) : null;
 
+  const bent: CurledPoint = { x: 0, y: 0, phi: 0 };
   // Per-segment 2D normal (outward for counter-clockwise profiles) and v range.
   const nx = new Float64Array(segs);
   const ny = new Float64Array(segs);
@@ -222,12 +327,24 @@ export function sweepProfile(
       for (let e = 0; e < 2; e++) {
         const q = e === 0 ? a : b;
         const vi = base + e;
-        positions[vi * 3] = px + rx * q.x + ux * q.y;
-        positions[vi * 3 + 1] = py + ry * q.x + uy * q.y;
-        positions[vi * 3 + 2] = pz + rz * q.x + uz * q.y;
-        normals[vi * 3] = nrx;
-        normals[vi * 3 + 1] = nry;
-        normals[vi * 3 + 2] = nrz;
+        const bq = bendInto(frames, ri, q.x, q.y, bend, bent);
+        positions[vi * 3] = px + rx * bq.x + ux * bq.y;
+        positions[vi * 3 + 1] = py + ry * bq.x + uy * bq.y;
+        positions[vi * 3 + 2] = pz + rz * bq.x + uz * bq.y;
+        if (bq.phi === 0) {
+          normals[vi * 3] = nrx;
+          normals[vi * 3 + 1] = nry;
+          normals[vi * 3 + 2] = nrz;
+        } else {
+          // The profile normal turns with the deck: rotate (nx, ny) by φ in the (right, up) plane.
+          const cs = Math.cos(bq.phi);
+          const sn = Math.sin(bq.phi);
+          const ex = nx[j] * cs - ny[j] * sn;
+          const ey = nx[j] * sn + ny[j] * cs;
+          normals[vi * 3] = rx * ex + ux * ey;
+          normals[vi * 3 + 1] = ry * ex + uy * ey;
+          normals[vi * 3 + 2] = rz * ex + uz * ey;
+        }
         uvs[vi * 2] = u;
         uvs[vi * 2 + 1] = e === 0 ? v0[j] : v1[j];
         if (colors && ringColors) {
@@ -259,15 +376,16 @@ export function sweepProfile(
 }
 
 /** Fully welded closed sweep (shared vertices) for physics: `count * P` vertices, outward winding. */
-export function sweepWelded(frames: SweepFrames, points: { x: number; y: number }[], closedProfile: boolean): TriMesh {
+export function sweepWelded(frames: SweepFrames, points: { x: number; y: number }[], closedProfile: boolean, bend?: BendOptions): TriMesh {
   const P = points.length;
   const segs = closedProfile ? P : P - 1;
   const n = frames.count;
   const vertices = new Float32Array(n * P * 3);
+  const bent: CurledPoint = { x: 0, y: 0, phi: 0 };
   for (let r = 0; r < n; r++) {
     const i3 = r * 3;
     for (let k = 0; k < P; k++) {
-      const q = points[k];
+      const q = bendInto(frames, r, points[k].x, points[k].y, bend, bent);
       const o = (r * P + k) * 3;
       vertices[o] = frames.pos[i3] + frames.right[i3] * q.x + frames.up[i3] * q.y;
       vertices[o + 1] = frames.pos[i3 + 1] + frames.right[i3 + 1] * q.x + frames.up[i3 + 1] * q.y;
