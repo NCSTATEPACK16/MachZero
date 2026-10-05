@@ -5,7 +5,7 @@ Build the scenery props of each world as one GLB per world (public/game/worlds/<
 
 Each prop is one mesh object at the origin, base on z = 0 (Blender Z up; glTF Y up after export), named
 <kind>_<n>. Colours are baked into COLOR_0 (linear RGB, flat-shaded low-poly facets); materials are named by
-role and replaced at runtime by the world theme (graphics/themes): sandstone, chrome, dark, neon, foliage.
+role and replaced at runtime by the world theme (graphics/themes): sandstone, chrome, dark, neon, foliage, ice.
 Billboards carry an empty named `screen` at the centre of the panel face; the runtime puts its neon sign there.
 Deterministic: every random draw comes from random.Random(seed).
 """
@@ -26,6 +26,7 @@ PROP_ROLES = {
     "dark": ((0.05, 0.05, 0.08, 1.0), 0.6, 0.5, 0.0),
     "neon": ((1.0, 0.2, 0.8, 1.0), 0.0, 0.5, 4.0),
     "foliage": ((0.1, 0.4, 0.15, 1.0), 0.0, 0.8, 0.0),
+    "ice": ((0.75, 0.9, 1.0, 1.0), 0.0, 0.08, 0.0),
 }
 C.ROLES.update(PROP_ROLES)
 
@@ -364,6 +365,128 @@ def build_neon_bay(out_dir):
     export(out_dir, "neon-bay", objs)
 
 
+
+# ---------------------------------------------------------------------------
+# Cryo Station
+# ---------------------------------------------------------------------------
+
+def glacial(seed):
+    """Ice colour by height: deep blue at the foot, pale cyan bands, near-white snow on top."""
+    rng = random.Random(seed)
+    bands = [rng.uniform(0, 1) for _ in range(64)]
+    deep = (0.05, 0.16, 0.32)
+    mid = (0.32, 0.62, 0.86)
+    snow = (0.86, 0.94, 1.0)
+
+    def f(x, y, z):
+        b = bands[int(z / 4.0) % 64]
+        c = lerp3(deep, mid, 0.35 + 0.65 * b)
+        return c
+
+    def top(height):
+        def g(x, y, z):
+            return snow if z > height * 0.92 else f(x, y, z)
+        return g
+
+    return f, top
+
+
+def build_ice_spire(name, seed, height, lean=0.12):
+    """Jagged crystal: a few faceted shards from one base, the tallest in the middle."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    col, _ = glacial(seed)
+    shards = rng.randint(3, 5)
+    for k in range(shards):
+        h = height * (1.0 if k == 0 else rng.uniform(0.35, 0.7))
+        r = height * rng.uniform(0.07, 0.11) * (1.0 if k == 0 else 0.8)
+        a = rng.uniform(0, math.tau)
+        off = 0.0 if k == 0 else height * rng.uniform(0.08, 0.16)
+        cx, cy = off * math.cos(a), off * math.sin(a)
+        n = rng.choice((5, 6))
+        base = ring(cx, cy, r, n, rng, 0.2, rng.uniform(0, math.tau))
+        tilt = lean if k == 0 else rng.uniform(0.1, 0.35)
+        tx, ty = cx + math.cos(a) * h * tilt, cy + math.sin(a) * h * tilt
+        mid = scale_outline(base, 0.75, cx, cy)
+        mid = [(x + (tx - cx) * 0.55, y + (ty - cy) * 0.55) for (x, y) in mid]
+        frustum(pb, base, mid, 0, h * 0.55, "ice", col, cap_bottom=True, cap_top=False)
+        top = [(tx + (x - cx) * 0.05, ty + (y - cy) * 0.05) for (x, y) in base]
+        frustum(pb, mid, top, h * 0.55, h, "ice", lambda x, y, z: lerp3(col(x, y, z), (0.9, 0.97, 1.0), 0.6), cap_top=True)
+    return pb.done()
+
+
+def build_glacier(name, seed, radius, height):
+    """Flat-topped ice shelf with a snow cap and crevassed sides."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    col, top = glacial(seed)
+    n = rng.randint(14, 20)
+    base = ring(0, 0, radius, n, rng, 0.2, rng.uniform(0, math.tau))
+    upper = scale_outline(base, rng.uniform(0.8, 0.9))
+    frustum(pb, base, upper, 0, height, "ice", top(height), cap_bottom=True, cap_top=True, rows=max(1, round(height / 4.0)), rng=rng, wobble=0.05)
+    return pb.done()
+
+
+def build_control_tower(name, seed, height):
+    """CRT control tower: a chrome stalk, a dark cab with a band of glowing screens, a dish on the roof."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    frustum(pb, ring(0, 0, 3.2, 8), ring(0, 0, 2.2, 8), 0, height, "chrome", (1, 1, 1), cap_bottom=True, cap_top=False)
+    cab_z = height
+    frustum(pb, ring(0, 0, 4.0, 8, phase=math.pi / 8), ring(0, 0, 7.5, 8, phase=math.pi / 8), cab_z, cab_z + 3.0, "dark", (0.03, 0.04, 0.08), cap_bottom=True, cap_top=False)
+    frustum(pb, ring(0, 0, 7.6, 8, phase=math.pi / 8), ring(0, 0, 7.6, 8, phase=math.pi / 8), cab_z + 3.0, cab_z + 5.5, "neon", (1, 1, 1), cap_top=False)
+    frustum(pb, ring(0, 0, 7.5, 8, phase=math.pi / 8), ring(0, 0, 5.0, 8, phase=math.pi / 8), cab_z + 5.5, cab_z + 8.0, "dark", (0.03, 0.04, 0.08))
+    # Roof mast and dish.
+    box(pb, -0.3, 0.3, -0.3, 0.3, cab_z + 8.0, cab_z + 8.0 + rng.uniform(6, 10), "chrome", (1, 1, 1))
+    frustum(pb, ring(0, 0, 0.4, 10), ring(0, 0, 3.0, 10), cab_z + 8.5, cab_z + 9.5, "chrome", (1, 1, 1), cap_top=False)
+    return pb.done()
+
+
+def build_dome(name, radius):
+    """Research dome: stacked rings approximating a hemisphere, a neon ring at the foot and a skylight."""
+    pb = PropBuilder(name)
+    rows = 6
+    prev = ring(0, 0, radius, 16)
+    z = 0.0
+    frustum(pb, ring(0, 0, radius + 0.6, 16), ring(0, 0, radius + 0.6, 16), 0, 1.0, "neon", (1, 1, 1), cap_top=False)
+    for i in range(1, rows + 1):
+        a = i / rows * math.pi / 2
+        r = radius * math.cos(a) if i < rows else radius * 0.18
+        nz = radius * 0.8 * math.sin(a)
+        cur = ring(0, 0, r, 16)
+        frustum(pb, prev, cur, z, nz, "chrome" if i % 2 else "dark", (1, 1, 1) if i % 2 else (0.05, 0.07, 0.12), cap_top=(i == rows))
+        prev, z = cur, nz
+    return pb.done()
+
+
+def build_mast(name):
+    """Lattice-ish radio mast (a tapered square stalk) with neon bands and a beacon."""
+    pb = PropBuilder(name)
+    sq = lambda s: [(-s, -s), (s, -s), (s, s), (-s, s)]  # noqa: E731
+    frustum(pb, sq(1.8), sq(2.0), 0, 1.0, "dark", (0.04, 0.05, 0.08), cap_bottom=True)
+    frustum(pb, sq(1.0), sq(0.35), 1.0, 36.0, "chrome", (1, 1, 1), cap_top=False)
+    for z in (12.0, 24.0):
+        w = 1.0 - (z / 36.0) * 0.65 + 0.06
+        frustum(pb, sq(w), sq(w), z, z + 1.0, "neon", (1, 1, 1), cap_top=False)
+    box(pb, -0.6, 0.6, -0.6, 0.6, 36.0, 37.4, "neon", (1, 1, 1))
+    return pb.done()
+
+
+def build_cryo_station(out_dir):
+    C.reset_scene()
+    objs = [
+        build_ice_spire("spire_0", 201, 90),
+        build_ice_spire("spire_1", 211, 55, lean=0.25),
+        build_ice_spire("spire_2", 223, 130, lean=0.05),
+        build_glacier("glacier_0", 229, 90, 40),
+        build_glacier("glacier_1", 233, 140, 26),
+        build_control_tower("tower_0", 241, 42),
+        build_dome("dome_0", 26),
+        build_mast("mast_0"),
+    ]
+    export(out_dir, "cryo-station", objs)
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -377,7 +500,7 @@ def export(out_dir, world, objs):
     print(f"[props] {world}: {sum(tris.values())} tris {tris} -> {path}")
 
 
-WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay}
+WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay, "cryo-station": build_cryo_station}
 
 
 def main():

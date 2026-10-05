@@ -435,7 +435,7 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
-## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards
+## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards — 🚧 M4a (Cryo Station) in review; M4b, M4c to do
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
@@ -448,6 +448,20 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 - **Stone gates:** on the main road they slide across **half** the width, alternating sides, so there is always a way through. One gate can close the **whole** shortcut.
 - **Loop (Orbital):** built from the centre line, nudged sideways so it doesn't cross itself; the magnetic hold keeps the ship on at **any** speed (no minimum speed). Low-g jumps use `airGravityScale` 0.35.
 - **Debris:** solid kinematic obstacles on **every** preset (Low only draws simpler meshes), so the game plays the same on every device and the sims match.
+
+**As built — M4a, Cryo Station** (read before M4b):
+
+- **Pipe geometry** (`track/features/pipe.ts`): one parameter, `curl` ∈ [0, 1] per frame sample, bends the cross-section onto an arc of curvature `curl·π/W` centred on the centreline. `curl` 1 closes the deck into a tube of circumference 2W (radius ≈ 4.46 m). Arc length is preserved, so `lateral` stays the position around the tube everywhere (±W is the top seam). The `pipe` feature is `{ dStart, dEnd, transition }` (the unused `radius` field was dropped from the contract). Bank fades out with the curl (`buildFrames` takes the curl array).
+- **Queries:** `FrameSet.curl`; `TrackQuery.project()` un-curls the point (lateral = arc position, height along the curled normal) and returns `surfaceUp`, the true surface normal, which includes the along-track pitch where the curl changes. New `TrackData.surfacePoint(u, lateral, out, outUp?)`, `pipes` (`uStart/uEnd/uClosedStart/uClosedEnd`), `gripAt(u, lateral)`; `surfaceKindAt` returns `pipe` / `ice`.
+- **Mesh and collision:** `SweepFrames.curl` plus `splitByCurl()`. The flat deck and slab stop where the curl starts; the curled stretch is a subdivided frosted-glass deck (`TrackPipeGlass`, transparent, double-sided) with light rings round the closed part; rails sink into the deck as the tube closes and end flush at curl 0.85 (no blunt rail ends). The collision surface uses 40 pieces across inside pipes.
+- **Physics** (`ShipController`): hover rays, magnet gravity and the magnetic lock needed no change (gravity always points into the surface). New: `sampleUp` = `surfaceUp`; **pipe magnetism** (`physics/PipeCompensation.ts`) yaws heading and momentum by the extra geodesic curvature of the constant-lateral line caused by the curl *changing*. It is tabulated per track, and is zero inside the closed tube, so bends stay the player's to steer. **Seam guard:** from 60 m before the tube opens, ships within 4.5 m of the top seam are eased down the wall at up to 70 m/s², because the deck splits there and the rails come back.
+- **Ice:** `ice` features (lateral band, `grip` 0.3) multiply grounded lateral grip; `ship:ice { active }` on entry and exit. Glossy pulsing decals; Rookie races pulse harder.
+- **HazardPolicy** (`core/hazards.ts`): `normal` / `rookie` (telegraph ×2, no damage, hit speed ×0.85). It is in `RaceSetup.hazards`, passed to `PhysicsSystem.create(…, { hazards })` (M4b/M4c consume it) and to the track build (`telegraphScale`). `?hazards=rookie` forces it for QA.
+- **AI:** aims at `track.surfacePoint` (the curled wall inside the pipe); lines inside a pipe stay within ±9 m (off the seam); ice in the next 140 m that leaves a lane is steered round with a 2.5 m margin; curves on ice are planned at half the lateral budget; on ice the target lateral moves slowly (steady line).
+- **Track:** `cryo-station.json` (3,653 m, ~31 s/lap): a 560 m pipe (80 m transitions) through a 420 m-radius 50° bend, and 3 ice patches (back straight, inside the pipe on the left wall, long straight). `TrackValidate` checks pipes (plan radius ≥ 300 m, transition ≥ 60 m, closed ≥ 150 m); the preview draws pipes and ice.
+- **Theme** (`graphics/themes/cryoStation.ts`): aurora night sky (two drifting curtains, stars), moonlit snowfield, a ring of jagged ice peaks; Blender props (`build_cryo_station`, role `ice` added): 3 ice spires, 2 glacier shelves, a CRT control tower, a research dome and neon masts lining the track; 1,408 tris, 46 KB.
+- **Tests:** `sim/pipe.hold.sim.test.ts` (5 lines up to 154° up either wall × 70 and 125 m/s, plus a 1¾-turn spiral: height and axis error < 0.6 m, hull aligned, never airborne, no respawn), `sim/cryo-station.sim.test.ts` (Rookie and Legend fits), pipe geometry unit tests, the hazard policy and URL flag.
+- **Deviation:** the frosted glass is faked (a transparent standard material) on every preset. Real transmission would add a render pass that the custom MSAA/post chain does not support yet. Revisit with M8 polish if the user wants it.
 
 - **Cryo Station:**
   - Pipe section, aurora sky shader, ice spires, frosted-glass tube material (transmission on High, faked on Low).
