@@ -13,6 +13,8 @@ import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } fr
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
 import { AssetLoader } from '../assets/AssetLoader';
+import { TRACK_DEFS } from '../content/tracks';
+import { WORLDS, worldById, type WorldDef } from '../content/worlds';
 import { InputManager } from '../physics';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
 import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
@@ -76,6 +78,7 @@ export class App {
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
   private readonly input = new InputManager(window);
+  private readonly assets = new AssetLoader();
   private readonly loop: GameLoop;
   private session: RaceSession | null = null;
   private sessionKey = '';
@@ -151,6 +154,7 @@ export class App {
   /** Build the first race, pick the first screen and start the loop. */
   async start(): Promise<void> {
     if (this.features.garage) await this.loadShipAssets();
+    await this.loadWorldAssets();
     await this.ensureSession();
     this.loop.start();
     const first = initialRoute(this.flags, this.features, this.save.value);
@@ -169,6 +173,7 @@ export class App {
   async startRace(): Promise<void> {
     this.route.value = { name: 'loading' };
     await nextPaint();
+    await this.loadWorldAssets();
     const s = await this.ensureSession();
     s.start();
     this.route.value = { name: 'race' };
@@ -191,6 +196,25 @@ export class App {
 
   openSoon(feature: FeatureName, title: string): void {
     this.route.value = { name: 'soon', feature, title };
+  }
+
+  openWorlds(): void {
+    this.route.value = { name: 'worlds' };
+  }
+
+  /** World select: remember the world and race it. */
+  selectWorld(worldId: string): void {
+    const w = worldById(worldId);
+    if (!w?.built) return;
+    this.updateProfile((p) => (p.world = w.id), () => true);
+    void this.startRace();
+  }
+
+  /** The world the next race is in, or null for the v1 classic / Bonus Track. */
+  get currentWorld(): WorldDef | null {
+    if (!this.features.worlds || this.flags.seed !== null) return null;
+    const w = worldById(this.flags.world ?? this.activeProfile.value?.world ?? WORLDS[0].id);
+    return w?.built ? w : WORLDS[0];
   }
 
   openGarage(): void {
@@ -305,15 +329,28 @@ export class App {
 
   /** Label of the race the menu's RACE entry starts. */
   get raceLabel(): string {
+    const w = this.currentWorld;
+    if (w) return w.name;
     return this.flags.seed !== null ? `BONUS TRACK #${this.flags.seed}` : 'NEON BAY · CLASSIC';
   }
 
   /** Blender ships (M2). On failure the procedural v1 ships stay in use. */
   private async loadShipAssets(): Promise<void> {
     try {
-      this.graphics.setShipAssets(await new AssetLoader().loadShips());
+      this.graphics.setShipAssets(await this.assets.loadShips());
     } catch (e) {
       console.warn('MachZero: ship models failed to load; using the built-in ships.', e);
+    }
+  }
+
+  /** Scenery props of the next race's world (cached; on failure the theme's procedural scenery remains). */
+  private async loadWorldAssets(): Promise<void> {
+    const w = this.currentWorld;
+    if (!w) return;
+    try {
+      this.graphics.setWorldProps(w.id, await this.assets.load(`worlds/${w.id}/props.glb`));
+    } catch (e) {
+      console.warn(`MachZero: ${w.name} scenery failed to load; using the procedural scenery.`, e);
     }
   }
 
@@ -356,14 +393,20 @@ export class App {
 
   private raceSetup(): RaceSetup {
     const p = this.menus ? this.activeProfile.value : null;
-    const seed = this.flags.seed ?? CONFIG.TRACK_SEED;
-    const trackKey = this.flags.seed !== null ? `bonus-${seed}` : 'classic';
     const field = buildRaceField({
       playerName: p?.name ?? 'YOU',
       playerLoadout: p?.loadout ?? defaultLoadout(),
       tier: this.raceTier(p),
     });
-    return { seed, trackKey, field, autopilot: this.flags.autopilot, records: p ? this.profileRecords(p.id, trackKey) : localRecordStore };
+    const base = { field, autopilot: this.flags.autopilot };
+    const world = this.currentWorld;
+    const def = world ? TRACK_DEFS[world.trackId] : undefined;
+    if (world && def) {
+      return { ...base, source: { kind: 'authored', def }, palette: world.palette, worldId: world.id, trackKey: def.id, records: p ? this.profileRecords(p.id, def.id) : localRecordStore };
+    }
+    const seed = this.flags.seed ?? CONFIG.TRACK_SEED;
+    const trackKey = this.flags.seed !== null ? `bonus-${seed}` : 'classic';
+    return { ...base, source: { kind: 'seeded', seed }, worldId: 'neon-bay', trackKey, records: p ? this.profileRecords(p.id, trackKey) : localRecordStore };
   }
 
   private profileRecords(profileId: string, trackKey: string): RecordStore {
@@ -380,7 +423,7 @@ export class App {
   /** The race the menu would start now; reuses the current session when nothing relevant changed. */
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
-    const key = JSON.stringify([setup.seed, setup.trackKey, this.activeProfile.value?.id ?? null, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;

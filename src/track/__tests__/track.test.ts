@@ -56,9 +56,9 @@ describe('determinism', () => {
       expect(t.samples).toHaveLength(N);
       expect(t.length).toBeGreaterThan(CONFIG.TRACK_TARGET_LENGTH * 0.85);
       expect(t.length).toBeLessThan(CONFIG.TRACK_TARGET_LENGTH * 1.15);
-      expect(stats.layout.minRadius).toBeGreaterThanOrEqual(CONFIG.TRACK_MIN_RADIUS);
-      expect(stats.layout.mainStraight.length).toBeGreaterThanOrEqual(350);
-      expect(stats.layout.corkscrewStraight.length).toBeGreaterThanOrEqual(300);
+      expect(stats.layout!.minRadius).toBeGreaterThanOrEqual(CONFIG.TRACK_MIN_RADIUS);
+      expect(stats.layout!.mainStraight.length).toBeGreaterThanOrEqual(350);
+      expect(stats.layout!.corkscrewStraight.length).toBeGreaterThanOrEqual(300);
     }
   });
 });
@@ -100,7 +100,7 @@ describe('centerline', () => {
   });
 
   it('has a long flat main straight through the start line and a straight at the corkscrew', () => {
-    const stats = getTrackStats(track)!.layout;
+    const stats = getTrackStats(track)!.layout!;
     expect(stats.mainStraight.length).toBeGreaterThanOrEqual(350);
     expect(stats.corkscrewStraight.length).toBeGreaterThanOrEqual(300);
     // Start line: forward -Z, flat, on the plan-view origin.
@@ -148,7 +148,7 @@ describe('frames', () => {
   });
 
   it('bank into corners: up leans toward the inside of the turn (right turn => right side lower)', () => {
-    const cork = track.corkscrew;
+    const cork = track.corkscrew!;
     const ds = track.length / N;
     const n = new THREE.Vector3();
     let checked = 0;
@@ -177,7 +177,7 @@ describe('frames', () => {
   });
 
   it('corkscrew rolls a full 2π and enters/exits flat', () => {
-    const { uStart, uEnd } = track.corkscrew;
+    const { uStart, uEnd } = track.corkscrew!;
     expect(uEnd - uStart).toBeGreaterThan(200 / track.length);
     const iStart = Math.ceil(uStart * N);
     const iEnd = Math.floor(uEnd * N);
@@ -284,7 +284,7 @@ describe('zones and grid', () => {
     const dashes = track.zones.filter((z) => z.type === 'dash');
     expect(dashes.length).toBeGreaterThanOrEqual(3);
     expect(dashes.length).toBeLessThanOrEqual(4);
-    const cork = track.corkscrew;
+    const cork = track.corkscrew!;
     for (const d of dashes) {
       expect((d.uEnd - d.uStart) * track.length).toBeCloseTo(12, 6);
       expect(d.lateralMax - d.lateralMin).toBeCloseTo(8, 6);
@@ -357,7 +357,7 @@ describe('collision meshes', () => {
       const centroid = a.clone().add(b).add(c).divideScalar(3);
       const proj = track.project(centroid);
       // A twisting (corkscrew) quad is a helicoid: triangle normals drift from the frame up by up to ~35 deg.
-      const minDot = inLoopRange(proj.u, track.corkscrew.uStart - 0.01, track.corkscrew.uEnd + 0.01) ? 0.7 : 0.99;
+      const minDot = inLoopRange(proj.u, track.corkscrew!.uStart - 0.01, track.corkscrew!.uEnd + 0.01) ? 0.7 : 0.99;
       if (n.dot(proj.sample.up) < minDot) bad++;
       expect(Math.abs(proj.height)).toBeLessThan(0.05); // lies on the driving surface
     }

@@ -51,7 +51,7 @@ describe.each(SEEDS)('full race simulation (seed %i)', (seed) => {
         if (s.status !== 'racing') continue;
         maxLateral = Math.max(maxLateral, Math.abs(s.lateral));
         maxSpeed = Math.max(maxSpeed, s.speed);
-        if (inLoopRange(s.trackU, track.corkscrew.uStart, track.corkscrew.uEnd)) {
+        if (inLoopRange(s.trackU, track.corkscrew!.uStart, track.corkscrew!.uEnd)) {
           corkscrewHits.set(s.def.id, (corkscrewHits.get(s.def.id) ?? 0) + 1);
         }
       }

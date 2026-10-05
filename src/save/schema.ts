@@ -5,6 +5,7 @@
 import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartTier } from '../core/contracts';
 import { CHASSIS, chassisById } from '../content/ships';
 import { PART_SLOTS } from '../content/parts';
+import { WORLDS } from '../content/worlds';
 
 export const SAVE_KEY = 'machzero.save';
 export const SAVE_VERSION = 2;
@@ -34,7 +35,9 @@ export interface Profile {
   loadout: Loadout;
   /** Part tiers owned per slot (Stock is always owned). */
   owned: Record<PartSlot, PartTier[]>;
-  /** Per track key: 'classic' (the v1 track), 'bonus-<seed>', later world track ids. */
+  /** World picked last on the world select (the menu's RACE goes there). */
+  world: string;
+  /** Per track key: 'classic' (the v1 track), 'bonus-<seed>', or a world's track id. */
   records: Record<string, TrackRecord>;
   stats: { races: number; wins: number };
 }
@@ -140,6 +143,7 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     credits: 0,
     loadout: { chassisId: c.id, parts: { engine: 0, booster: 0, stabilizer: 0, hull: 0 }, livery: { ...c.livery, decal: 0 } },
     owned: { engine: [0], booster: [0], stabilizer: [0], hull: [0] },
+    world: WORLDS[0].id,
     records: {},
     stats: { races: 0, wins: 0 },
   };
@@ -218,6 +222,7 @@ function sanitizeProfile(v: unknown): Profile | null {
     credits: Math.floor(num(v.credits, 0, 1e9, 0)),
     loadout,
     owned,
+    world: typeof v.world === 'string' && WORLDS.some((w) => w.id === v.world && w.built) ? v.world : WORLDS[0].id,
     records,
     stats: { races: Math.floor(num(st.races, 0, 1e9, 0)), wins: Math.floor(num(st.wins, 0, 1e9, 0)) },
   };

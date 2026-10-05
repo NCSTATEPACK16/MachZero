@@ -54,12 +54,35 @@ export interface FrameSet {
 export interface CorkscrewRange {
   uStart: number;
   uEnd: number;
+  /** Full barrel rolls (default 1). */
+  turns?: number;
 }
 
-/** Sample the closed spline finely, then resample it to `count` points uniform by arc length. */
-export function resampleCurve(curve: THREE.CatmullRomCurve3, count: number, fine = 16384): ResampledCurve {
+export interface BankOptions {
+  /** Radians of roll per (1/m) of curvature, before the clamp. */
+  bankFactor: number;
+  maxBank: number;
+}
+
+const DEFAULT_BANK: BankOptions = { bankFactor: CONFIG.BANK_FACTOR, maxBank: CONFIG.MAX_BANK };
+
+/**
+ * Moves fine samples before arc-length resampling (jump ramps and flight arcs). `cum[j]` is the arc length of
+ * fine sample j on the undisplaced curve; displace xyz triples in `fp` in place.
+ */
+export type CurveDisplacement = (fp: Float64Array, cum: Float64Array, fine: number) => void;
+
+/**
+ * Sample the closed spline finely, optionally displace the samples, then resample to `count` points uniform by
+ * arc length. With a displacement, `remapDistance` maps a distance on the undisplaced curve to the result.
+ */
+export function resampleCurve(
+  curve: THREE.CatmullRomCurve3,
+  count: number,
+  fine = 16384,
+  displace?: CurveDisplacement,
+): ResampledCurve & { remapDistance(d: number): number } {
   const fp = new Float64Array(fine * 3);
-  const cum = new Float64Array(fine + 1);
   const tmp = new THREE.Vector3();
   for (let j = 0; j < fine; j++) {
     curve.getPoint(j / fine, tmp);
@@ -67,16 +90,29 @@ export function resampleCurve(curve: THREE.CatmullRomCurve3, count: number, fine
     fp[j * 3 + 1] = tmp.y;
     fp[j * 3 + 2] = tmp.z;
   }
-  let acc = 0;
-  for (let j = 0; j < fine; j++) {
-    const k = (j + 1) % fine;
-    const dx = fp[k * 3] - fp[j * 3];
-    const dy = fp[k * 3 + 1] - fp[j * 3 + 1];
-    const dz = fp[k * 3 + 2] - fp[j * 3 + 2];
-    acc += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    cum[j + 1] = acc;
+  let cum = cumulativeLength(fp, fine);
+  let remapDistance = (d: number): number => d;
+  if (displace) {
+    const before = cum;
+    displace(fp, before, fine);
+    const after = cumulativeLength(fp, fine);
+    cum = after;
+    remapDistance = (d: number): number => {
+      const L0 = before[fine];
+      const w = ((d % L0) + L0) % L0;
+      let lo = 0;
+      let hi = fine;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (before[mid] <= w) lo = mid;
+        else hi = mid;
+      }
+      const seg = before[lo + 1] - before[lo];
+      const f = seg > 0 ? (w - before[lo]) / seg : 0;
+      return after[lo] + (after[lo + 1] - after[lo]) * f + (d - w) * (after[fine] / L0);
+    };
   }
-  const length = acc;
+  const length = cum[fine];
   const ds = length / count;
   const pos = new Float64Array(count * 3);
   let j = 0;
@@ -96,7 +132,22 @@ export function resampleCurve(curve: THREE.CatmullRomCurve3, count: number, fine
     const jj = Math.min(Math.floor(x), fine - 1);
     return cum[jj] + (cum[jj + 1] - cum[jj]) * (x - jj);
   };
-  return { count, length, ds, pos, arcAtParam };
+  return { count, length, ds, pos, arcAtParam, remapDistance };
+}
+
+/** Running arc length of a closed polyline of `n` xyz points (n + 1 entries; the last closes the loop). */
+function cumulativeLength(fp: Float64Array, n: number): Float64Array {
+  const cum = new Float64Array(n + 1);
+  let acc = 0;
+  for (let j = 0; j < n; j++) {
+    const k = (j + 1) % n;
+    const dx = fp[k * 3] - fp[j * 3];
+    const dy = fp[k * 3 + 1] - fp[j * 3 + 1];
+    const dz = fp[k * 3 + 2] - fp[j * 3 + 2];
+    acc += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    cum[j + 1] = acc;
+  }
+  return cum;
 }
 
 /** Central-difference tangents and dT/ds on the periodic sample ring. */
@@ -260,17 +311,23 @@ function rotationMinimisingUp(pos: Float64Array, tan: Float64Array, count: numbe
   return up;
 }
 
-/** Roll contributed by the corkscrew at loop parameter u: a full 2π barrel roll, flat at both ends. */
+/** Roll contributed by a corkscrew at loop parameter u: `turns` full barrel rolls, flat at both ends. */
 export function corkscrewRoll(u: number, range: CorkscrewRange): number {
   if (u < range.uStart || u > range.uEnd) return 0;
-  return TAU * smootherstep(range.uStart, range.uEnd, u);
+  return TAU * (range.turns ?? 1) * smootherstep(range.uStart, range.uEnd, u);
 }
 
 /**
  * Build the final orthonormal frames. Roll positive = `up` leans toward +right, so a right turn
  * (positive curvature) banks with the right side lower.
  */
-export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscrew: CorkscrewRange): FrameSet {
+export function buildFrames(
+  curve: ResampledCurve,
+  diff: Differentials,
+  corkscrews: CorkscrewRange | readonly CorkscrewRange[],
+  bankOpts: BankOptions = DEFAULT_BANK,
+): FrameSet {
+  const rolls: readonly CorkscrewRange[] = Array.isArray(corkscrews) ? corkscrews : [corkscrews as CorkscrewRange];
   const { count, length, ds, pos } = curve;
   const { tan, dTds } = diff;
   const rmfUp = rotationMinimisingUp(pos, tan, count);
@@ -288,7 +345,7 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
     const rz = tan[i3] * rmfUp[i3 + 1] - tan[i3 + 1] * rmfUp[i3];
     const k = dTds[i3] * rx + dTds[i3 + 1] * ry + dTds[i3 + 2] * rz;
     curvature[i] = k;
-    rawBank[i] = clamp(k * CONFIG.BANK_FACTOR, -CONFIG.MAX_BANK, CONFIG.MAX_BANK);
+    rawBank[i] = clamp(k * bankOpts.bankFactor, -bankOpts.maxBank, bankOpts.maxBank);
   }
   // Wide Gaussian (~45 m sigma) so bank transitions are gradual; periodic so it wraps correctly.
   const bank = smoothPeriodic(rawBank, 45 / ds);
@@ -299,7 +356,8 @@ export function buildFrames(curve: ResampledCurve, diff: Differentials, corkscre
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
     const u = i / count;
-    const total = bank[i] + corkscrewRoll(u, corkscrew);
+    let total = bank[i];
+    for (const r of rolls) total += corkscrewRoll(u, r);
     roll[i] = total;
     rotateAbout(rmfUp[i3], rmfUp[i3 + 1], rmfUp[i3 + 2], tan[i3], tan[i3 + 1], tan[i3 + 2], total);
     const ux = rot[0];

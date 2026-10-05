@@ -6,14 +6,17 @@
  * instanced pylons, instanced corkscrew rings.
  */
 import * as THREE from 'three';
-import { CONFIG, PALETTE } from '../core/config';
+import { CONFIG } from '../core/config';
 import type { TrackCollisionData, TriMesh } from '../core/contracts';
 import { smoothstep } from '../core/math';
 import type { FrameSet } from './TrackFrames';
 import {
   GeometryAccumulator,
-  framesFromFrameSet,
   framesFromRange,
+  roadSections,
+  sectionColors,
+  type GapRange,
+  type SweepFrames,
   mirrorProfile,
   profileFromShape,
   sweepProfile,
@@ -49,14 +52,31 @@ export interface DashPlate {
   lateral: number;
 }
 
+/** Neon colours of a world's track (hex). */
+export interface TrackPalette {
+  /** Left and right rail strips. */
+  left: number;
+  right: number;
+  /** Gimmick highlight: corkscrews, jump ramps, corkscrew rings, start-gate centre bar. */
+  accent: number;
+  /** Pit strip (and the left rail beside it). */
+  pit: number;
+}
+
 export interface VisualInput {
   frames: FrameSet;
   query: TrackQuery;
   /** Corkscrew extents in metres along the lap. */
-  corkscrew: { dStart: number; dEnd: number };
+  corkscrews: { dStart: number; dEnd: number }[];
   pit: { dStart: number; dEnd: number };
   dashPlates: DashPlate[];
+  /** Jump gaps: no deck, slab or rails between dStart (lip) and dEnd (landing edge). */
+  gaps: GapRange[];
+  palette: TrackPalette;
 }
+
+/** Length of the chevron-marked ramp before a jump lip (matches features/jump RAMP_LENGTH). */
+const RAMP_MARK_LENGTH = 60;
 
 export interface VisualStats {
   drawCalls: number;
@@ -84,18 +104,19 @@ interface NeonTheme {
   lime: [number, number, number] | null;
 }
 
-/** Per-ring neon color: side color, amber through the corkscrew, lime along the pit (left only). */
+/** Per-ring neon color: side color, accent through corkscrews and jump ramps, pit colour along the pit (left only). */
 function neonRingColors(
   frames: FrameSet,
   theme: NeonTheme,
-  cork: { dStart: number; dEnd: number },
+  accents: readonly { dStart: number; dEnd: number }[],
   pit: { dStart: number; dEnd: number },
   scale: number,
 ): Float32Array {
   const out = new Float32Array(frames.count * 3);
   for (let i = 0; i < frames.count; i++) {
     const d = i * frames.ds;
-    const amberW = smoothstep(cork.dStart - 28, cork.dStart, d) * (1 - smoothstep(cork.dEnd, cork.dEnd + 28, d));
+    let amberW = 0;
+    for (const a of accents) amberW = Math.max(amberW, smoothstep(a.dStart - 28, a.dStart, d) * (1 - smoothstep(a.dEnd, a.dEnd + 28, d)));
     let r = theme.base[0] + (theme.amber[0] - theme.base[0]) * amberW;
     let g = theme.base[1] + (theme.amber[1] - theme.base[1]) * amberW;
     let b = theme.base[2] + (theme.amber[2] - theme.base[2]) * amberW;
@@ -142,6 +163,7 @@ function buildGate(
   query: TrackQuery,
   metal: GeometryAccumulator,
   neon: GeometryAccumulator,
+  palette: TrackPalette,
 ): void {
   const s = query.sampleAt(0);
   const at = (b: GateBoxSpec): THREE.BufferGeometry => {
@@ -158,9 +180,9 @@ function buildGate(
   metal.addGeometry(at({ lateral: pillarX, height: 4.75, depth: 0, sx: 1.6, sy: 21.5, sz: 1.6 }));
   metal.addGeometry(at({ lateral: 0, height: 15.2, depth: 0, sx: 2 * pillarX + 1.6, sy: 2.4, sz: 2.2 }));
   // Emissive bars on both faces of the beam and pillar edges.
-  const cyan = linear(PALETTE.cyan);
-  const magenta = linear(PALETTE.magenta);
-  const white = linear(PALETTE.white);
+  const cyan = linear(palette.left);
+  const magenta = linear(palette.right);
+  const white = linear(0xf4f7ff);
   for (const face of [-1.13, 1.13]) {
     neon.addGeometry(at({ lateral: 0, height: 14.35, depth: face, sx: 2 * pillarX - 1.6, sy: 0.3, sz: 0.16 }), cyan);
     neon.addGeometry(at({ lateral: 0, height: 15.95, depth: face, sx: 2 * pillarX - 1.6, sy: 0.3, sz: 0.16 }), magenta);
@@ -170,13 +192,13 @@ function buildGate(
   }
 }
 
-function buildPylons(frames: FrameSet, cork: { dStart: number; dEnd: number }): THREE.InstancedMesh {
+function buildPylons(frames: FrameSet, skip: readonly { dStart: number; dEnd: number }[]): THREE.InstancedMesh {
   const step = Math.max(1, Math.round(PYLON_SPACING / frames.ds));
   const matrices: THREE.Matrix4[] = [];
   const bottomDrop = 1.6;
   for (let i = 0; i < frames.count; i += step) {
     const d = i * frames.ds;
-    if (d > cork.dStart - CORKSCREW_MARGIN && d < cork.dEnd + CORKSCREW_MARGIN) continue;
+    if (skip.some((r) => d > r.dStart - CORKSCREW_MARGIN && d < r.dEnd + CORKSCREW_MARGIN)) continue;
     const i3 = i * 3;
     const upY = frames.up[i3 + 1];
     if (upY < 0.55) continue;
@@ -204,11 +226,16 @@ function buildPylons(frames: FrameSet, cork: { dStart: number; dEnd: number }): 
   return mesh;
 }
 
-function buildCorkscrewRings(query: TrackQuery, length: number, cork: { dStart: number; dEnd: number }): THREE.InstancedMesh {
+function buildCorkscrewRings(
+  query: TrackQuery,
+  length: number,
+  cork: { dStart: number; dEnd: number },
+  accent: number,
+): THREE.InstancedMesh {
   const spacing = 26;
   const count = Math.max(1, Math.floor((cork.dEnd - cork.dStart) / spacing));
   const geo = new THREE.TorusGeometry(19.5, 0.22, 6, 72);
-  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.amber).multiplyScalar(3) });
+  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(accent).multiplyScalar(3) });
   const mesh = new THREE.InstancedMesh(geo, mat, count);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -249,10 +276,94 @@ function meshOf(
   return mesh;
 }
 
+/**
+ * Flat end caps where a road section is cut by a jump gap: slab + rails cross-section, facing into the gap,
+ * plus a bright accent bar across the deck edge (the lip / landing lights).
+ */
+function addGapCaps(
+  sections: SweepFrames[],
+  slab: GeometryAccumulator,
+  rail: GeometryAccumulator,
+  neon: GeometryAccumulator,
+  accent: [number, number, number],
+): void {
+  const slabShape = polygonShape([
+    [-WO, 0],
+    [-WO, -0.7],
+    [-(WO - 2.2), -1.6],
+    [WO - 2.2, -1.6],
+    [WO, -0.7],
+    [WO, 0],
+  ]);
+  const railShape = (sx: number): THREE.Shape =>
+    polygonShape(
+      sx > 0
+        ? [
+            [W, -0.3],
+            [WO, -0.3],
+            [WO, H],
+            [W, H],
+          ]
+        : [
+            [-WO, -0.3],
+            [-W, -0.3],
+            [-W, H],
+            [-WO, H],
+          ],
+    );
+  const pos = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const fwd = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  for (const sec of sections) {
+    for (const end of [0, sec.count - 1]) {
+      const i3 = end * 3;
+      pos.set(sec.pos[i3], sec.pos[i3 + 1], sec.pos[i3 + 2]);
+      right.set(sec.right[i3], sec.right[i3 + 1], sec.right[i3 + 2]);
+      up.set(sec.up[i3], sec.up[i3 + 1], sec.up[i3 + 2]);
+      fwd.crossVectors(up, right); // right = fwd × up  =>  fwd = up × right
+      // Cap faces into the gap: +forward at the lip (section end), -forward at the landing edge (section start).
+      const outward = end === 0 ? -1 : 1;
+      // Proper rotation with local +Z = outward: (right·s, up, fwd·s) where s = outward keeps det = +1.
+      const zAxis = fwd.clone().multiplyScalar(outward);
+      const xAxis = right.clone().multiplyScalar(outward);
+      m.makeBasis(xAxis, up, zAxis).setPosition(pos);
+      const place = (shape: THREE.Shape, mirror: boolean): THREE.BufferGeometry => {
+        const g = new THREE.ShapeGeometry(shape);
+        if (mirror) {
+          // Local x is mirrored when outward = -1: flip the shape so it lands on the right side, keep winding.
+          g.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+          const idx = g.getIndex()!;
+          for (let k = 0; k < idx.count; k += 3) {
+            const t = idx.getX(k + 1);
+            idx.setX(k + 1, idx.getX(k + 2));
+            idx.setX(k + 2, t);
+          }
+        }
+        g.applyMatrix4(m);
+        g.computeVertexNormals();
+        return g;
+      };
+      const mirror = outward < 0;
+      slab.addGeometry(place(slabShape, mirror));
+      rail.addGeometry(place(railShape(1), mirror));
+      rail.addGeometry(place(railShape(-1), mirror));
+      // Lip lights: a thin glowing bar along the deck edge, just inside the cut.
+      const c = pos.clone().addScaledVector(fwd, -outward * 0.5).addScaledVector(up, 0.06);
+      neon.addGeometry(orientedBox(c, right, up, fwd, 2 * W, 0.12, 0.8), accent);
+    }
+  }
+}
+
 export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stats: VisualStats } {
-  const { frames, query, corkscrew, pit, dashPlates } = input;
+  const { frames, query, corkscrews, pit, dashPlates, gaps, palette } = input;
   const length = frames.length;
-  const sweep = framesFromFrameSet(frames);
+  const sections = roadSections(frames, gaps);
+  const sweepAll = (acc: GeometryAccumulator, points: ProfilePoint[], closedProfile: boolean, uv: { uTile: number; vScale?: number }, colors?: Float32Array): GeometryAccumulator => {
+    for (const sec of sections) acc.add(sweepProfile(sec, points, closedProfile, uv, colors ? sectionColors(colors, sec) : undefined));
+    return acc;
+  };
   const asphaltTile = seamlessTile(length, ASPHALT_TILE_METRES);
   const railTile = seamlessTile(length, 8);
   const group = new THREE.Group();
@@ -264,7 +375,7 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     [-W, 0],
   ]);
   const deckProfile = profileFromShape(deckShape, (p) => (p.x + W) / (2 * W));
-  const deckAcc = new GeometryAccumulator().add(sweepProfile(sweep, deckProfile, false, { uTile: asphaltTile }));
+  const deckAcc = sweepAll(new GeometryAccumulator(), deckProfile, false, { uTile: asphaltTile });
   const deckTexture = createAsphaltTexture();
   const deckMat = new THREE.MeshStandardMaterial({ map: deckTexture, color: 0xffffff, roughness: 0.55, metalness: 0.5 });
   group.add(meshOf(deckAcc, deckMat, 'TrackDeck'));
@@ -278,11 +389,7 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     [WO, -0.7],
     [WO, 0],
   ]);
-  const bodyAcc = new GeometryAccumulator().add(
-    sweepProfile(sweep, profileFromShape(bodyShape), false, { uTile: railTile, vScale: 0.25 }),
-  );
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1b1f2c, roughness: 0.6, metalness: 0.7 });
-  group.add(meshOf(bodyAcc, bodyMat, 'TrackSlab'));
+  const bodyAcc = sweepAll(new GeometryAccumulator(), profileFromShape(bodyShape), false, { uTile: railTile, vScale: 0.25 });
 
   // ---- Rails (wall shape: vertical inner face, top lip) ----
   const railShape = polygonShape([
@@ -296,21 +403,22 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   const railRight = profileFromShape(railShape);
   const railLeft = mirrorProfile(railRight);
   const railUv = { uTile: railTile, vScale: 0.25 };
-  const railAcc = new GeometryAccumulator()
-    .add(sweepProfile(sweep, railLeft, true, railUv))
-    .add(sweepProfile(sweep, railRight, true, railUv));
-  const railTexture = createRailTexture();
-  const railMat = new THREE.MeshStandardMaterial({ map: railTexture, color: 0xffffff, roughness: 0.38, metalness: 0.85 });
-  group.add(meshOf(railAcc, railMat, 'TrackRails'));
+  const railAcc = new GeometryAccumulator();
+  sweepAll(railAcc, railLeft, true, railUv);
+  sweepAll(railAcc, railRight, true, railUv);
 
   // ---- Neon: rail-top strips, inner-wall strips, start gate bars (single vertex-coloured HDR mesh) ----
-  const amber = linear(PALETTE.amber);
-  const leftTheme: NeonTheme = { base: linear(PALETTE.cyan), amber, lime: linear(PALETTE.lime) };
-  const rightTheme: NeonTheme = { base: linear(PALETTE.magenta), amber, lime: null };
-  const leftTop = neonRingColors(frames, leftTheme, corkscrew, pit, 1);
-  const rightTop = neonRingColors(frames, rightTheme, corkscrew, pit, 1);
-  const leftInner = neonRingColors(frames, leftTheme, corkscrew, pit, 0.7);
-  const rightInner = neonRingColors(frames, rightTheme, corkscrew, pit, 0.7);
+  const accent = linear(palette.accent);
+  const accents = [
+    ...corkscrews,
+    ...gaps.map((g) => ({ dStart: g.dStart - RAMP_MARK_LENGTH, dEnd: g.dEnd + 30 })),
+  ];
+  const leftTheme: NeonTheme = { base: linear(palette.left), amber: accent, lime: linear(palette.pit) };
+  const rightTheme: NeonTheme = { base: linear(palette.right), amber: accent, lime: null };
+  const leftTop = neonRingColors(frames, leftTheme, accents, pit, 1);
+  const rightTop = neonRingColors(frames, rightTheme, accents, pit, 1);
+  const leftInner = neonRingColors(frames, leftTheme, accents, pit, 0.7);
+  const rightInner = neonRingColors(frames, rightTheme, accents, pit, 0.7);
   const topY = H + 0.02;
   const topStripRight: ProfilePoint[] = [
     { x: W + 0.725, y: topY },
@@ -321,18 +429,25 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     { x: W - 0.03, y: 0.9 },
   ];
   const stripUv = { uTile: railTile };
-  const neonAcc = new GeometryAccumulator()
-    .add(sweepProfile(sweep, mirrorProfile(topStripRight), false, stripUv, leftTop))
-    .add(sweepProfile(sweep, topStripRight, false, stripUv, rightTop))
-    .add(sweepProfile(sweep, mirrorProfile(innerStripRight), false, stripUv, leftInner))
-    .add(sweepProfile(sweep, innerStripRight, false, stripUv, rightInner));
+  const neonAcc = new GeometryAccumulator();
+  sweepAll(neonAcc, mirrorProfile(topStripRight), false, stripUv, leftTop);
+  sweepAll(neonAcc, topStripRight, false, stripUv, rightTop);
+  sweepAll(neonAcc, mirrorProfile(innerStripRight), false, stripUv, leftInner);
+  sweepAll(neonAcc, innerStripRight, false, stripUv, rightInner);
   const metalGateAcc = new GeometryAccumulator();
-  buildGate(query, metalGateAcc, neonAcc);
+  buildGate(query, metalGateAcc, neonAcc, palette);
+  if (gaps.length > 0) addGapCaps(sections, bodyAcc, railAcc, neonAcc, accent);
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1b1f2c, roughness: 0.6, metalness: 0.7 });
+  group.add(meshOf(bodyAcc, bodyMat, 'TrackSlab'));
+  const railTexture = createRailTexture();
+  const railMat = new THREE.MeshStandardMaterial({ map: railTexture, color: 0xffffff, roughness: 0.38, metalness: 0.85 });
+  group.add(meshOf(railAcc, railMat, 'TrackRails'));
   const neonMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   neonMat.color.setRGB(NEON_HDR, NEON_HDR, NEON_HDR);
   group.add(meshOf(neonAcc, neonMat, 'TrackNeon'));
 
-  // ---- Overlays: additive chevron dash plates, pit strip; checkered start line ----
+  // ---- Overlays: additive chevron dash plates and jump ramps, pit strip; checkered start line ----
   const chevronTexture = createChevronTexture();
   const pitTexture = createPitTexture();
   // Animate from wall-clock time so the track stays self-contained (no external update calls).
@@ -342,6 +457,15 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     pitTexture.offset.x = -((t * 0.7) % 1);
   };
   const overlayOffset = { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 } as const;
+  const chevronMaterial = (hex: number, k = 3): THREE.MeshBasicMaterial =>
+    new THREE.MeshBasicMaterial({
+      map: chevronTexture,
+      color: new THREE.Color(hex).multiplyScalar(k),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      ...overlayOffset,
+    });
   if (dashPlates.length > 0) {
     const dashAcc = new GeometryAccumulator();
     for (const plate of dashPlates) {
@@ -355,18 +479,23 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
         ),
       );
     }
-    const dashMat = new THREE.MeshBasicMaterial({
-      map: chevronTexture,
-      color: new THREE.Color(PALETTE.amber).multiplyScalar(3),
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      ...overlayOffset,
-    });
-    const dashMesh = meshOf(dashAcc, dashMat, 'TrackDashPlates');
+    const dashMesh = meshOf(dashAcc, chevronMaterial(0xffb319), 'TrackDashPlates');
     dashMesh.renderOrder = 2;
     dashMesh.onBeforeRender = animateOverlays;
     group.add(dashMesh);
+  }
+  if (gaps.length > 0) {
+    // Jump ramps: two chevron lanes along the kicker, in the world's accent colour (dash plates stay amber).
+    const rampAcc = new GeometryAccumulator();
+    for (const g of gaps) {
+      const fr = framesFromRange(query, length, g.dStart - RAMP_MARK_LENGTH, g.dStart - 0.5, 1.5);
+      for (const lat of [-7, 7]) rampAcc.add(sweepProfile(fr, ribbonProfile(lat - 2.2, lat + 2.2, 0.04), false, { uTile: 4.4 }));
+    }
+    // Dimmer than dash plates: the ramp is long and fills the view on the approach.
+    const rampMesh = meshOf(rampAcc, chevronMaterial(palette.accent, 1.1), 'TrackJumpRamps');
+    rampMesh.renderOrder = 2;
+    rampMesh.onBeforeRender = animateOverlays;
+    group.add(rampMesh);
   }
   {
     const fr = framesFromRange(query, length, pit.dStart, pit.dEnd, 3);
@@ -375,7 +504,7 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     );
     const pitMat = new THREE.MeshBasicMaterial({
       map: pitTexture,
-      color: new THREE.Color(PALETTE.lime).multiplyScalar(2.4),
+      color: new THREE.Color(palette.pit).multiplyScalar(2.4),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -412,8 +541,8 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   );
 
   // ---- Pylons (instanced) and corkscrew light rings (instanced) ----
-  group.add(buildPylons(frames, corkscrew));
-  group.add(buildCorkscrewRings(query, length, corkscrew));
+  group.add(buildPylons(frames, [...corkscrews, ...gaps.map((g) => ({ dStart: g.dStart - 10, dEnd: g.dEnd + 10 }))]));
+  for (const cork of corkscrews) group.add(buildCorkscrewRings(query, length, cork, palette.accent));
 
   let drawCalls = 0;
   let triangles = 0;
@@ -447,14 +576,15 @@ function mergeTriMeshes(a: TriMesh, b: TriMesh): TriMesh {
 }
 
 /** World-space TriMeshes for physics: drivable surface (hover raycasts) and closed rail solids. */
-export function buildTrackCollision(frames: FrameSet): TrackCollisionData {
-  const sweep = framesFromFrameSet(frames);
+export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] = []): TrackCollisionData {
+  const sections = roadSections(frames, gaps);
+  const merged = (fn: (sec: SweepFrames) => TriMesh): TriMesh => sections.map(fn).reduce((a, b) => mergeTriMeshes(a, b));
   // Surface: 8 lateral segments spanning +-(W + rail thickness), listed +x -> -x so normals face up.
   const lateralSegments = 8;
   const half = W + T;
   const surfacePts: { x: number; y: number }[] = [];
   for (let k = 0; k <= lateralSegments; k++) surfacePts.push({ x: half - (2 * half * k) / lateralSegments, y: 0 });
-  const surface = sweepWelded(sweep, surfacePts, false);
+  const surface = merged((sec) => sweepWelded(sec, surfacePts, false));
 
   // Rails: solid boxes, inner face exactly at +-W, 0.5 m taller than the visual rail and 0.5 m below the deck.
   const rightRail: ProfilePoint[] = [
@@ -463,6 +593,6 @@ export function buildTrackCollision(frames: FrameSet): TrackCollisionData {
     { x: WO, y: H + 0.5 },
     { x: W, y: H + 0.5 },
   ];
-  const rails = mergeTriMeshes(sweepWelded(sweep, mirrorProfile(rightRail), true), sweepWelded(sweep, rightRail, true));
+  const rails = merged((sec) => mergeTriMeshes(sweepWelded(sec, mirrorProfile(rightRail), true), sweepWelded(sec, rightRail, true)));
   return { surface, rails };
 }

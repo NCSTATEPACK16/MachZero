@@ -1,4 +1,4 @@
-# Next-session brief — build MachZero 2.0 (milestones M3 → M8; M0–M2 done and merged)
+# Next-session brief — build MachZero 2.0 (milestones M4 → M8; M0–M3 done)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
@@ -26,7 +26,9 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
     - garage buy, fit, paint, persist and race;
     - turntable and race-rebuild GPU-memory leak checks.
   - Read `docs/TDD.md` §7 before touching `physics/ShipController.ts`: it records four hard-won physics invariants.
-- **Next:** M3 (track framework + Neon Bay + Sunset Mesa, world select), behind the `worlds` flag.
+- **M3:** PR #9 (one PR for the whole milestone, at the user's request). Authored tracks, jumps, Neon Bay + Sunset Mesa, world themes and props, world select; turns `worlds` on. Read M3's as-built notes in IMPLEMENTATION.md.
+- **Test-time rule (user, 2026-10-03):** keep every test under 60 s and the suite fast; leave visual checks to human playtesting (no screenshot loops). The full `npm test` runs in ~14 s locally. The in-app browser preview rendering the game saturates this Mac's CPU — stop it before timing tests.
+- **Next:** M4 (Cryo Station, Jade Ruins, Orbital Ring + hazards). Author tracks with `npm run tracks:design` (segments in `scripts/track-design.mjs`), add a theme in `graphics/themes/`, props in `blender/props/build_props.py`.
 
 ## Environment facts (already verified; don't rediscover)
 

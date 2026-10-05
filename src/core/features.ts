@@ -20,7 +20,7 @@ export type FeatureSet = Readonly<Record<FeatureName, boolean>>;
 export const FEATURE_DEFAULTS: FeatureSet = {
   profiles: true, // M1 complete
   garage: true, // M2 complete
-  worlds: false,
+  worlds: true, // M3 complete (Neon Bay, Sunset Mesa, world select)
   tiers: false,
   music: false,
   touch: false,

@@ -10,12 +10,16 @@ import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '
 import { disposeObject3D } from '../graphics/dispose';
 import type { GraphicsSystem } from '../graphics';
 import { PhysicsSystem } from '../physics';
-import { generateTrack } from '../track';
+import { trackFromSource, type TrackLayoutSource, type TrackPalette } from '../track';
 
 export interface RaceSetup {
-  /** Track seed (authored tracks arrive in M3). */
-  seed: number;
-  /** Key for records: 'classic' | 'bonus-<seed>'. */
+  /** Seeded (classic / Bonus Track) or an authored world track. */
+  source: TrackLayoutSource;
+  /** Track neon colours (the world's); default v1 cyan / magenta. */
+  palette?: TrackPalette;
+  /** World theme for the scenery ('neon-bay' for seeded tracks). */
+  worldId: string;
+  /** Key for records: 'classic' | 'bonus-<seed>' | a world track id. */
   trackKey: string;
   field: ShipDefinition[];
   /** The player's ship is driven by its AI. */
@@ -63,7 +67,7 @@ export class RaceSession {
   }
 
   static async create(setup: RaceSetup): Promise<RaceSession> {
-    const track = generateTrack({ seed: setup.seed });
+    const track = trackFromSource(setup.source, { palette: setup.palette });
     const bus: GameBus = new EventBus<GameEvents>();
     return new RaceSession(setup, track, await PhysicsSystem.create(track, bus), bus);
   }
@@ -81,6 +85,7 @@ export class RaceSession {
     if (this.view) throw new Error('RaceSession: view already attached');
     this.view = view;
     view.graphics.attachBus(this.bus);
+    view.graphics.setWorld(this.setup.worldId);
     view.graphics.setTrack(this.track);
     for (const ship of this.ships) view.graphics.addShip(ship);
     view.audio.attach(this.bus);

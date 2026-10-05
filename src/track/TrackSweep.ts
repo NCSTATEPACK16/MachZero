@@ -28,6 +28,14 @@ export interface SweepFrames {
   dist: Float64Array;
   /** Distance at the seam ring of a closed loop (the lap length). */
   totalLength: number;
+  /** FrameSet sample index of each ring (sections cut from a FrameSet); used to slice per-ring colours. */
+  src?: Int32Array;
+}
+
+/** An open-air gap in metres along the lap (no surface, no rails). */
+export interface GapRange {
+  dStart: number;
+  dEnd: number;
 }
 
 export interface ProfilePoint {
@@ -71,6 +79,54 @@ export function framesFromFrameSet(fs: FrameSet): SweepFrames {
   const dist = new Float64Array(fs.count);
   for (let i = 0; i < fs.count; i++) dist[i] = i * fs.ds;
   return { count: fs.count, closed: true, pos: fs.pos, right: fs.right, up: fs.up, dist, totalLength: fs.length };
+}
+
+/**
+ * The driven parts of the lap: the whole closed loop when there are no gaps, otherwise one open section per
+ * stretch of road between gaps, cut exactly at FrameSet samples (each gap end snaps to its nearest sample).
+ */
+export function roadSections(fs: FrameSet, gaps: readonly GapRange[]): SweepFrames[] {
+  if (gaps.length === 0) return [framesFromFrameSet(fs)];
+  const n = fs.count;
+  const cuts = gaps
+    .map((g) => ({ a: Math.round(g.dStart / fs.ds) % n, b: Math.round(g.dEnd / fs.ds) % n }))
+    .sort((x, y) => x.a - y.a);
+  const out: SweepFrames[] = [];
+  for (let k = 0; k < cuts.length; k++) {
+    const from = cuts[k].b;
+    const to = cuts[(k + 1) % cuts.length].a;
+    const count = ((to - from + n) % n) + 1;
+    const pos = new Float64Array(count * 3);
+    const right = new Float64Array(count * 3);
+    const up = new Float64Array(count * 3);
+    const dist = new Float64Array(count);
+    const src = new Int32Array(count);
+    for (let r = 0; r < count; r++) {
+      const i = (from + r) % n;
+      src[r] = i;
+      for (let c = 0; c < 3; c++) {
+        pos[r * 3 + c] = fs.pos[i * 3 + c];
+        right[r * 3 + c] = fs.right[i * 3 + c];
+        up[r * 3 + c] = fs.up[i * 3 + c];
+      }
+      dist[r] = (from + r) * fs.ds;
+    }
+    out.push({ count, closed: false, pos, right, up, dist, totalLength: (count - 1) * fs.ds, src });
+  }
+  return out;
+}
+
+/** Per-ring colours of a section, sliced from colours indexed by FrameSet sample. */
+export function sectionColors(colors: Float32Array, section: SweepFrames): Float32Array {
+  if (!section.src) return colors;
+  const out = new Float32Array(section.count * 3);
+  for (let r = 0; r < section.count; r++) {
+    const i = section.src[r];
+    out[r * 3] = colors[i * 3];
+    out[r * 3 + 1] = colors[i * 3 + 1];
+    out[r * 3 + 2] = colors[i * 3 + 2];
+  }
+  return out;
 }
 
 /**

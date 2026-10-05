@@ -80,6 +80,9 @@ export const TUNING = {
   SHIP_INTENSITY_SPEED: 30,
   /** Contact points deeper than this distance count as touching. */
   CONTACT_MAX_DIST: 0.15,
+  // --- jumps ---
+  /** Speed into the surface (m/s) at touchdown that maps to ship:land intensity 1. */
+  LAND_INTENSITY_SPEED: 20,
 } as const;
 
 const NEUTRAL: Readonly<ControlInput> = Object.freeze(neutralControls());
@@ -155,6 +158,9 @@ export class ShipController {
   private boostArmed = false;
   private prevBoostInput = false;
   private lowEnergyFired = false;
+
+  // Jumps: true from leaving a lip until the hover rays find the landing deck.
+  private jumping = false;
 
   // Safety respawn.
   private invalidTime = 0;
@@ -234,14 +240,19 @@ export class ShipController {
 
     // --- hover rays ---
     this.castHoverRays();
-    const grounded = this.rayHits > 0;
+    // Over a jump gap there is nothing to hover on: no spring from the projection, just air gravity.
+    const overAir = this.hasProjection && this.track.surfaceKindAt(s.trackU, s.lateral) === 'air';
+    this.updateJump(this.rayHits > 0, overAir);
+    // A jump lasts until the hull is back in hover range: rays that already see the landing deck from metres
+    // up must not switch on the magnetic lock (it would hold the ship in a slow, damped glide down).
+    const grounded = this.rayHits > 0 && !this.jumping;
     s.grounded = grounded;
 
     // Height above the surface used by the spring: rays when available,
     // otherwise the cached projection (keeps the spring alive after a hard landing).
     let hoverHeight = this.rayHeight;
     let springActive = grounded;
-    if (!grounded && this.hasProjection && s.heightAboveTrack < CONFIG.HOVER_HEIGHT + TUNING.DAMPING_FADE_TOP) {
+    if (!grounded && !overAir && this.hasProjection && s.heightAboveTrack < CONFIG.HOVER_HEIGHT + TUNING.DAMPING_FADE_TOP) {
       hoverHeight = s.heightAboveTrack;
       springActive = true;
     }
@@ -387,8 +398,8 @@ export class ShipController {
     // --- recompose velocity ---
     v.copy(this.fwd).multiplyScalar(f).addScaledVector(this.right, lat).addScaledVector(up, vUp);
     if (!springActive) {
-      // Airborne: magnet gravity toward the nearest track surface.
-      v.addScaledVector(sampleUp, -CONFIG.MAGNET_G * dt);
+      // Airborne: magnet gravity toward the nearest track surface (scaled on low-gravity worlds).
+      v.addScaledVector(sampleUp, -CONFIG.MAGNET_G * this.track.airGravityScale * dt);
     }
     const speedSq = v.lengthSq();
     if (!(speedSq < TUNING.MAX_SPEED * TUNING.MAX_SPEED)) {
@@ -531,7 +542,8 @@ export class ShipController {
         if (this.invalidTime > CONFIG.RESPAWN_GRACE) this.respawn(false);
       } else {
         this.invalidTime = 0;
-        this.lastValidU = s.trackU;
+        // Never remember a spot over a jump gap: there is nothing there to put the ship back on.
+        if (this.track.surfaceKindAt(s.trackU, s.lateral) !== 'air') this.lastValidU = s.trackU;
       }
     }
   }
@@ -556,6 +568,8 @@ export class ShipController {
     s.boosting = false;
     s.boostTimer = 0;
     s.onDash = false;
+    s.airborne = false;
+    this.jumping = false;
     if (s.inPit) {
       s.inPit = false;
       this.bus.emit('ship:pit', { shipId: s.def.id, active: false });
@@ -639,6 +653,27 @@ export class ShipController {
       this.drainEnergy(this.stats.boostCost);
       this.bus.emit('ship:boost', { shipId: s.def.id });
     }
+  }
+
+  /**
+   * Jump bookkeeping: leaving the surface over a gap starts a jump (ship:jump); the hover rays finding a deck
+   * again ends it (ship:land, intensity from the speed into the surface before the hull re-aligns).
+   */
+  private updateJump(rayHit: boolean, overAir: boolean): void {
+    const s = this.state;
+    if (!this.jumping) {
+      if (!rayHit && overAir) {
+        this.jumping = true;
+        s.airborne = true;
+        this.bus.emit('ship:jump', { shipId: s.def.id, intensity: clamp01(s.speed / this.stats.boostTopSpeed) });
+      }
+      return;
+    }
+    if (!rayHit || this.rayHeight > CONFIG.HOVER_HEIGHT + TUNING.DAMPING_FADE_TOP) return;
+    this.jumping = false;
+    s.airborne = false;
+    const into = -s.velocity.dot(this.rayNormal);
+    this.bus.emit('ship:land', { shipId: s.def.id, intensity: clamp01(into / TUNING.LAND_INTENSITY_SPEED) });
   }
 
   /** Four corner rays along -up against the surface only. Results land in ray* fields. */
@@ -781,6 +816,8 @@ export class ShipController {
   /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */
   private respawn(nonFinite: boolean): void {
     const s = this.state;
+    // Near a jump the ship comes back on the landing side (a slow restart before the ramp would miss again).
+    this.lastValidU = this.track.safeRespawnU(this.lastValidU);
     const smp = this.track.sampleAt(this.lastValidU);
     const oldForward = nonFinite || !Number.isFinite(s.forwardSpeed) ? 0 : Math.max(s.forwardSpeed, 0);
 
@@ -796,6 +833,8 @@ export class ShipController {
     s.bank = 0;
     s.grounded = true;
     s.onDash = false;
+    s.airborne = false;
+    this.jumping = false;
     this.preVel.copy(s.velocity);
     this.railContact = false;
     this.invalidTime = 0;

@@ -169,6 +169,7 @@ export class PhysicsSystem implements IPhysicsSystem {
       trackU: proj.u,
       lateral: proj.lateral,
       heightAboveTrack: proj.height,
+      airborne: false,
       lastControls: neutralControls(),
       status: 'grid',
       boostUnlocked: false,

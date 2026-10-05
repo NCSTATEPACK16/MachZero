@@ -9,6 +9,7 @@ import { clamp01, damp } from '../core/math';
 import type { QualityProfile } from '../settings/QualityManager';
 import { SpeedBlurShader } from './shaders/speedBlur';
 import { ChromaticShader } from './shaders/chromatic';
+import { HeatShimmerShader } from './shaders/heatShimmer';
 
 /**
  * Renders the scene into a private MSAA HalfFloat target, then resolves it into the
@@ -147,7 +148,11 @@ export class PostFX {
   readonly bloomPass: ScaledBloomPass;
   readonly speedBlurPass: SpeedBlurPass;
   readonly chromaticPass: ChromaticPass;
+  readonly shimmerPass: ShaderPass;
   readonly outputPass: OutputPass;
+  /** World heat shimmer (0 = none); shown on presets with chromatic aberration, never with reduced motion. */
+  private shimmer = 0;
+  private shimmerAllowed = true;
 
   private blur = 0;
   private blurAllowed = true;
@@ -173,15 +178,18 @@ export class PostFX {
     this.bloomPass = new ScaledBloomPass(new THREE.Vector2(width, height), CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD);
     this.speedBlurPass = new SpeedBlurPass();
     this.chromaticPass = new ChromaticPass();
+    this.shimmerPass = new ShaderPass(HeatShimmerShader);
     this.outputPass = new OutputPass();
 
     this.composer.addPass(this.renderPass);
+    this.composer.addPass(this.shimmerPass);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.speedBlurPass);
     this.composer.addPass(this.chromaticPass);
     this.composer.addPass(this.outputPass);
 
     this.speedBlurPass.enabled = false;
+    this.shimmerPass.enabled = false;
     this.setSize(width, height);
   }
 
@@ -201,6 +209,13 @@ export class PostFX {
       this.speedBlurPass.material.needsUpdate = true;
     }
     this.chromaticPass.enabled = q.chromatic;
+    // Heat shimmer costs a full-screen pass: Med and High only (the presets that afford aberration).
+    this.shimmerAllowed = q.chromatic;
+  }
+
+  /** The world's heat shimmer strength (0 = off). */
+  setShimmer(strength: number): void {
+    this.shimmer = strength;
   }
 
   /** Add a chromatic-aberration kick (0..1) that decays over ~0.4 s. */
@@ -214,7 +229,13 @@ export class PostFX {
     this.speedBlurPass.enabled = false;
   }
 
-  update(dt: number, p: PostFxParams): void {
+  update(dt: number, p: PostFxParams & { horizonV?: number; time?: number }): void {
+    this.shimmerPass.enabled = this.shimmer > 0 && this.shimmerAllowed && !this.reducedMotion;
+    if (this.shimmerPass.enabled) {
+      this.shimmerPass.uniforms['uStrength'].value = this.shimmer;
+      this.shimmerPass.uniforms['uHorizon'].value = p.horizonV ?? 0.5;
+      this.shimmerPass.uniforms['uTime'].value = p.time ?? 0;
+    }
     const sf = clamp01((p.speed - 40) / (CONFIG.BOOST_TOP_SPEED - 40));
     const targetBlur = sf <= 0 || this.reducedMotion || !this.blurAllowed ? 0 : 0.15 * Math.pow(sf, 1.15) + (p.boosting ? 0.07 * Math.min(1, sf * 2) : 0);
     this.blur = damp(this.blur, targetBlur, 6, dt);

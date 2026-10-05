@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../../core/config';
 import { buildRaceField, defaultLoadout } from '../../content/pilots';
 import type { RecordStore } from '../../game';
+import { TRACK_DEFS } from '../../content/tracks';
 import { RaceSession, type RaceSetup } from '../RaceSession';
 
 
 function setup(overrides: Partial<RaceSetup> = {}): RaceSetup {
   return {
-    seed: CONFIG.TRACK_SEED,
+    source: { kind: 'seeded', seed: CONFIG.TRACK_SEED },
+    worldId: 'neon-bay',
     trackKey: 'classic',
     field: buildRaceField({ playerName: 'T', playerLoadout: defaultLoadout(), tier: 'rookie' }),
     autopilot: true,
@@ -89,6 +91,17 @@ describe('RaceSession lifecycle', () => {
     for (let t = 0; t < 6; t += dt) s.fixed(dt, idle);
     expect(s.player.forwardSpeed).toBeLessThan(1); // nobody pressed throttle
     expect(s.ships.some((x) => x !== s.player && x.forwardSpeed > 30)).toBe(true);
+    s.dispose();
+  });
+
+  it('builds an authored world track (Sunset Mesa, with jumps) and races it', async () => {
+    const s = await RaceSession.create(setup({ source: { kind: 'authored', def: TRACK_DEFS['sunset-mesa'] }, worldId: 'sunset-mesa', trackKey: 'sunset-mesa' }));
+    expect(s.track.id).toBe('sunset-mesa');
+    expect(s.track.jumps).toHaveLength(2);
+    s.start();
+    run(s, 8);
+    expect(s.state).toBe('racing');
+    expect(s.player.trackU).toBeGreaterThan(0);
     s.dispose();
   });
 });

@@ -97,8 +97,10 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
 
-  // Keyboard: RACE is focused; ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
+  // Keyboard: RACE is focused; ↓ WORLDS, ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
   await expect.poll(() => focusedText(page)).toContain('RACE');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => focusedText(page)).toContain('WORLDS');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => focusedText(page)).toContain('GARAGE');
   await page.keyboard.press('ArrowDown');
@@ -117,9 +119,10 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   // Gamepad (always routed InputManager → App → UI nav): D-pad moves focus, A activates, B goes back.
   await expect.poll(() => focusedText(page)).toContain('RACE');
   await padPress(page, 13); // D-pad down
-  await expect.poll(() => focusedText(page)).toContain('GARAGE');
+  await expect.poll(() => focusedText(page)).toContain('WORLDS');
   await padPress(page, 12); // D-pad up
   await expect.poll(() => focusedText(page)).toContain('RACE');
+  await padPress(page, 13);
   await padPress(page, 13);
   await padPress(page, 13);
   await expect.poll(() => focusedText(page)).toContain('SETTINGS');
