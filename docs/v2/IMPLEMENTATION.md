@@ -437,6 +437,18 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards
 
+**Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
+
+- **Order and PRs:** M4 before M5, as three stacked PRs: **M4a** Cryo Station (adds the hazard framework, `HazardPolicy` and ice), **M4b** Jade Ruins, **M4c** Orbital Ring. M4's world sims use the existing Rookie and Legend fits (as in M3); the 5 tracks × 4 tiers matrix moves to M5.
+- **HazardPolicy before tiers:** part of the race setup, default `normal`; `?hazards=rookie` turns the Rookie rules on for QA. M5 sets it from the Rookie tier, and M7's No-KO assist sets it too.
+- **World locks:** every built world is selectable in M4. The top-3 unlock rule arrives with M8's World Tour.
+- **Full-pipe (Cryo):** a real closed tube, not a rolling ribbon. About 500 m, gently curving, the tube's circumference about the track width (≈ 8–9 m across); entry and exit blend over ≈ 80 m with the road edges curling up into the tube. Inside it, the lateral offset becomes an angle θ around the tube, the hover rays aim at the tube wall, and the corkscrew's magnetic hold keeps the ship on any wall at any speed. The camera rolls with the ship. Ice patches appear inside the pipe and on the main road. The pipe hold test (θ sweep) is written first.
+- **Split path (Jade):** a real branch. A second swept section leaves at a fork and rejoins the main loop; each ship's progress maps back to main-loop `u`, so positions, laps, AI and respawns keep working. The shortcut saves ≈ 1.5 s per lap when driven cleanly. It is half-width with rails on one side only. Falling off it respawns you on the shortcut (≈ 3 s lost).
+- **AI shortcut choice:** Rookie never, Pilot ≈ 30%, Ace ≈ 60%, Legend always unless a gate is closing; PIXEL (erratic) picks at random and the aggressive pilots lean towards it. Choices come from a fixed seed so the sims are reproducible.
+- **Stone gates:** on the main road they slide across **half** the width, alternating sides, so there is always a way through. One gate can close the **whole** shortcut.
+- **Loop (Orbital):** built from the centre line, nudged sideways so it doesn't cross itself; the magnetic hold keeps the ship on at **any** speed (no minimum speed). Low-g jumps use `airGravityScale` 0.35.
+- **Debris:** solid kinematic obstacles on **every** preset (Low only draws simpler meshes), so the game plays the same on every device and the sims match.
+
 - **Cryo Station:**
   - Pipe section, aurora sky shader, ice spires, frosted-glass tube material (transmission on High, faked on Low).
   - **Ice patches:** zone `ice`, where lateral grip is multiplied by `grip` (≈ 0.3), with a glossy decal on the surface and `ship:ice`.
@@ -446,12 +458,12 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 - **Orbital Ring:**
   - Loop plus low-gravity jumps (`airGravityScale ≈ 0.35`), Earth sphere with an atmosphere shader, station ribs, starfield.
   - **Mines:** kinematic sensor balls drifting on deterministic Lissajous paths. On contact: impulse + `CONFIG.MINE_DAMAGE` energy loss + `hazard:mine`. The mine respawns after 6 s.
-  - **Debris:** visual-only on Low; on Med/High, small kinematic obstacles.
+  - **Debris:** small kinematic obstacles on every preset (simpler meshes on Low).
 - **Rookie/No-KO rule:** a `HazardPolicy` from the race setup gives earlier telegraphing (a 2× longer warning glow), no energy damage, and a slowdown only (a velocity scale of 0.85 on hit).
 - **AI hazard awareness:** the look-ahead scans upcoming hazards. Ice → brake earlier and hold a straighter line. Gates → wait or accelerate based on the timeline. Mines → lateral avoidance like v1's rival avoidance.
 
 **M4 done when:**
-- All 5 worlds pass the sims × 4 tiers.
+- All 5 worlds pass the sims at the Rookie and Legend fits (the 4-tier matrix is M5's).
 - The pipe and loop hold tests pass.
 - Hazards are deterministic in the sims.
 - Each world is ≤ 2.5 MB and the total is ≤ 15 MB.
@@ -460,6 +472,15 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 ---
 
 ## M5 — AI tiers, pilots, drafting
+
+**Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
+
+- **One PR**, after M4c.
+- **Tier picker:** a 4-way toggle (Rookie, Pilot, Ace, Legend) on World Select, saved to the profile. New profiles default to Rookie. Rival parts follow the tier, as the field builder already does. Rookie switches on the Rookie `HazardPolicy`.
+- **Drafting** applies to every ship. Only the AI's eagerness to look for a draft depends on tier (Ace and Legend hunt for it).
+- **Pilot intro card:** before every race; it moves on after ≈ 3 s, and any input skips it.
+- **Assists early:** `physics/Assists.ts` (auto-accelerate, steering assist, rail repulsion) lands in M5 as tested logic with no settings UI, so the Rookie balance test can run. M7 adds the toggles plus No-KO and early boost.
+- **Sim budget:** one sim file per track, each under 60 s on CI (vitest runs them in parallel). If a file can't stay under 60 s, fall back to Rookie and Legend plus one mixed-field ordering race per track, and record that in the as-built notes.
 
 - `content/tiers.ts` scales v1's `AIDriver` `PROFILES` (latBudget, yawFactor, brakeDecel, overspeedTol, boost policy, pitEnergy, lookScale) per tier. Each tier also adds:
   - `paceScale` (a throttle cap: Rookie 0.75, Pilot 0.88, Ace 0.97, Legend 1.0)
