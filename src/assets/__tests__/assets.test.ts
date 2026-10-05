@@ -14,8 +14,8 @@ describe('game assets (public/game)', () => {
   it('ships, parts and world props meet names, sockets, materials, orientation and budgets', async () => {
     const { problems, report } = await (await load()).checkAssets();
     expect(problems).toEqual([]);
-    // 6 ships × 2 LODs + 16 parts + Neon Bay's 7 and Sunset Mesa's 9 props.
-    expect(Object.keys(report).length).toBe(6 * 2 + 16 + 7 + 9);
+    // 6 ships × 2 LODs + 16 parts + Neon Bay's 7, Sunset Mesa's 9 and Cryo Station's 8 props.
+    expect(Object.keys(report).length).toBe(6 * 2 + 16 + 7 + 9 + 8);
   });
 
   it('the checker reports missing assets', async () => {

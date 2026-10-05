@@ -267,3 +267,32 @@ export function createPitTexture(): THREE.DataTexture {
   }
   return finish(data, W, H, { srgb: true, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping });
 }
+
+/** Metres of track per repeat of the frosted-glass pipe texture. */
+export const FROST_TILE_METRES = 28;
+
+/**
+ * Frosted ice-glass panels for the inside of a pipe: a pale blue-grey speckled base with bright panel seams
+ * (8 across, 8 along a 28 m tile) so speed reads clearly on every wall. 256 × 256, sRGB.
+ */
+export function createFrostTexture(): THREE.DataTexture {
+  const W = 256;
+  const H = 256;
+  const data = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const fx = (x / W) * 8;
+      const fy = (y / H) * 8;
+      const sx = Math.min(fx - Math.floor(fx), Math.ceil(fx) - fx);
+      const sy = Math.min(fy - Math.floor(fy), Math.ceil(fy) - fy);
+      const seam = 1 - smooth01(0.02, 0.06, Math.min(sx, sy));
+      const frost = hash2(x, y) * 0.5 + hash2(x >> 2, y >> 2) * 0.5;
+      const i = (y * W + x) * 4;
+      data[i] = clamp255(70 + frost * 28 + seam * 120);
+      data[i + 1] = clamp255(104 + frost * 30 + seam * 130);
+      data[i + 2] = clamp255(128 + frost * 30 + seam * 127);
+      data[i + 3] = 255;
+    }
+  }
+  return finish(data, W, H, { srgb: true, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping });
+}

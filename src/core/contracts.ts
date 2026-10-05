@@ -94,6 +94,11 @@ export interface TrackProjection {
   height: number;
   /** Interpolated frame at u. */
   sample: TrackSample;
+  /**
+   * Unit normal of the driving surface at (u, lateral), pointing into the drivable side. Differs from sample.up
+   * where the road curls into a pipe; absent means sample.up.
+   */
+  surfaceUp?: THREE.Vector3;
 }
 
 /** World-space triangle mesh: xyz vertex triples + triangle indices. */
@@ -138,11 +143,15 @@ export interface GridSlot {
  * A `jump` is an open-air gap: no surface and no rails between dTakeoff and dLanding. The builder raises a
  * ramp of `kick` metres over the RAMP_LENGTH before the lip, and bends the centerline through the gap along
  * the flight path of a ship at `designSpeed` (m/s), so project() and the AI keep working in the air.
+ * A `pipe` curls the road's cross-section up into a closed tube (circumference = the road width, so `lateral`
+ * becomes the arc position around the tube): it closes over `transition` metres after dStart and opens over the
+ * last `transition` metres before dEnd. Rails end where the tube closes.
+ * An `ice` patch multiplies the lateral grip of ships over it by `grip`.
  */
 export type TrackFeature =
   | { type: 'corkscrew'; dStart: number; dEnd: number; turns?: number }
   | { type: 'jump'; dTakeoff: number; dLanding: number; kick: number; designSpeed?: number }
-  | { type: 'pipe'; dStart: number; dEnd: number; radius: number; transition: number }
+  | { type: 'pipe'; dStart: number; dEnd: number; transition: number }
   | { type: 'loop'; dStart: number; dEnd: number; sideOffset: number }
   | { type: 'branch'; id: string; dFork: number; dMerge: number; points: [number, number, number][]; halfWidth: number }
   | { type: 'dash' | 'pit'; dStart: number; dEnd: number; lateralMin: number; lateralMax: number }
@@ -200,6 +209,11 @@ export interface TrackData {
   sampleAt(u: number, out?: TrackSample): TrackSample;
   /** Nearest point on the centerline. O(window) with hintU, O(N) without. */
   project(pos: THREE.Vector3, hintU?: number): TrackProjection;
+  /**
+   * The point on the driving surface at (u, lateral), plus its surface normal when `outUp` is given. On a flat
+   * deck this is position + right·lateral; inside a pipe it follows the curled cross-section.
+   */
+  surfacePoint(u: number, lateral: number, out: THREE.Vector3, outUp?: THREE.Vector3): THREE.Vector3;
   zones: TrackZone[];
   /** 8 slots behind the start line (4 rows × 2 staggered); index = grid position (0 = pole). */
   startGrid: GridSlot[];
@@ -210,10 +224,17 @@ export interface TrackData {
   corkscrew: { uStart: number; uEnd: number } | null;
   features: TrackFeature[];
   jumps: TrackJump[];
+  /**
+   * Pipe extents in u: the whole curl (uStart..uEnd, transitions included) and the stretch where the tube is
+   * fully closed (uClosedStart..uClosedEnd).
+   */
+  pipes: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
   /** Gravity multiplier while airborne. */
   airGravityScale: number;
   /** What a ship at (u, lateral) is driving on. */
   surfaceKindAt(u: number, lateral: number): SurfaceKind;
+  /** Lateral-grip multiplier of the surface at (u, lateral): an ice patch's `grip`, otherwise 1. */
+  gripAt(u: number, lateral: number): number;
   /**
    * Where a ship whose last valid position was u is put back: u itself, except near or inside a jump, where it
    * is the landing side (respawning before the ramp at low speed would only miss the jump again).

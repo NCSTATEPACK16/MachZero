@@ -20,6 +20,8 @@ export interface WorldRaceResult {
   simTime: number;
   respawns: Map<ShipId, number>;
   jumps: Map<ShipId, number>;
+  /** Times each ship drove onto an ice patch. */
+  ice: Map<ShipId, number>;
   destroyed: ShipId[];
   playerLaps: number;
   maxLateral: number;
@@ -44,10 +46,14 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
 
   const respawns = new Map<ShipId, number>();
   const jumps = new Map<ShipId, number>();
+  const ice = new Map<ShipId, number>();
   const destroyed: ShipId[] = [];
   let playerLaps = 0;
   bus.on('ship:respawn', ({ shipId }) => respawns.set(shipId, (respawns.get(shipId) ?? 0) + 1));
   bus.on('ship:jump', ({ shipId }) => jumps.set(shipId, (jumps.get(shipId) ?? 0) + 1));
+  bus.on('ship:ice', ({ shipId, active }) => {
+    if (active) ice.set(shipId, (ice.get(shipId) ?? 0) + 1);
+  });
   bus.on('ship:destroyed', ({ shipId }) => destroyed.push(shipId));
   bus.on('race:lap', ({ shipId }) => {
     if (shipId === 0) playerLaps++;
@@ -74,7 +80,7 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
   const table = snap.standings
     .map((r) => {
       const ship = ships.find((s) => s.def.id === r.id)!;
-      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
+      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
     })
     .join('\n');
   physics.dispose();
@@ -85,6 +91,7 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
     simTime: t,
     respawns,
     jumps,
+    ice,
     destroyed,
     playerLaps,
     maxLateral,
