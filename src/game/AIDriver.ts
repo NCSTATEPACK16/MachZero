@@ -7,7 +7,6 @@ import type {
   ShipId,
   ShipState,
   TrackData,
-  TrackSample,
   TrackZone,
 } from '../core/contracts';
 import { neutralControls } from '../core/controls';
@@ -94,6 +93,12 @@ const BOOST_STRAIGHT_CURV = 0.0028; // max |κ| allowed over the boost scan
 const BOOST_STRAIGHT_LEN = 200; // m
 const BOOST_MAX_STEER = 0.3;
 
+const ICE_LOOKAHEAD = 140; // m of track scanned for ice patches to steer around
+const ICE_MARGIN = 2.5; // m kept from a patch's edge when going round it
+const ICE_GRIP_PLAN = 0.5; // lateral budget multiplier the driver assumes for curves on ice
+const ICE_LATERAL_RATE = 1.5; // 1/s target-lateral smoothing on ice (hold a straight line)
+const PIPE_MAX_LAT = 9; // m: lines inside a pipe stay well off the top seam
+
 const PIT_APPROACH = 400; // m
 const JUMP_APPROACH = 160; // m before a jump lip where the line straightens toward the centre
 const PIT_FULL_ENERGY = 95;
@@ -113,12 +118,14 @@ export class AIDriver implements IAIDriver {
   private readonly pitZone: TrackZone | null;
   /** u ranges (padded) driven near the centreline: corkscrews and jump approaches/gaps. */
   private readonly centreRanges: [number, number][];
+  /** Ice patches in metres. */
+  private readonly ice: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
 
   private readonly out: ControlInput = neutralControls();
-  private readonly sample: TrackSample;
   private readonly fwd = new Vector3();
   private readonly up = new Vector3();
   private readonly toTarget = new Vector3();
+  private readonly targetPoint = new Vector3();
   private readonly cross = new Vector3();
 
   private time = 0;
@@ -172,18 +179,8 @@ export class AIDriver implements IAIDriver {
       ...track.jumps.map((j): [number, number] => [wrap01((j.dTakeoff - JUMP_APPROACH) / L), wrap01((j.dLanding + 30) / L)]),
     ];
 
-    const s0 = track.samples[0];
-    this.sample = {
-      u: 0,
-      distance: 0,
-      position: new Vector3().copy(s0.position),
-      forward: new Vector3().copy(s0.forward),
-      up: new Vector3().copy(s0.up),
-      right: new Vector3().copy(s0.right),
-      roll: 0,
-      curvature: 0,
-      halfWidth: s0.halfWidth,
-    };
+    this.ice = track.features.flatMap((f) => (f.type === 'ice' ? [f] : []));
+
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
     this.phaseA = this.rng.range(0, Math.PI * 2);
@@ -266,6 +263,12 @@ export class AIDriver implements IAIDriver {
       }
     }
     let desired = lineLat + bias;
+    // Inside a pipe the line stays off the top seam (it opens again at the exit).
+    const inPipe = this.inPipe(u) || this.inPipe(wrap01(targetU));
+    if (inPipe) desired = clamp(desired, -PIPE_MAX_LAT, PIPE_MAX_LAT);
+    // Ice ahead that leaves room beside it: go round it.
+    desired = this.avoidIce(u, desired, maxLat);
+    const onIce = this.track.surfaceKindAt(u, ship.lateral) === 'ice';
 
     // --- erratic mistakes ---
     let throttleCap = 1;
@@ -341,11 +344,12 @@ export class AIDriver implements IAIDriver {
 
     const limit = this.mistakeKind === 'rail' ? halfWidth - 1.6 : maxLat;
     desired = clamp(desired, this.pitMode ? -halfWidth + 1.5 : -limit, this.pitMode ? halfWidth - 1.5 : limit);
-    this.tLat = damp(this.tLat, desired, ram ? LATERAL_RATE * 1.6 : LATERAL_RATE, dt);
+    this.tLat = damp(this.tLat, desired, onIce ? ICE_LATERAL_RATE : ram ? LATERAL_RATE * 1.6 : LATERAL_RATE, dt);
 
     // --- steering: PD on the signed angle to the target point, in the ship's plane ---
-    const ts = this.track.sampleAt(targetU, this.sample);
-    this.toTarget.copy(ts.position).addScaledVector(ts.right, this.tLat).sub(ship.position);
+    // The aim point lies on the driving surface (inside a pipe that is on the curled tube wall).
+    this.track.surfacePoint(targetU, this.tLat, this.targetPoint);
+    this.toTarget.copy(this.targetPoint).sub(ship.position);
     this.toTarget.addScaledVector(this.up, -this.toTarget.dot(this.up));
     // fwd × target · up is negative when the target lies to the right (fwd = -Z, up = +Y, right = +X)
     this.cross.crossVectors(this.fwd, this.toTarget);
@@ -370,7 +374,8 @@ export class AIDriver implements IAIDriver {
     for (let d = 0; d <= SCAN_RANGE; d += SCAN_STEP) {
       const ak = Math.abs(this.curvatureAt(u, d));
       if (ak < 1e-5) continue;
-      const vSafe = this.safeSpeed(ak);
+      // Curves on ice are taken with the grip the driver expects there: brake earlier.
+      const vSafe = this.safeSpeed(ak) * (this.iceAt(u, d, this.tLat) ? Math.sqrt(ICE_GRIP_PLAN) : 1);
       const vAllowed = Math.sqrt(vSafe * vSafe + 2 * p.brakeDecel * d);
       if (vAllowed < vTarget) vTarget = vAllowed;
     }
@@ -412,6 +417,39 @@ export class AIDriver implements IAIDriver {
   // ---------------------------------------------------------------------
   // helpers
   // ---------------------------------------------------------------------
+
+  private inPipe(u: number): boolean {
+    for (const p of this.track.pipes) if (inLoopRange(u, p.uStart, p.uEnd)) return true;
+    return false;
+  }
+
+  /** An ice patch covers lateral `lat` at `d` metres ahead of u. */
+  private iceAt(u: number, d: number, lat: number): boolean {
+    if (this.ice.length === 0) return false;
+    const m = wrap01(u + d / this.length) * this.length;
+    for (const z of this.ice) if (m >= z.dStart && m <= z.dEnd && lat >= z.lateralMin - 1 && lat <= z.lateralMax + 1) return true;
+    return false;
+  }
+
+  /** Move `desired` off any ice patch in the next ICE_LOOKAHEAD metres that leaves a lane beside it. */
+  private avoidIce(u: number, desired: number, maxLat: number): number {
+    if (this.ice.length === 0) return desired;
+    const here = wrap01(u) * this.length;
+    for (const z of this.ice) {
+      const ahead = (((z.dStart - here) % this.length) + this.length) % this.length;
+      const inside = here >= z.dStart && here <= z.dEnd;
+      if (!inside && ahead > ICE_LOOKAHEAD) continue;
+      const lo = z.lateralMin - ICE_MARGIN;
+      const hi = z.lateralMax + ICE_MARGIN;
+      if (desired <= lo || desired >= hi) continue;
+      const roomLeft = lo >= -maxLat;
+      const roomRight = hi <= maxLat;
+      if (!roomLeft && !roomRight) continue;
+      if (roomLeft && (!roomRight || desired - lo < hi - desired)) return lo;
+      return hi;
+    }
+    return desired;
+  }
 
   private inCentreSection(u: number): boolean {
     for (const [a, b] of this.centreRanges) if (inLoopRange(u, a, b)) return true;

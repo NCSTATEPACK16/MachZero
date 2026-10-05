@@ -46,16 +46,16 @@
     },
     {
       "type": "ice",
-      "dStart": 2568.57,
-      "dEnd": 2628.57,
+      "dStart": 2732.73,
+      "dEnd": 2802.73,
       "lateralMin": -14,
       "lateralMax": -3,
       "grip": 0.3
     },
     {
       "type": "dash",
-      "dStart": 2846.73,
-      "dEnd": 2858.73,
+      "dStart": 2906.73,
+      "dEnd": 2918.73,
       "lateralMin": -1,
       "lateralMax": 7
     }
