@@ -88,6 +88,8 @@ export interface VisualInput {
   pipes?: PipeSpan[];
   /** Ice patches (glossy decals). */
   ice?: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
+  /** Hazard telegraphing strength (1 normal, 2 Rookie): how hard ice patches pulse. */
+  telegraphScale?: number;
   palette: TrackPalette;
 }
 
@@ -596,6 +598,13 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     });
     const iceMesh = meshOf(iceAcc, iceMat, 'TrackIce');
     iceMesh.renderOrder = 2;
+    // A slow glint pulse marks the patches; Rookie races (telegraphScale 2) pulse brighter.
+    const pulse = 0.25 * (input.telegraphScale ?? 1);
+    const baseEmissive = iceMat.emissive.clone();
+    iceMesh.onBeforeRender = () => {
+      const k = 1 + pulse * (0.5 + 0.5 * Math.sin(performance.now() * 0.004));
+      iceMat.emissive.copy(baseEmissive).multiplyScalar(k);
+    };
     group.add(iceMesh);
   }
   {

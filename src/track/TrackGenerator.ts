@@ -59,6 +59,8 @@ export interface BuiltLayout {
 
 export interface BuildOptions {
   palette?: TrackPalette;
+  /** Hazard telegraphing strength (HazardPolicy.telegraphScale): Rookie races pulse ice patches harder. */
+  telegraphScale?: number;
 }
 
 const statsByTrack = new WeakMap<TrackData, TrackStats>();
@@ -210,6 +212,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     corkscrews: corkDists,
     pipes: pipeSpans,
     ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
+    telegraphScale: build.telegraphScale ?? 1,
     pit,
     dashPlates,
     gaps,
