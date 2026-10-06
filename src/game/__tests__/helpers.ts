@@ -116,6 +116,7 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     position: new THREE.Vector3(),
     quaternion: new THREE.Quaternion(),
     path: null,
+    pathS: 0,
     prevPosition: new THREE.Vector3(),
     prevQuaternion: new THREE.Quaternion(),
     velocity: new THREE.Vector3(),

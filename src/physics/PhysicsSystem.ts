@@ -171,6 +171,7 @@ export class PhysicsSystem implements IPhysicsSystem {
       onDash: false,
       trackU: proj.u,
       path: proj.path,
+      pathS: proj.pathS ?? 0,
       lateral: proj.lateral,
       heightAboveTrack: proj.height,
       airborne: false,

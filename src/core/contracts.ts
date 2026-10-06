@@ -136,6 +136,8 @@ export interface TrackBranch {
    * overlaps `lateral` adds its along-main share, so progress is the same on either road there.
    */
   progressU(s: number, lateral?: number): number;
+  /** Branch metres whose (centreline) race progress is main-loop u: the inverse of progressU, clamped. */
+  sAtProgress(u: number): number;
   /** Lateral edges that have no rail (open drop): between these s values the side `openSide` is open. */
   openEdge: { side: 1 | -1; sFrom: number; sTo: number } | null;
 }
@@ -396,6 +398,8 @@ export interface ShipState {
   trackU: number;
   /** null on the main loop, or the id of the split path the ship is on (lateral is then relative to it). */
   path: string | null;
+  /** Metres along that split path (0 on the main loop). */
+  pathS: number;
   lateral: number;
   heightAboveTrack: number;
   /** In the air over a jump gap (no surface under the hover rays). */

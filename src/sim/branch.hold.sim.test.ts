@@ -8,13 +8,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { CONFIG, SHIP_ROSTER } from '../core/config';
-import type { ControlInput, GridSlot, ShipId, TrackData } from '../core/contracts';
+import type { AITier, ControlInput, GridSlot, ShipId, TrackData } from '../core/contracts';
 import { clamp, wrap01 } from '../core/math';
 import { EventBus, type GameEvents } from '../core/events';
 import { TRACK_DEFS } from '../content/tracks';
 import { PhysicsSystem } from '../physics';
 import { trackFromSource } from '../track';
 import type { BuiltBranch } from '../track/features/branch';
+import { AIDriver, shortcutOdds } from '../game/AIDriver';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -207,5 +208,47 @@ describe('Jade Ruins split path', () => {
     expect(Math.abs(r.respawnS - r.leftAtS)).toBeLessThan(15);
     expect(r.leftAtS).toBeGreaterThan(e.sFrom);
     expect(r.leftAtS).toBeLessThan(e.sTo);
+  });
+
+  describe.each(['legend', 'rookie'] as AITier[])('an AI driver (%s)', (tier) => {
+    it(tier === 'legend' ? 'takes the shortcut from 400 m out and rejoins the main road' : 'stays on the main road', async () => {
+      const bus = new EventBus<GameEvents>();
+      const physics = await PhysicsSystem.create(track, bus);
+      const ship = physics.addShip({ ...SHIP_ROSTER[0], tier }, track.startGrid[0]);
+      physics.resetShip(0, slotAt(wrap01((branch.dFork - 400) / L), 0));
+      ship.status = 'racing';
+      ship.velocity.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion)).multiplyScalar(80);
+      const ai = new AIDriver(ship, track, 'steady', 12345, [ship]);
+      let respawns = 0;
+      bus.on('ship:respawn', () => respawns++);
+      const roads: (string | null)[] = [null];
+      const controls = new Map<ShipId, ControlInput>();
+      let worstRegress = 0;
+      let prevD = unwrap(ship.trackU);
+      for (let i = 0; i < 120 * 40; i++) {
+        controls.set(0, ai.update(CONFIG.FIXED_DT));
+        physics.step(CONFIG.FIXED_DT, controls);
+        if (roads[roads.length - 1] !== ship.path) roads.push(ship.path);
+        const d = unwrap(ship.trackU);
+        worstRegress = Math.max(worstRegress, prevD - d);
+        prevD = d;
+        if (d > pastMerge) break;
+      }
+      physics.dispose();
+      console.log(`branch AI ${tier}: roads=${roads.map((p) => p ?? 'main').join('>')} respawns=${respawns} regress=${worstRegress.toFixed(2)}m reached=${prevD > pastMerge}`);
+      expect(prevD).toBeGreaterThan(pastMerge);
+      expect(respawns).toBe(0);
+      expect(worstRegress).toBeLessThan(0.05);
+      expect(roads).toEqual(tier === 'legend' ? [null, 'shortcut', null] : [null]);
+    });
+  });
+
+  it('shortcut odds follow the tier table (Rookie never, Legend always, PIXEL a coin flip, aggressive lean in)', () => {
+    expect(shortcutOdds('rookie', 'aggressive')).toBe(0);
+    expect(shortcutOdds('legend', 'steady')).toBe(1);
+    expect(shortcutOdds('pilot', 'steady')).toBeCloseTo(0.3);
+    expect(shortcutOdds('ace', 'steady')).toBeCloseTo(0.6);
+    expect(shortcutOdds('ace', 'aggressive')).toBeGreaterThan(0.6);
+    expect(shortcutOdds('pilot', 'erratic')).toBe(0.5);
   });
 });

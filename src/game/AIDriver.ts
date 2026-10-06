@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import { CONFIG } from '../core/config';
 import type {
   AIPersonality,
+  AITier,
   ControlInput,
   IAIDriver,
   ShipId,
@@ -12,6 +13,26 @@ import type {
 import { neutralControls } from '../core/controls';
 import { clamp, damp, inLoopRange, loopDelta, wrap01, wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
+import { TrackRoute } from '../track/TrackRoute';
+
+/**
+ * Chance of taking a split path's shortcut on each approach, by tier (SPEC: Rookie never, Pilot ≈ 30%, Ace ≈ 60%,
+ * Legend always unless its gate will be closed). PIXEL (erratic) flips a coin; aggressive pilots lean toward it.
+ * M5's tier tuning replaces this table.
+ */
+const SHORTCUT_ODDS: Record<AITier, number> = { rookie: 0, pilot: 0.3, ace: 0.6, legend: 1 };
+const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
+/** Metres before a fork where the route for that approach is chosen. */
+const ROUTE_DECIDE = 300;
+/** Metres before a fork over which a driver taking the shortcut moves to its side of the road. */
+const FORK_APPROACH = 160;
+
+export function shortcutOdds(tier: AITier, personality: AIPersonality): number {
+  const base = SHORTCUT_ODDS[tier];
+  if (base === 0 || base === 1) return base;
+  if (personality === 'erratic') return 0.5;
+  return Math.min(1, base + (personality === 'aggressive' ? SHORTCUT_AGGRESSIVE_LEAN : 0));
+}
 
 /** Per-personality tuning. Everything the drivers differ in lives here. */
 interface Profile {
@@ -114,12 +135,21 @@ export class AIDriver implements IAIDriver {
   private readonly rivals: readonly ShipState[];
   private readonly rng: Rng;
   private readonly length: number;
-  private readonly count: number;
   private readonly pitZone: TrackZone | null;
   /** u ranges (padded) driven near the centreline: corkscrews and jump approaches/gaps. */
   private readonly centreRanges: [number, number][];
   /** Ice patches in metres. */
   private readonly ice: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
+  /** The main loop, and one shortcut route per split path. */
+  private readonly mainRoute: TrackRoute;
+  private readonly shortcuts: TrackRoute[];
+  private readonly odds: number;
+  /** The road this driver means to take; R ahead of the ship is measured along it. */
+  private route: TrackRoute;
+  /** Branch ids whose route has been chosen for the current approach. */
+  private readonly decided = new Set<string>();
+  /** Route metres of last step's aim point (to carry tLat across a change of road). */
+  private prevTargetR = Number.NaN;
 
   private readonly out: ControlInput = neutralControls();
   private readonly fwd = new Vector3();
@@ -168,7 +198,6 @@ export class AIDriver implements IAIDriver {
     this.rivals = rivals;
     this.rng = new Rng(rngSeed);
     this.length = track.length;
-    this.count = track.samples.length;
     this.pitZone = track.zones.find((z) => z.type === 'pit') ?? null;
     const L = track.length;
     const corks = track.features.flatMap((f) => (f.type === 'corkscrew' ? [[f.dStart / L, f.dEnd / L] as [number, number]] : []));
@@ -180,7 +209,9 @@ export class AIDriver implements IAIDriver {
     ];
 
     this.ice = track.features.flatMap((f) => (f.type === 'ice' ? [f] : []));
-
+    this.mainRoute = new TrackRoute(track);
+    this.shortcuts = track.branches.map((b) => new TrackRoute(track, b));
+    this.route = this.mainRoute;
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
     this.phaseA = this.rng.range(0, Math.PI * 2);
@@ -188,6 +219,17 @@ export class AIDriver implements IAIDriver {
     this.boostEnergy = this.rollBoostEnergy();
     this.nextMistake = this.rng.range(6, 12);
     this.tLat = ship.lateral;
+    // Before M5 the tier is the race's (rival parts fit); rolls come from a separate stream so adding split paths
+    // does not change the AI's other random choices on tracks without them.
+    this.odds = shortcutOdds(ship.def.tier ?? 'rookie', personality);
+    this.routeRng = new Rng(rngSeed ^ 0x5eed);
+  }
+
+  private readonly routeRng: Rng;
+
+  /** The route currently planned (for tests and debugging). */
+  get plannedPath(): string | null {
+    return this.route.branch?.id ?? null;
   }
 
   update(dt: number): ControlInput {
@@ -209,8 +251,6 @@ export class AIDriver implements IAIDriver {
 
     this.time += dt;
     const p = this.profile;
-    const halfWidth = this.track.halfWidth;
-    const maxLat = halfWidth - RAIL_MARGIN;
 
     // --- ship frame ---
     this.fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
@@ -218,9 +258,24 @@ export class AIDriver implements IAIDriver {
     const speed = Math.max(ship.speed, 0);
     const u = ship.trackU;
 
+    // --- route: the road ahead, in route metres (main loop, or through a shortcut) ---
+    this.updateRoute(ship);
+    const route = this.route;
+    const R = route.shipR(ship.path, u, ship.pathS);
+
     // --- look-ahead distance & racing line ---
     const look = Math.max(MIN_LOOKAHEAD, (CONFIG.AI_LOOKAHEAD_BASE + speed * CONFIG.AI_LOOKAHEAD_K) * p.lookScale);
-    const targetU = u + look / this.length;
+    const targetR = route.wrap(R + look);
+    // Main-loop u at the aim point (null on a split path: no main-loop features there).
+    const targetMainU = route.mainUAt(targetR);
+    const halfWidth = route.halfWidthAt(targetR);
+    const maxLat = halfWidth - RAIL_MARGIN;
+    // Carry the target lateral across a change of road (fork / merge) on the route.
+    if (!Number.isNaN(this.prevTargetR)) {
+      const span = route.wrap(targetR - this.prevTargetR);
+      if (span < route.length / 2) this.tLat += route.lateralShift(this.prevTargetR, this.prevTargetR + span);
+    }
+    this.prevTargetR = targetR;
 
     let kMaxLine = 0;
     let kSteerSum = 0;
@@ -228,7 +283,7 @@ export class AIDriver implements IAIDriver {
     let kFarSum = 0;
     let kFarN = 0;
     for (let d = 0; d <= LINE_SCAN + look; d += SCAN_STEP) {
-      const k = this.curvatureAt(u, d);
+      const k = this.curvatureAt(R, d);
       if (d >= look * 0.4 && d <= look * 1.4) {
         kSteerSum += k;
         kSteerN++;
@@ -247,7 +302,7 @@ export class AIDriver implements IAIDriver {
     let lineLat = maxLat * (0.8 * inside - 0.4 * setup * (1 - Math.abs(inside)));
 
     // Corkscrews and jumps are driven near the centre: the frame rolls a full turn / the rails end.
-    const inCork = this.inCentreSection(wrap01(targetU));
+    const inCork = targetMainU !== null && this.inCentreSection(targetMainU);
     if (inCork) lineLat *= 0.15;
 
     // --- personality flavour ---
@@ -263,12 +318,14 @@ export class AIDriver implements IAIDriver {
       }
     }
     let desired = lineLat + bias;
+    // Taking a shortcut: over the last metres before its fork, move to its side of the road.
+    if (route.branch && route.pathAt(targetR) === null && route.length - targetR < FORK_APPROACH) desired = route.offset;
     // Inside a pipe the line stays off the top seam (it opens again at the exit).
-    const inPipe = this.inPipe(u) || this.inPipe(wrap01(targetU));
+    const inPipe = (ship.path === null && this.inPipe(u)) || (targetMainU !== null && this.inPipe(targetMainU));
     if (inPipe) desired = clamp(desired, -PIPE_MAX_LAT, PIPE_MAX_LAT);
     // Ice ahead that leaves room beside it: go round it.
-    desired = this.avoidIce(u, desired, maxLat);
-    const onIce = this.track.surfaceKindAt(u, ship.lateral) === 'ice';
+    if (ship.path === null) desired = this.avoidIce(u, desired, maxLat);
+    const onIce = this.track.surfaceKindAt(u, ship.lateral, ship.path) === 'ice';
 
     // --- erratic mistakes ---
     let throttleCap = 1;
@@ -303,30 +360,34 @@ export class AIDriver implements IAIDriver {
     if (this.mistakeKind !== 'rail') {
       let nearest: ShipState | null = null;
       let nearestDm = Infinity;
+      let nearestLat = 0;
       for (const r of this.rivals) {
         if (r.def.id === this.shipId || r.status !== 'racing') continue;
         const dm = loopDelta(u, r.trackU) * this.length;
         if (dm < -AVOID_BEHIND || dm > AVOID_AHEAD) continue;
-        if (Math.abs(r.lateral - ship.lateral) > AVOID_LANE) continue;
+        // Only rivals on the same road (or sharing a deck where a split path overlaps the main road).
+        const rLat = this.rivalLateral(r);
+        if (Number.isNaN(rLat) || Math.abs(rLat - ship.lateral) > AVOID_LANE) continue;
         if (dm < nearestDm) {
           nearestDm = dm;
           nearest = r;
+          nearestLat = rLat;
         }
       }
       if (nearest) {
         if (this.personality === 'aggressive' && ship.energy > nearest.energy + 5) {
-          desired = nearest.lateral;
+          desired = nearestLat;
           ram = true;
         } else {
           if (this.time >= this.avoidUntil || this.avoidSide === 0) {
             // Stay on the side of the rival we're already on (crossing its line grinds both hulls);
             // switch only when that side has no room to the rail.
-            const mySide = ship.lateral >= nearest.lateral ? 1 : -1;
-            const room = mySide > 0 ? maxLat - nearest.lateral : nearest.lateral + maxLat;
+            const mySide = ship.lateral >= nearestLat ? 1 : -1;
+            const room = mySide > 0 ? maxLat - nearestLat : nearestLat + maxLat;
             this.avoidSide = room >= AVOID_OFFSET ? mySide : -mySide;
             this.avoidUntil = this.time + AVOID_HOLD;
           }
-          desired = nearest.lateral + this.avoidSide * AVOID_OFFSET;
+          desired = nearestLat + this.avoidSide * AVOID_OFFSET;
         }
       } else if (this.time >= this.avoidUntil) {
         this.avoidSide = 0;
@@ -348,7 +409,7 @@ export class AIDriver implements IAIDriver {
 
     // --- steering: PD on the signed angle to the target point, in the ship's plane ---
     // The aim point lies on the driving surface (inside a pipe that is on the curled tube wall).
-    this.track.surfacePoint(targetU, this.tLat, this.targetPoint);
+    route.surfacePoint(targetR, this.tLat, this.targetPoint);
     this.toTarget.copy(this.targetPoint).sub(ship.position);
     this.toTarget.addScaledVector(this.up, -this.toTarget.dot(this.up));
     // fwd × target · up is negative when the target lies to the right (fwd = -Z, up = +Y, right = +X)
@@ -372,10 +433,10 @@ export class AIDriver implements IAIDriver {
     // --- speed control ---
     let vTarget: number = this.ship.def.stats.boostTopSpeed;
     for (let d = 0; d <= SCAN_RANGE; d += SCAN_STEP) {
-      const ak = Math.abs(this.curvatureAt(u, d));
+      const ak = Math.abs(this.curvatureAt(R, d));
       if (ak < 1e-5) continue;
       // Curves on ice are taken with the grip the driver expects there: brake earlier.
-      const vSafe = this.safeSpeed(ak) * (this.iceAt(u, d, this.tLat) ? Math.sqrt(ICE_GRIP_PLAN) : 1);
+      const vSafe = this.safeSpeed(ak) * (this.iceAt(R, d, this.tLat) ? Math.sqrt(ICE_GRIP_PLAN) : 1);
       const vAllowed = Math.sqrt(vSafe * vSafe + 2 * p.brakeDecel * d);
       if (vAllowed < vTarget) vTarget = vAllowed;
     }
@@ -406,7 +467,7 @@ export class AIDriver implements IAIDriver {
     out.airbrakeRight = airR;
 
     // --- boost (edge-triggered) ---
-    if (this.shouldBoost(kMaxLine, u)) {
+    if (this.shouldBoost(kMaxLine, R, u)) {
       out.boost = true;
       this.boostReadyAt = this.time + p.boostCooldown;
       this.boostEnergy = this.rollBoostEnergy();
@@ -423,10 +484,12 @@ export class AIDriver implements IAIDriver {
     return false;
   }
 
-  /** An ice patch covers lateral `lat` at `d` metres ahead of u. */
-  private iceAt(u: number, d: number, lat: number): boolean {
+  /** An ice patch covers lateral `lat` at `d` metres ahead of route metres R. */
+  private iceAt(R: number, d: number, lat: number): boolean {
     if (this.ice.length === 0) return false;
-    const m = wrap01(u + d / this.length) * this.length;
+    const mu = this.route.mainUAt(R + d);
+    if (mu === null) return false;
+    const m = mu * this.length;
     for (const z of this.ice) if (m >= z.dStart && m <= z.dEnd && lat >= z.lateralMin - 1 && lat <= z.lateralMax + 1) return true;
     return false;
   }
@@ -460,10 +523,69 @@ export class AIDriver implements IAIDriver {
     return Number.isNaN(this.profile.boostEnergy) ? this.rng.range(30, 70) : this.profile.boostEnergy;
   }
 
-  /** Signed curvature `d` metres ahead of u. */
-  private curvatureAt(u: number, d: number): number {
-    const idx = Math.floor(wrap01(u + d / this.length) * this.count) % this.count;
-    return this.track.samples[idx].curvature;
+  /** Signed curvature `d` metres ahead of route metres R. */
+  private curvatureAt(R: number, d: number): number {
+    return this.route.curvatureAt(R + d);
+  }
+
+  /**
+   * A rival's lateral in this ship's road frame: as is on the same road; through a split path's overlap with the
+   * main road (where the decks are shared) converted via the main road; NaN when on different roads.
+   */
+  private rivalLateral(r: ShipState): number {
+    const me = this.ship;
+    if (r.path === me.path) return r.lateral;
+    const mine = this.mainLateral(me);
+    const theirs = this.mainLateral(r);
+    if (Number.isNaN(mine) || Number.isNaN(theirs)) return Number.NaN;
+    return theirs - (mine - me.lateral);
+  }
+
+  /** Lateral on the main road: as is on main; on a split path only over its overlaps with main (else NaN). */
+  private mainLateral(s: ShipState): number {
+    if (s.path === null) return s.lateral;
+    const b = this.track.branches.find((x) => x.id === s.path);
+    if (!b || (s.pathS > b.overlapFork && s.pathS < b.length - b.overlapMerge)) return Number.NaN;
+    return b.side * (this.track.halfWidth - b.halfWidth) + s.lateral;
+  }
+
+  /**
+   * Choose the road for each split path once per approach, ROUTE_DECIDE metres before its fork; follow the
+   * shortcut while on it; fall back to the main loop when the shortcut was missed.
+   */
+  private updateRoute(ship: ShipState): void {
+    if (this.shortcuts.length === 0) return;
+    if (ship.path !== null) {
+      const on = this.shortcuts.find((r) => r.branch!.id === ship.path);
+      if (on && on !== this.route) this.setRoute(on);
+      return;
+    }
+    const u = ship.trackU;
+    for (const sc of this.shortcuts) {
+      const b = sc.branch!;
+      const toFork = wrap01(b.uFork - u) * this.length;
+      const between = inLoopRange(u, b.uFork, b.uMerge);
+      if (!between && toFork <= ROUTE_DECIDE) {
+        if (!this.decided.has(b.id)) {
+          this.decided.add(b.id);
+          const take = this.odds >= 1 ? !this.shortcutBlocked(sc) : this.odds > 0 && this.routeRng.next() < this.odds;
+          this.setRoute(take ? sc : this.mainRoute);
+        }
+      } else if (!between) {
+        this.decided.delete(b.id);
+      }
+    }
+    if (this.route !== this.mainRoute && Number.isNaN(this.route.shipR(ship.path, u, ship.pathS))) this.setRoute(this.mainRoute);
+  }
+
+  private setRoute(r: TrackRoute): void {
+    this.route = r;
+    this.prevTargetR = Number.NaN;
+  }
+
+  /** Will this shortcut be closed when the ship gets there? (Stone gates: see shortcutBlocked in M4b step 5.) */
+  private shortcutBlocked(_route: TrackRoute): boolean {
+    return false;
   }
 
   /** Energy as a percentage of this ship's max (thresholds are tuned on v1's 0..100 scale). */
@@ -482,7 +604,7 @@ export class AIDriver implements IAIDriver {
     return Math.max(25, Math.min(vBudget, vYaw));
   }
 
-  private shouldBoost(kMaxLine: number, u: number): boolean {
+  private shouldBoost(kMaxLine: number, R: number, u: number): boolean {
     const ship = this.ship;
     if (!ship.boostUnlocked || ship.boosting || ship.status !== 'racing') return false;
     if (this.pitMode || this.time < this.boostReadyAt) return false;
@@ -494,7 +616,7 @@ export class AIDriver implements IAIDriver {
     if (kMaxLine > BOOST_STRAIGHT_CURV) return false;
     // low curvature must extend the full boost scan distance (LINE_SCAN may be shorter)
     for (let d = LINE_SCAN; d <= BOOST_STRAIGHT_LEN; d += SCAN_STEP) {
-      if (Math.abs(this.curvatureAt(u, d)) > BOOST_STRAIGHT_CURV) return false;
+      if (Math.abs(this.curvatureAt(R, d)) > BOOST_STRAIGHT_CURV) return false;
     }
     return true;
   }

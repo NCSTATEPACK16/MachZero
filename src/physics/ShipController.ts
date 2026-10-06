@@ -134,8 +134,6 @@ export class ShipController {
   private twistRate = 0;
   private sampleHalfWidth: number;
   private hasProjection = false;
-  /** Metres along the branch when on one. */
-  private pathS = 0;
 
   // Hover ray results of the current step.
   private rayHits = 0;
@@ -583,7 +581,7 @@ export class ShipController {
         if (this.track.surfaceKindAt(s.trackU, s.lateral, s.path) !== 'air') {
           this.lastValidU = s.trackU;
           this.lastValidPath = s.path;
-          this.lastValidS = this.pathS;
+          this.lastValidS = s.pathS;
         }
       }
     }
@@ -635,6 +633,7 @@ export class ShipController {
     this.lastValidPath = null;
     s.trackU = slot.u;
     s.path = null;
+    s.pathS = 0;
     this.refreshProjection();
   }
 
@@ -813,7 +812,7 @@ export class ShipController {
     const p = this.track.project(s.position, s.trackU, s.path);
     s.trackU = p.u;
     s.path = p.path;
-    this.pathS = p.pathS ?? 0;
+    s.pathS = p.pathS ?? 0;
     s.lateral = p.lateral;
     s.heightAboveTrack = p.height;
     // Inside a pipe the surface normal turns with the curled deck (toward the tube's axis).
