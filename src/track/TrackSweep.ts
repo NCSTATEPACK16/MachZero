@@ -131,13 +131,31 @@ export function roadSections(fs: FrameSet, gaps: readonly GapRange[]): SweepFram
  * the ring on either side, so two complementary splits meet edge to edge.
  */
 export function splitByCurl(sec: SweepFrames, keep: (curl: number) => boolean, pad = false): SweepFrames[] {
+  return splitRings(sec, (r) => keep(sec.curl ? sec.curl[r] : 0), pad);
+}
+
+/**
+ * Remove the rings of each section whose FrameSet sample lies in one of `ranges` (metres along the lap, may wrap
+ * or run past the lap length): used to open one rail where a split path leaves or rejoins.
+ */
+export function cutByDistance(sections: SweepFrames[], ranges: readonly [number, number][], ds: number, length: number): SweepFrames[] {
+  if (ranges.length === 0) return sections;
+  const inside = (d: number): boolean =>
+    ranges.some(([a, b]) => {
+      const rel = (((d - a) % length) + length) % length;
+      return rel <= b - a;
+    });
+  return sections.flatMap((sec) => splitRings(sec, (r) => !inside((sec.src ? sec.src[r] : r) * ds)));
+}
+
+/** Open sub-sections made of the runs of rings for which `keep(ring)` holds (see splitByCurl). */
+export function splitRings(sec: SweepFrames, keepRing: (r: number) => boolean, pad = false): SweepFrames[] {
   const n = sec.count;
-  const curlOf = (r: number): number => (sec.curl ? sec.curl[r] : 0);
   const kept = new Uint8Array(n);
   let any = false;
   let all = true;
   for (let r = 0; r < n; r++) {
-    kept[r] = keep(curlOf(r)) ? 1 : 0;
+    kept[r] = keepRing(r) ? 1 : 0;
     if (kept[r]) any = true;
     else all = false;
   }

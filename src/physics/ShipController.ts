@@ -134,6 +134,8 @@ export class ShipController {
   private twistRate = 0;
   private sampleHalfWidth: number;
   private hasProjection = false;
+  /** Metres along the branch when on one. */
+  private pathS = 0;
 
   // Hover ray results of the current step.
   private rayHits = 0;
@@ -176,6 +178,9 @@ export class ShipController {
   // Safety respawn.
   private invalidTime = 0;
   private lastValidU: number;
+  /** Road of the last valid position (null = main loop) and metres along it when on a branch. */
+  private lastValidPath: string | null = null;
+  private lastValidS = 0;
 
   // Event throttling.
   private lastRailEventTime = -Infinity;
@@ -252,7 +257,7 @@ export class ShipController {
     // --- hover rays ---
     this.castHoverRays();
     // Over a jump gap there is nothing to hover on: no spring from the projection, just air gravity.
-    const overAir = this.hasProjection && this.track.surfaceKindAt(s.trackU, s.lateral) === 'air';
+    const overAir = this.hasProjection && this.track.surfaceKindAt(s.trackU, s.lateral, s.path) === 'air';
     this.updateJump(this.rayHits > 0, overAir);
     // A jump lasts until the hull is back in hover range: rays that already see the landing deck from metres
     // up must not switch on the magnetic lock (it would hold the ship in a slow, damped glide down).
@@ -302,7 +307,7 @@ export class ShipController {
       this.right.crossVectors(this.fwd, up);
     }
 
-    if (grounded && this.hasProjection && this.track.pipes.length > 0) {
+    if (grounded && this.hasProjection && this.track.pipes.length > 0 && s.path === null) {
       // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
       // (see PipeCompensation), the pipe counterpart of the twist compensation above.
       const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
@@ -575,7 +580,11 @@ export class ShipController {
       } else {
         this.invalidTime = 0;
         // Never remember a spot over a jump gap: there is nothing there to put the ship back on.
-        if (this.track.surfaceKindAt(s.trackU, s.lateral) !== 'air') this.lastValidU = s.trackU;
+        if (this.track.surfaceKindAt(s.trackU, s.lateral, s.path) !== 'air') {
+          this.lastValidU = s.trackU;
+          this.lastValidPath = s.path;
+          this.lastValidS = this.pathS;
+        }
       }
     }
   }
@@ -623,7 +632,9 @@ export class ShipController {
 
     this.hasProjection = false;
     this.lastValidU = slot.u;
+    this.lastValidPath = null;
     s.trackU = slot.u;
+    s.path = null;
     this.refreshProjection();
   }
 
@@ -799,8 +810,10 @@ export class ShipController {
   /** Refresh the cached track projection (u, lateral, height) and the local track frame. */
   private refreshProjection(): void {
     const s = this.state;
-    const p = this.track.project(s.position, s.trackU);
+    const p = this.track.project(s.position, s.trackU, s.path);
     s.trackU = p.u;
+    s.path = p.path;
+    this.pathS = p.pathS ?? 0;
     s.lateral = p.lateral;
     s.heightAboveTrack = p.height;
     // Inside a pipe the surface normal turns with the curled deck (toward the tube's axis).
@@ -809,7 +822,8 @@ export class ShipController {
     this.sampleRight.copy(p.sample.right);
     this.sampleHalfWidth = p.sample.halfWidth;
     const rates = twistRates(this.track);
-    this.twistRate = rates[Math.round(p.u * rates.length) % rates.length];
+    // Branches never twist (no corkscrews on split paths).
+    this.twistRate = p.path ? 0 : rates[Math.round(p.u * rates.length) % rates.length];
     this.hasProjection = true;
   }
 
@@ -818,7 +832,8 @@ export class ShipController {
     const s = this.state;
     let dash = false;
     let pit = false;
-    if (isActiveStatus(s.status) && s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT) {
+    // Dash plates and the pit are on the main loop only.
+    if (isActiveStatus(s.status) && s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT && s.path === null) {
       const zones = this.track.zones;
       for (let i = 0; i < zones.length; i++) {
         const z = zones[i];
@@ -851,8 +866,8 @@ export class ShipController {
   /** −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the top seam of an opening pipe, else 0. */
   private seamGuard(): number {
     const pipes = this.track.pipes;
-    if (pipes.length === 0 || !this.hasProjection) return 0;
     const s = this.state;
+    if (pipes.length === 0 || !this.hasProjection || s.path !== null) return 0;
     const lead = TUNING.SEAM_GUARD_LEAD / this.track.length;
     for (const p of pipes) {
       if (!inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) continue;
@@ -867,7 +882,7 @@ export class ShipController {
   private updateSurface(): void {
     const s = this.state;
     const near = s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT && !this.jumping;
-    this.surfaceGrip = near ? this.track.gripAt(s.trackU, s.lateral) : 1;
+    this.surfaceGrip = near ? this.track.gripAt(s.trackU, s.lateral, s.path) : 1;
     const ice = near && this.surfaceGrip < 1 && isActiveStatus(s.status);
     if (ice !== this.onIce) {
       this.onIce = ice;
@@ -878,9 +893,11 @@ export class ShipController {
   /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */
   private respawn(nonFinite: boolean): void {
     const s = this.state;
+    // A ship that came off a split path goes back onto it, where it left the deck.
+    const branch = this.lastValidPath ? this.track.branches.find((b) => b.id === this.lastValidPath) : undefined;
     // Near a jump the ship comes back on the landing side (a slow restart before the ramp would miss again).
-    this.lastValidU = this.track.safeRespawnU(this.lastValidU);
-    const smp = this.track.sampleAt(this.lastValidU);
+    if (!branch) this.lastValidU = this.track.safeRespawnU(this.lastValidU);
+    const smp = branch ? branch.sampleAt(this.lastValidS) : this.track.sampleAt(this.lastValidU);
     const oldForward = nonFinite || !Number.isFinite(s.forwardSpeed) ? 0 : Math.max(s.forwardSpeed, 0);
 
     this.up.copy(smp.up);
@@ -906,7 +923,8 @@ export class ShipController {
     this.body.setLinvel(s.velocity, true);
     this.updateSpeeds();
 
-    s.trackU = this.lastValidU;
+    s.trackU = branch ? branch.progressU(this.lastValidS) : this.lastValidU;
+    s.path = branch ? branch.id : null;
     this.refreshProjection();
     this.bus.emit('ship:respawn', { shipId: s.def.id });
   }

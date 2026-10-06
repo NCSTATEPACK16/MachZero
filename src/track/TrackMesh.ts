@@ -16,6 +16,7 @@ import {
   roadSections,
   sectionColors,
   splitByCurl,
+  cutByDistance,
   type BendOptions,
   type GapRange,
   type SweepFrames,
@@ -37,6 +38,7 @@ import {
 } from './TrackTextures';
 import type { TrackQuery } from './TrackQuery';
 import { CURL_EPS, PIPE_RADIUS, RAIL_END_CURL, type PipeSpan } from './features/pipe';
+import type { BuiltBranch } from './features/branch';
 
 const W = CONFIG.TRACK_HALF_WIDTH;
 const T = CONFIG.RAIL_THICKNESS;
@@ -90,6 +92,8 @@ export interface VisualInput {
   ice?: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
   /** Hazard telegraphing strength (1 normal, 2 Rookie): how hard ice patches pulse. */
   telegraphScale?: number;
+  /** Split paths: their decks, rails and the crash-barrier nose where they separate from the main road. */
+  branches?: BuiltBranch[];
   palette: TrackPalette;
 }
 
@@ -408,6 +412,56 @@ function addGapCaps(
   }
 }
 
+
+/** Sweep frames for metres [s0, s1] of a branch. */
+function branchSweep(b: BuiltBranch, s0: number, s1: number): SweepFrames | null {
+  const i0 = Math.max(0, Math.round(s0 / b.ds));
+  const i1 = Math.min(b.count - 1, Math.round(s1 / b.ds));
+  const count = i1 - i0 + 1;
+  if (count < 2) return null;
+  const pos = b.pos.slice(i0 * 3, (i1 + 1) * 3);
+  const right = b.right.slice(i0 * 3, (i1 + 1) * 3);
+  const up = b.up.slice(i0 * 3, (i1 + 1) * 3);
+  const dist = new Float64Array(count);
+  for (let k = 0; k < count; k++) dist[k] = (i0 + k) * b.ds;
+  return { count, closed: false, pos, right, up, dist, totalLength: dist[count - 1] - dist[0] };
+}
+
+/** Branch s ranges [from, to] that carry a rail on the given side (+1 right, −1 left). */
+function branchRailRanges(b: BuiltBranch, side: 1 | -1): [number, number][] {
+  if (side === -b.side) return [[b.overlapFork, b.length - b.overlapMerge]];
+  const e = b.openEdge;
+  if (!e || e.side !== side) return [[0, b.length]];
+  return [
+    [0, e.sFrom],
+    [e.sTo, b.length],
+  ].filter(([a, c]) => c - a > 2) as [number, number][];
+}
+
+/** Main-loop distance ranges where the rail on `side` is open because a branch leaves or rejoins there. */
+function mainRailCuts(branches: readonly BuiltBranch[], side: 1 | -1): [number, number][] {
+  return branches
+    .filter((b) => b.side === side)
+    .flatMap((b): [number, number][] => [
+      [b.dFork, b.dSepFork],
+      [b.dSepMerge, b.dMerge],
+    ]);
+}
+
+/** The crash-barrier nose where a branch separates from the main road (pointing back toward the fork). */
+function branchNose(b: BuiltBranch): { center: THREE.Vector3; right: THREE.Vector3; up: THREE.Vector3; forward: THREE.Vector3; length: number; width: number; height: number } {
+  const smp = b.sampleAt(b.overlapFork);
+  const length = 10;
+  const width = 2 * T;
+  // Centre of the two adjacent rails (branch inner rail + main rail), half the nose length back toward the fork.
+  const center = smp.position
+    .clone()
+    .addScaledVector(smp.right, -b.side * (b.halfWidth + T))
+    .addScaledVector(smp.forward, -length / 2)
+    .addScaledVector(smp.up, (H + 0.5) / 2 - 0.25);
+  return { center, right: smp.right.clone(), up: smp.up.clone(), forward: smp.forward.clone(), length, width, height: H + 0.5 };
+}
+
 export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stats: VisualStats } {
   const { frames, query, corkscrews, pit, dashPlates, gaps, palette } = input;
   const pipes = input.pipes ?? [];
@@ -423,8 +477,6 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     for (const sec of list) acc.add(sweepProfile(sec, points, closedProfile, uv, colors ? sectionColors(colors, sec) : undefined, bend));
     return acc;
   };
-  const sweepAll = (acc: GeometryAccumulator, points: ProfilePoint[], closedProfile: boolean, uv: Uv, colors?: Float32Array): GeometryAccumulator =>
-    sweepOn(railSections, acc, points, closedProfile, uv, colors, RAIL_BEND);
   const asphaltTile = seamlessTile(length, ASPHALT_TILE_METRES);
   const railTile = seamlessTile(length, 8);
   const group = new THREE.Group();
@@ -485,8 +537,11 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   const railLeft = mirrorProfile(railRight);
   const railUv = { uTile: railTile, vScale: 0.25 };
   const railAcc = new GeometryAccumulator();
-  sweepAll(railAcc, railLeft, true, railUv);
-  sweepAll(railAcc, railRight, true, railUv);
+  const branches = input.branches ?? [];
+  const leftRails = cutByDistance(railSections, mainRailCuts(branches, -1), frames.ds, length);
+  const rightRails = cutByDistance(railSections, mainRailCuts(branches, 1), frames.ds, length);
+  sweepOn(leftRails, railAcc, railLeft, true, railUv, undefined, RAIL_BEND);
+  sweepOn(rightRails, railAcc, railRight, true, railUv, undefined, RAIL_BEND);
 
   // ---- Neon: rail-top strips, inner-wall strips, start gate bars (single vertex-coloured HDR mesh) ----
   const accent = linear(palette.accent);
@@ -511,14 +566,57 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   ];
   const stripUv = { uTile: railTile };
   const neonAcc = new GeometryAccumulator();
-  sweepAll(neonAcc, mirrorProfile(topStripRight), false, stripUv, leftTop);
-  sweepAll(neonAcc, topStripRight, false, stripUv, rightTop);
-  sweepAll(neonAcc, mirrorProfile(innerStripRight), false, stripUv, leftInner);
-  sweepAll(neonAcc, innerStripRight, false, stripUv, rightInner);
+  sweepOn(leftRails, neonAcc, mirrorProfile(topStripRight), false, stripUv, leftTop, RAIL_BEND);
+  sweepOn(rightRails, neonAcc, topStripRight, false, stripUv, rightTop, RAIL_BEND);
+  sweepOn(leftRails, neonAcc, mirrorProfile(innerStripRight), false, stripUv, leftInner, RAIL_BEND);
+  sweepOn(rightRails, neonAcc, innerStripRight, false, stripUv, rightInner, RAIL_BEND);
+  // ---- Split paths: deck (drawn over the main deck where they overlap), slab, rails, neon, nose ----
+  const branchDeckAcc = new GeometryAccumulator();
+  const branchColour = (rgb: [number, number, number], k: number, n: number): Float32Array => {
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) c.set([rgb[0] * k, rgb[1] * k, rgb[2] * k], i * 3);
+    return c;
+  };
+  for (const b of branches) {
+    const all = branchSweep(b, 0, b.length);
+    if (!all) continue;
+    const bw = b.halfWidth;
+    branchDeckAcc.add(sweepProfile(all, profileFromShape(polygonShape([[bw, 0], [-bw, 0]]), (p) => (p.x + bw) / (2 * bw)), false, { uTile: ASPHALT_TILE_METRES / 2 }));
+    const bwo = bw + T;
+    bodyAcc.add(sweepProfile(all, profileFromShape(polygonShape([[-bwo, 0], [-bwo, -0.7], [-(bwo - 1.4), -1.6], [bwo - 1.4, -1.6], [bwo, -0.7], [bwo, 0]])), false, { uTile: railTile, vScale: 0.25 }));
+    const shift = (pts: ProfilePoint[], dx: number): ProfilePoint[] => pts.map((q) => ({ ...q, x: q.x + dx }));
+    for (const side of [-1, 1] as const) {
+      const rail = side > 0 ? shift(railRight, bw - W) : shift(railLeft, W - bw);
+      const top = side > 0 ? shift(topStripRight, bw - W) : shift(mirrorProfile(topStripRight), W - bw);
+      const inner = side > 0 ? shift(innerStripRight, bw - W) : shift(mirrorProfile(innerStripRight), W - bw);
+      const theme = side > 0 ? rightTheme.base : leftTheme.base;
+      for (const [a, c] of branchRailRanges(b, side)) {
+        const fr = branchSweep(b, a, c);
+        if (!fr) continue;
+        railAcc.add(sweepProfile(fr, rail, true, railUv));
+        neonAcc.add(sweepProfile(fr, top, false, stripUv, branchColour(theme, 1, fr.count)));
+        neonAcc.add(sweepProfile(fr, inner, false, stripUv, branchColour(theme, 0.7, fr.count)));
+      }
+    }
+    const nose = branchNose(b);
+    railAcc.addGeometry(orientedBox(nose.center, nose.right, nose.up, nose.forward, nose.width, nose.height, nose.length));
+    // Accent chevron bars on the nose's back face and top.
+    const tip = nose.center.clone().addScaledVector(nose.forward, -nose.length / 2 - 0.05);
+    neonAcc.addGeometry(orientedBox(tip, nose.right, nose.up, nose.forward, nose.width + 0.1, nose.height * 0.8, 0.1), accent);
+    neonAcc.addGeometry(orientedBox(nose.center.clone().addScaledVector(nose.up, nose.height / 2 + 0.03), nose.right, nose.up, nose.forward, 0.3, 0.06, nose.length), accent);
+  }
   const metalGateAcc = new GeometryAccumulator();
   buildGate(query, metalGateAcc, neonAcc, palette);
   if (gaps.length > 0) addGapCaps(sections, bodyAcc, railAcc, neonAcc, accent);
 
+  if (branchDeckAcc.vertexCount > 0) {
+    // Same asphalt, nudged forward in depth so it wins where it lies on the main deck at the fork and merge.
+    const branchDeckMat = deckMat.clone();
+    branchDeckMat.polygonOffset = true;
+    branchDeckMat.polygonOffsetFactor = -1;
+    branchDeckMat.polygonOffsetUnits = -1;
+    group.add(meshOf(branchDeckAcc, branchDeckMat, 'TrackBranchDeck'));
+  }
   const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1b1f2c, roughness: 0.6, metalness: 0.7 });
   group.add(meshOf(bodyAcc, bodyMat, 'TrackSlab'));
   const railTexture = createRailTexture();
@@ -674,6 +772,16 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
 // Collision
 // ---------------------------------------------------------------------------
 
+/** A closed box as a TriMesh (outward winding). */
+function boxTriMesh(center: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3, forward: THREE.Vector3, sx: number, sy: number, sz: number): TriMesh {
+  const geo = orientedBox(center, right, up, forward, sx, sy, sz);
+  const pos = geo.getAttribute('position');
+  const idx = geo.getIndex()!;
+  const tri: TriMesh = { vertices: new Float32Array(pos.array as ArrayLike<number>), indices: new Uint32Array(idx.array as ArrayLike<number>) };
+  geo.dispose();
+  return tri;
+}
+
 function mergeTriMeshes(a: TriMesh, b: TriMesh): TriMesh {
   const vertices = new Float32Array(a.vertices.length + b.vertices.length);
   vertices.set(a.vertices, 0);
@@ -686,7 +794,7 @@ function mergeTriMeshes(a: TriMesh, b: TriMesh): TriMesh {
 }
 
 /** World-space TriMeshes for physics: drivable surface (hover raycasts) and closed rail solids. */
-export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] = []): TrackCollisionData {
+export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] = [], branches: readonly BuiltBranch[] = []): TrackCollisionData {
   const sections = roadSections(frames, gaps);
   // Surface: 8 lateral segments spanning +-(W + rail thickness), listed +x -> -x so normals face up.
   const lateralSegments = 8;
@@ -698,8 +806,16 @@ export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] 
   for (let k = 0; k <= 40; k++) curledPts.push({ x: half - (2 * half * k) / 40, y: 0 });
   const flat = sections.flatMap((sec) => splitByCurl(sec, (c) => c < CURL_EPS));
   const curled = sections.flatMap((sec) => splitByCurl(sec, (c) => c >= CURL_EPS, true));
-  const surface = [...flat.map((sec) => sweepWelded(sec, surfacePts, false)), ...curled.map((sec) => sweepWelded(sec, curledPts, false))].reduce((a, b) =>
-    mergeTriMeshes(a, b),
+  const branchSurfaces = branches.flatMap((b) => {
+    const fr = branchSweep(b, 0, b.length);
+    if (!fr) return [];
+    const bh = b.halfWidth + T;
+    const pts: { x: number; y: number }[] = [];
+    for (let k = 0; k <= 6; k++) pts.push({ x: bh - (2 * bh * k) / 6, y: 0 });
+    return [sweepWelded(fr, pts, false)];
+  });
+  const surface = [...flat.map((sec) => sweepWelded(sec, surfacePts, false)), ...curled.map((sec) => sweepWelded(sec, curledPts, false)), ...branchSurfaces].reduce(
+    (a, b) => mergeTriMeshes(a, b),
   );
   const railSecs = sections.flatMap((sec) => splitByCurl(sec, (c) => c < RAIL_END_CURL));
 
@@ -710,8 +826,24 @@ export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] 
     { x: WO, y: H + 0.5 },
     { x: W, y: H + 0.5 },
   ];
-  const rails = railSecs
-    .map((sec) => mergeTriMeshes(sweepWelded(sec, mirrorProfile(rightRail), true, RAIL_BEND), sweepWelded(sec, rightRail, true, RAIL_BEND)))
-    .reduce((a, b) => mergeTriMeshes(a, b));
+  const leftSecs = cutByDistance(railSecs, mainRailCuts(branches, -1), frames.ds, frames.length);
+  const rightSecs = cutByDistance(railSecs, mainRailCuts(branches, 1), frames.ds, frames.length);
+  const pieces: TriMesh[] = [
+    ...leftSecs.map((sec) => sweepWelded(sec, mirrorProfile(rightRail), true, RAIL_BEND)),
+    ...rightSecs.map((sec) => sweepWelded(sec, rightRail, true, RAIL_BEND)),
+  ];
+  for (const b of branches) {
+    const bw = b.halfWidth;
+    for (const side of [-1, 1] as const) {
+      const prof: ProfilePoint[] = rightRail.map((q) => ({ x: q.x - W + bw, y: q.y }));
+      for (const [a, c] of branchRailRanges(b, side)) {
+        const fr = branchSweep(b, a, c);
+        if (fr) pieces.push(sweepWelded(fr, side > 0 ? prof : mirrorProfile(prof), true));
+      }
+    }
+    const nose = branchNose(b);
+    pieces.push(boxTriMesh(nose.center, nose.right, nose.up, nose.forward, nose.width, nose.height + 0.5, nose.length));
+  }
+  const rails = pieces.reduce((a, b) => mergeTriMeshes(a, b));
   return { surface, rails };
 }
