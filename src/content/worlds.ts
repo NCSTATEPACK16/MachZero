@@ -54,7 +54,7 @@ export const WORLDS: readonly WorldDef[] = [
     trackId: 'cryo-station',
     palette: { left: 0x7fe8ff, right: 0xb98cff, accent: 0xffffff, pit: 0x7dff3a },
     ui: { from: '#7fe8ff', to: '#b98cff' },
-    built: false,
+    built: true,
   },
   {
     id: 'jade-ruins',
@@ -65,7 +65,7 @@ export const WORLDS: readonly WorldDef[] = [
     trackId: 'jade-ruins',
     palette: { left: 0x2bffa8, right: 0xffd23a, accent: 0xb04dff, pit: 0x7dff3a },
     ui: { from: '#2bffa8', to: '#ffd23a' },
-    built: false,
+    built: true,
   },
   {
     id: 'orbital-ring',

@@ -2,11 +2,15 @@
 import type { FogUniforms } from '../shaders/fog';
 import { NeonBayTheme } from './neonBay';
 import { SunsetMesaTheme } from './sunsetMesa';
+import { CryoStationTheme } from './cryoStation';
+import { JadeRuinsTheme } from './jadeRuins';
 import type { ThemeFactory, WorldTheme } from './WorldTheme';
 
 const THEMES: Record<string, ThemeFactory> = {
   'neon-bay': (fog) => new NeonBayTheme(fog),
   'sunset-mesa': (fog) => new SunsetMesaTheme(fog),
+  'cryo-station': (fog) => new CryoStationTheme(fog),
+  'jade-ruins': (fog) => new JadeRuinsTheme(fog),
 };
 
 export function createTheme(worldId: string, fog: FogUniforms): WorldTheme {

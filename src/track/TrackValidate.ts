@@ -4,14 +4,17 @@
  *   - 3D clearance between sections that pass over or near each other;
  *   - centerline elevation within the world's bounds;
  *   - features on straights, clear of each other and of the start and pit;
- *   - lap length in the band that gives a 30–45 s lap at Pilot pace.
+ *   - lap length in the band that gives a 30–45 s lap at Pilot pace;
+ *   - split paths: fork and merge overlaps on main straights, branch radius and elevation, and the branch clear
+ *     of the main road once the two have separated.
  */
 import { CONFIG } from '../core/config';
 import type { TrackData, TrackFeature } from '../core/contracts';
 import { RAMP_LENGTH, LANDING_BLEND } from './features/jump';
+import { branchSeparation } from './features/branch';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch';
   message: string;
 }
 
@@ -44,6 +47,13 @@ export const VALIDATION = {
   START_AHEAD: 260,
   /** Straight run needed after a jump's landing edge (a boosted ship can fly ~200 m past the gap). */
   JUMP_RUNOUT: 250,
+  /** Pipes bend gently (plan radius) and close/open over at least this many metres. */
+  PIPE_MIN_RADIUS: 300,
+  PIPE_MIN_TRANSITION: 60,
+  /** A pipe's closed stretch must be at least this long. */
+  PIPE_MIN_CLOSED: 150,
+  /** Tolerance (m) on the rail-to-rail separation a branch keeps from the main road once separated. */
+  BRANCH_SEPARATION_SLACK: 0.5,
 } as const;
 
 /** [start, end] metres a feature occupies, including its approach/exit (jump ramp and landing blend). */
@@ -163,10 +173,68 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
     }
   }
   for (const f of track.features) {
+    if (f.type !== 'pipe') continue;
+    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
+    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
+    for (let d = f.dStart; d <= f.dEnd; d += 5) {
+      const k = Math.abs(track.sampleAt((((d % L) + L) % L) / L).curvature);
+      if (k > 1 / VALIDATION.PIPE_MIN_RADIUS) {
+        issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+        break;
+      }
+    }
+  }
+  for (const f of track.features) {
     if (f.type !== 'dash') continue;
     for (const s of spans) {
       if (circularOverlap([f.dStart, f.dEnd], s.span, L)) issues.push({ code: 'feature-overlap', message: `dash plate at ${f.dStart.toFixed(0)} m sits on the ${s.f.type}` });
     }
+  }
+
+  // ---- split paths ----
+  for (const b of track.branches) {
+    const dFork = b.uFork * L;
+    const dMerge = b.uMerge * L;
+    // The roads share a deck until they separate, so the main road must be straight (and unbanked) there.
+    for (const [from, to, end] of [[dFork, dFork + b.overlapFork, 'fork'], [dMerge - b.overlapMerge, dMerge, 'merge']] as const) {
+      for (let d = from; d <= to; d += 5) {
+        if (!straightAt(d)) {
+          issues.push({ code: 'branch', message: `${b.id}: the main road bends at ${d.toFixed(0)} m, inside the ${end} overlap` });
+          break;
+        }
+      }
+    }
+    const m = b.samples.length;
+    const bds = b.length / (m - 1);
+    const sep = branchSeparation(b.halfWidth) - VALIDATION.BRANCH_SEPARATION_SLACK;
+    for (let i = 0; i < m; i++) {
+      const s = b.samples[i];
+      const k = b.samples[Math.min(m - 1, i + 1)].forward.distanceTo(b.samples[Math.max(0, i - 1)].forward) / (2 * bds);
+      if (1 / Math.max(k, 1e-9) < VALIDATION.MIN_RADIUS) {
+        issues.push({ code: 'branch', message: `${b.id}: radius ${(1 / k).toFixed(0)} m < ${VALIDATION.MIN_RADIUS} m at ${(i * bds).toFixed(0)} m` });
+        break;
+      }
+      lo = Math.min(lo, s.position.y);
+      hi = Math.max(hi, s.position.y);
+    }
+    // Once separated, the branch must stay a rail's width clear of every main section, or pass well over/under it.
+    let clash = false;
+    for (let i = 0; i < m && !clash; i += 2) {
+      const sb = i * bds;
+      if (sb < b.overlapFork || sb > b.length - b.overlapMerge) continue;
+      const p = b.samples[i].position;
+      for (let j = 0; j < n; j += stride) {
+        const q = track.samples[j].position;
+        if (Math.hypot(p.x - q.x, p.z - q.z) < sep && Math.abs(p.y - q.y) < VALIDATION.MIN_CLEARANCE) {
+          issues.push({ code: 'branch', message: `${b.id} at ${sb.toFixed(0)} m runs into the main road at ${(j * ds).toFixed(0)} m` });
+          clash = true;
+          break;
+        }
+      }
+    }
+  }
+  if (track.branches.length && (lo < elevation[0] || hi > elevation[1])) {
+    if (!issues.some((i) => i.code === 'elevation')) issues.push({ code: 'elevation', message: `a branch leaves the elevation band ${elevation[0]}..${elevation[1]} m` });
   }
 
   // ---- lap length ----

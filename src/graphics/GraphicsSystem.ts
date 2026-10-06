@@ -114,6 +114,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   private width: number;
   private height: number;
   private lastDt = 1 / 60;
+  private reducedMotion = false;
   private disposed = false;
 
   // scratch
@@ -358,6 +359,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.scene.environmentIntensity = l.environmentIntensity;
     this.post.setShimmer(t.shimmer);
     t.setDensity(this.quality.scenery);
+    t.setReducedMotion?.(this.reducedMotion);
   }
 
   get qualityLevel(): QualityProfile['level'] {
@@ -366,6 +368,8 @@ export class GraphicsSystem implements IGraphicsSystem {
 
   /** Comfort settings (SPEC §2). Applied on top of any quality preset. */
   setComfort(opts: { reducedMotion: boolean }): void {
+    this.reducedMotion = opts.reducedMotion;
+    this.theme.setReducedMotion?.(opts.reducedMotion);
     this.chase.reducedMotion = opts.reducedMotion;
     this.post.reducedMotion = opts.reducedMotion;
     this.speedLines.disabled = opts.reducedMotion;
@@ -442,6 +446,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.camera.updateMatrixWorld();
 
     for (const m of this.modelList) m.updateVisuals(dt, time);
+    ctx.track.animateHazards?.(ctx.hazardTime);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
     this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
     this.theme.update(this.camera, time);

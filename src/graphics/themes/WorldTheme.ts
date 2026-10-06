@@ -40,6 +40,8 @@ export interface WorldTheme {
   buildScenery(track: TrackData, props: GLTF | null): void;
   /** Quality: fraction of scenery instances drawn. */
   setDensity(fraction: number): void;
+  /** Comfort: stop decorative motion (e.g. Jade Ruins' fireflies). Optional. */
+  setReducedMotion?(on: boolean): void;
   update(camera: THREE.Camera, time: number): void;
   dispose(): void;
 }
@@ -50,16 +52,15 @@ export type ThemeFactory = (fog: FogUniforms) => WorldTheme;
 // Scenery helpers
 // ---------------------------------------------------------------------------
 
-/** Plan-view centerline points (every `step` samples) for corridor tests. */
+/** Plan-view centerline points (every `step` samples, split paths included) for corridor tests. */
 export function trackPlan(track: TrackData, step = 4): Float64Array {
-  const n = Math.ceil(track.samples.length / step);
-  const out = new Float64Array(n * 3);
-  for (let i = 0, k = 0; i < track.samples.length; i += step, k++) {
-    const p = track.samples[i].position;
-    out[k * 3] = p.x;
-    out[k * 3 + 1] = p.y;
-    out[k * 3 + 2] = p.z;
-  }
+  const pts = [...track.samples.filter((_, i) => i % step === 0), ...track.branches.flatMap((b) => b.samples.filter((_, i) => i % step === 0))];
+  const out = new Float64Array(pts.length * 3);
+  pts.forEach((s, k) => {
+    out[k * 3] = s.position.x;
+    out[k * 3 + 1] = s.position.y;
+    out[k * 3 + 2] = s.position.z;
+  });
   return out;
 }
 

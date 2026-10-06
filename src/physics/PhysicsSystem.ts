@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Collider, EventQueue, RigidBody, TempContactManifold, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { COLLISION, CONFIG } from '../core/config';
 import type {
   ControlInput,
@@ -17,6 +18,7 @@ import type { GameBus } from '../core/events';
 import { clamp01 } from '../core/math';
 import { ShipController, TUNING } from './ShipController';
 import { CLASS_SCALE, chassisById } from '../content/ships';
+import { type BuiltGate, buildGates, gateClosure, gatePose } from '../track/features/gate';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -31,6 +33,9 @@ interface ContactAccumulator {
   pz: number;
   depth: number;
 }
+
+/** Seconds during which renewed contact with the same gate is the same hit (event and Rookie slow-down once). */
+const GATE_HIT_COOLDOWN = 1;
 
 function pairKey(a: ShipId, b: ShipId): number {
   return a < b ? a * 1024 + b : b * 1024 + a;
@@ -60,7 +65,19 @@ export class PhysicsSystem implements IPhysicsSystem {
   private readonly noControls: ControlInput = neutralControls();
 
   private time = 0;
+  /** Physics seconds since the last race reset: the stone gates' timeline. */
+  private raceClock = 0;
   private disposed = false;
+
+  /** Stone gates: kinematic slabs in the rail group, told apart from the rails by collider handle. */
+  readonly gates: readonly BuiltGate[];
+  private readonly gateBodies: RigidBody[] = [];
+  private readonly gateColliders: Collider[] = [];
+  private readonly gateByHandle = new Map<number, number>();
+  private readonly gatePos = new THREE.Vector3();
+  private readonly gateQuat = new THREE.Quaternion();
+  /** Physics time of each ship's last counted hit per gate (key ship·64 + gate): contact flickers are one hit. */
+  private readonly gateHitTime = new Map<number, number>();
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -76,6 +93,8 @@ export class PhysicsSystem implements IPhysicsSystem {
     private readonly track: TrackData,
     private readonly bus: GameBus,
     world: World,
+    /** How hazards treat ships in this race (gates and mines read it; M4b/M4c). */
+    readonly hazards: Readonly<HazardPolicy>,
   ) {
     this.world = world;
     this.eventQueue = new RAPIER.EventQueue(true);
@@ -100,16 +119,35 @@ export class PhysicsSystem implements IPhysicsSystem {
       this.trackBody,
     );
 
+    this.gates = buildGates(track);
+    for (const g of this.gates) {
+      const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+      const collider = world.createCollider(
+        RAPIER.ColliderDesc.cuboid(g.width / 2, g.height / 2, g.thickness / 2)
+          .setCollisionGroups(COLLISION.RAIL)
+          .setFriction(0)
+          .setRestitution(0)
+          .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
+          .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+        body,
+      );
+      this.gateBodies.push(body);
+      this.gateColliders.push(collider);
+      this.gateByHandle.set(collider.handle, g.index);
+    }
+    this.poseGates(true);
+
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
     world.step();
   }
 
   /** Initialise Rapier and build the track colliders. */
-  static async create(track: TrackData, bus: GameBus): Promise<PhysicsSystem> {
+  static async create(track: TrackData, bus: GameBus, opts: { hazards?: Readonly<HazardPolicy> } = {}): Promise<PhysicsSystem> {
     await RAPIER.init();
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    return new PhysicsSystem(track, bus, world);
+    return new PhysicsSystem(track, bus, world, opts.hazards ?? HAZARDS_NORMAL);
   }
 
   private static meshDesc(mesh: TriMesh, flags: number) {
@@ -167,6 +205,8 @@ export class PhysicsSystem implements IPhysicsSystem {
       inPit: false,
       onDash: false,
       trackU: proj.u,
+      path: proj.path,
+      pathS: proj.pathS ?? 0,
       lateral: proj.lateral,
       heightAboveTrack: proj.height,
       airborne: false,
@@ -184,10 +224,38 @@ export class PhysicsSystem implements IPhysicsSystem {
     return state;
   }
 
+  /** Physics seconds since the last race reset (the stone gates' timeline). */
+  get hazardTime(): number {
+    return this.raceClock;
+  }
+
+  /** Restart the hazard timeline (on every race reset), so each race replays the same gate sequence. */
+  resetTime(): void {
+    this.raceClock = 0;
+    this.poseGates(true);
+  }
+
+  /** Move each gate slab to its pose at the race clock (teleport, or as the next kinematic target). */
+  private poseGates(teleport: boolean): void {
+    for (let i = 0; i < this.gates.length; i++) {
+      gatePose(this.gates[i], gateClosure(this.gates[i], this.raceClock), this.gatePos, this.gateQuat);
+      const body = this.gateBodies[i];
+      if (teleport) {
+        body.setTranslation(this.gatePos, true);
+        body.setRotation(this.gateQuat, true);
+      } else {
+        body.setNextKinematicTranslation(this.gatePos);
+        body.setNextKinematicRotation(this.gateQuat);
+      }
+    }
+  }
+
   step(dt: number, controls: ReadonlyMap<ShipId, ControlInput>): void {
     if (this.disposed || !(dt > 0)) return;
     this.time += dt;
+    this.raceClock += dt;
     if (this.world.timestep !== dt) this.world.timestep = dt;
+    if (this.gates.length > 0) this.poseGates(false);
 
     const list = this.controllerList;
 
@@ -207,6 +275,8 @@ export class PhysicsSystem implements IPhysicsSystem {
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (c.railContact) this.resolveRailContact(c, dt);
+      if (c.gateContacts.size > 0) for (const g of c.gateContacts) this.resolveGateContact(c, g, dt);
+      c.gateHitsStarted.clear();
     }
     for (const pair of this.activePairs.values()) this.resolveShipContact(pair[0], pair[1]);
 
@@ -253,7 +323,17 @@ export class PhysicsSystem implements IPhysicsSystem {
     const railHandle = this.railCollider.handle;
     const c1 = this.byCollider.get(h1);
     const c2 = this.byCollider.get(h2);
-    if (h1 === railHandle) {
+    const g1 = this.gateByHandle.get(h1);
+    const g2 = this.gateByHandle.get(h2);
+    if (g1 !== undefined || g2 !== undefined) {
+      const c = g1 !== undefined ? c2 : c1;
+      const g = (g1 ?? g2)!;
+      if (!c) return;
+      if (started) {
+        c.gateContacts.add(g);
+        c.gateHitsStarted.add(g);
+      } else c.gateContacts.delete(g);
+    } else if (h1 === railHandle) {
       if (c2) c2.railContact = started;
     } else if (h2 === railHandle) {
       if (c1) c1.railContact = started;
@@ -334,6 +414,30 @@ export class PhysicsSystem implements IPhysicsSystem {
     if (n.lengthSq() < 1e-10) return;
     n.normalize();
     c.applyWallContact(n, this.pointScratch_(acc), dt, this.time);
+  }
+
+  /**
+   * A stone gate: a rail-like bounce. Under a damaging hazard policy the hit drains energy like a rail; otherwise
+   * it costs no energy and slows the ship (velocity × hitSpeedScale) once per hit.
+   */
+  private resolveGateContact(c: ShipController, g: number, dt: number): void {
+    if (c.state.status === 'retired' || !c.isColliderEnabled) return;
+    this.resetAccumulator(c.state.position, c.state.quaternion, c.state.position);
+    this.world.contactPair(c.collider, this.gateColliders[g], this.accumulateManifold);
+    const acc = this.acc;
+    if (acc.count === 0) return;
+    const n = this.normalOut.set(acc.nx, acc.ny, acc.nz);
+    if (n.lengthSq() < 1e-10) return;
+    n.normalize();
+    const p = this.pointScratch_(acc);
+    const damage = this.hazards.damage;
+    c.applyWallContact(n, p, dt, this.time, damage);
+    const key = c.state.def.id * 64 + g;
+    if (c.gateHitsStarted.has(g) && this.time - (this.gateHitTime.get(key) ?? -Infinity) >= GATE_HIT_COOLDOWN) {
+      this.gateHitTime.set(key, this.time);
+      if (!damage) c.scaleVelocity(this.hazards.hitSpeedScale);
+      this.bus.emit('hazard:gate', { shipId: c.state.def.id, gate: g, point: new THREE.Vector3(p.x, p.y, p.z) });
+    }
   }
 
   private pointScratch_(acc: ContactAccumulator): { x: number; y: number; z: number } {

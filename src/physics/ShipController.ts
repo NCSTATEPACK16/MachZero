@@ -6,6 +6,7 @@ import type { ControlInput, GridSlot, ShipState, ShipStats, TrackData } from '..
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
+import { pipeLineCurvature } from './PipeCompensation';
 
 /**
  * Physics-only tuning that is not part of the shared CONFIG. Everything the
@@ -80,6 +81,13 @@ export const TUNING = {
   SHIP_INTENSITY_SPEED: 30,
   /** Contact points deeper than this distance count as touching. */
   CONTACT_MAX_DIST: 0.15,
+  // --- pipes ---
+  /** Lateral acceleration (m/s²) easing a ship off the top seam while a pipe opens (the deck splits there). */
+  SEAM_GUARD_ACCEL: 70,
+  /** Metres from the seam (|lateral| = halfWidth) over which the guard fades in. */
+  SEAM_GUARD_BAND: 4.5,
+  /** The guard starts this far (m) before the tube begins to open. */
+  SEAM_GUARD_LEAD: 60,
   // --- jumps ---
   /** Speed into the surface (m/s) at touchdown that maps to ship:land intensity 1. */
   LAND_INTENSITY_SPEED: 20,
@@ -110,6 +118,9 @@ export class ShipController {
 
   /** Set by the PhysicsSystem from collision events. */
   railContact = false;
+  /** Stone gates (indices) this ship's hull is touching, and those first touched this step. */
+  readonly gateContacts = new Set<number>();
+  readonly gateHitsStarted = new Set<number>();
 
   // Orientation frame (unit, mutually orthogonal: right = fwd × up).
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -161,10 +172,16 @@ export class ShipController {
 
   // Jumps: true from leaving a lip until the hover rays find the landing deck.
   private jumping = false;
+  /** Lateral-grip multiplier of the surface under the ship (ice patches < 1). */
+  private surfaceGrip = 1;
+  private onIce = false;
 
   // Safety respawn.
   private invalidTime = 0;
   private lastValidU: number;
+  /** Road of the last valid position (null = main loop) and metres along it when on a branch. */
+  private lastValidPath: string | null = null;
+  private lastValidS = 0;
 
   // Event throttling.
   private lastRailEventTime = -Infinity;
@@ -241,7 +258,7 @@ export class ShipController {
     // --- hover rays ---
     this.castHoverRays();
     // Over a jump gap there is nothing to hover on: no spring from the projection, just air gravity.
-    const overAir = this.hasProjection && this.track.surfaceKindAt(s.trackU, s.lateral) === 'air';
+    const overAir = this.hasProjection && this.track.surfaceKindAt(s.trackU, s.lateral, s.path) === 'air';
     this.updateJump(this.rayHits > 0, overAir);
     // A jump lasts until the hull is back in hover range: rays that already see the landing deck from metres
     // up must not switch on the magnetic lock (it would hold the ship in a slow, damped glide down).
@@ -289,6 +306,19 @@ export class ShipController {
       this.alignRot.setFromAxisAngle(up, angle);
       s.velocity.applyQuaternion(this.alignRot);
       this.right.crossVectors(this.fwd, up);
+    }
+
+    if (grounded && this.hasProjection && this.track.pipes.length > 0 && s.path === null) {
+      // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
+      // (see PipeCompensation), the pipe counterpart of the twist compensation above.
+      const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
+      if (k !== 0) {
+        const angle = k * s.velocity.dot(this.fwd) * dt;
+        this.yaw(angle);
+        this.alignRot.setFromAxisAngle(up, angle);
+        s.velocity.applyQuaternion(this.alignRot);
+        this.right.crossVectors(this.fwd, up);
+      }
     }
 
     // --- decompose current velocity in the surface plane ---
@@ -356,12 +386,19 @@ export class ShipController {
 
       // Lateral grip: anti-slip thrusters remove sideways speed and convert most of it
       // into forward speed (momentum is redirected, not destroyed).
-      const grip = (this.stats.lateralGrip + (this.stats.airbrakeGrip - this.stats.lateralGrip) * abMax) * (grounded ? 1 : TUNING.AIR_GRIP_FACTOR);
+      const grip =
+        (this.stats.lateralGrip + (this.stats.airbrakeGrip - this.stats.lateralGrip) * abMax) *
+        (grounded ? this.surfaceGrip : TUNING.AIR_GRIP_FACTOR);
       const latNew = lat * Math.exp(-grip * dt);
       const transfer = TUNING.GRIP_SPEED_TRANSFER + (TUNING.AIRBRAKE_SPEED_TRANSFER - TUNING.GRIP_SPEED_TRANSFER) * abMax;
       const keep = Math.sqrt(Math.max(0, f * f + lat * lat - latNew * latNew));
       f = f + (Math.sign(f || 1) * keep - f) * transfer;
       lat = latNew;
+
+      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth) and the rails come back
+      // there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
+      const guard = this.seamGuard();
+      if (guard !== 0) lat += guard * TUNING.SEAM_GUARD_ACCEL * dt;
 
       // Brake: reduces the planar speed toward zero, never reverses.
       if (brake > 0) {
@@ -442,11 +479,11 @@ export class ShipController {
    * Resolve a contact between this ship and a rail wall. `n` is the wall normal
    * pointing from the wall toward the ship; `point` is the deepest contact point.
    */
-  applyWallContact(n: THREE.Vector3, point: Vec3Like, dt: number, now: number): void {
+  applyWallContact(n: THREE.Vector3, point: Vec3Like, dt: number, now: number, damage = true): void {
     const s = this.state;
     if (s.status === 'retired') return;
     const v = s.velocity;
-    const damageActive = isActiveStatus(s.status);
+    const damageActive = damage && isActiveStatus(s.status);
 
     const closing = -this.preVel.dot(n);
     const vnPost = v.dot(n);
@@ -501,6 +538,13 @@ export class ShipController {
     }
   }
 
+  /** Scale the ship's velocity (a hazard hit under the Rookie policy). */
+  scaleVelocity(f: number): void {
+    this.state.velocity.multiplyScalar(f);
+    this.body.setLinvel(this.state.velocity, true);
+    this.updateSpeeds();
+  }
+
   /** Apply damage from a ship-ship collision. */
   applyShipDamage(closingSpeed: number): void {
     if (!isActiveStatus(this.state.status)) return;
@@ -531,6 +575,7 @@ export class ShipController {
 
     this.refreshProjection();
     this.updateZones(dt);
+    this.updateSurface();
 
     // Safety respawn.
     if (s.status !== 'grid') {
@@ -543,7 +588,11 @@ export class ShipController {
       } else {
         this.invalidTime = 0;
         // Never remember a spot over a jump gap: there is nothing there to put the ship back on.
-        if (this.track.surfaceKindAt(s.trackU, s.lateral) !== 'air') this.lastValidU = s.trackU;
+        if (this.track.surfaceKindAt(s.trackU, s.lateral, s.path) !== 'air') {
+          this.lastValidU = s.trackU;
+          this.lastValidPath = s.path;
+          this.lastValidS = s.pathS;
+        }
       }
     }
   }
@@ -554,6 +603,7 @@ export class ShipController {
     this.colliderEnabled = true;
     this.collider.setEnabled(true);
     this.railContact = false;
+    this.gateContacts.clear();
 
     s.position.copy(slot.position);
     s.quaternion.copy(slot.quaternion);
@@ -570,6 +620,8 @@ export class ShipController {
     s.onDash = false;
     s.airborne = false;
     this.jumping = false;
+    this.surfaceGrip = 1;
+    this.onIce = false;
     if (s.inPit) {
       s.inPit = false;
       this.bus.emit('ship:pit', { shipId: s.def.id, active: false });
@@ -589,7 +641,10 @@ export class ShipController {
 
     this.hasProjection = false;
     this.lastValidU = slot.u;
+    this.lastValidPath = null;
     s.trackU = slot.u;
+    s.path = null;
+    s.pathS = 0;
     this.refreshProjection();
   }
 
@@ -611,6 +666,7 @@ export class ShipController {
       this.colliderEnabled = false;
       this.collider.setEnabled(false);
       this.railContact = false;
+      this.gateContacts.clear();
     } else if (!retired && !this.colliderEnabled) {
       this.colliderEnabled = true;
       this.collider.setEnabled(true);
@@ -765,16 +821,20 @@ export class ShipController {
   /** Refresh the cached track projection (u, lateral, height) and the local track frame. */
   private refreshProjection(): void {
     const s = this.state;
-    const p = this.track.project(s.position, s.trackU);
+    const p = this.track.project(s.position, s.trackU, s.path);
     s.trackU = p.u;
+    s.path = p.path;
+    s.pathS = p.pathS ?? 0;
     s.lateral = p.lateral;
     s.heightAboveTrack = p.height;
-    this.sampleUp.copy(p.sample.up);
+    // Inside a pipe the surface normal turns with the curled deck (toward the tube's axis).
+    this.sampleUp.copy(p.surfaceUp ?? p.sample.up);
     this.sampleFwd.copy(p.sample.forward);
     this.sampleRight.copy(p.sample.right);
     this.sampleHalfWidth = p.sample.halfWidth;
     const rates = twistRates(this.track);
-    this.twistRate = rates[Math.round(p.u * rates.length) % rates.length];
+    // Branches never twist (no corkscrews on split paths).
+    this.twistRate = p.path ? 0 : rates[Math.round(p.u * rates.length) % rates.length];
     this.hasProjection = true;
   }
 
@@ -783,7 +843,8 @@ export class ShipController {
     const s = this.state;
     let dash = false;
     let pit = false;
-    if (isActiveStatus(s.status) && s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT) {
+    // Dash plates and the pit are on the main loop only.
+    if (isActiveStatus(s.status) && s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT && s.path === null) {
       const zones = this.track.zones;
       for (let i = 0; i < zones.length; i++) {
         const z = zones[i];
@@ -813,12 +874,41 @@ export class ShipController {
     if (s.energy >= this.lowEnergyLevel) this.lowEnergyFired = false;
   }
 
+  /** −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the top seam of an opening pipe, else 0. */
+  private seamGuard(): number {
+    const pipes = this.track.pipes;
+    const s = this.state;
+    if (pipes.length === 0 || !this.hasProjection || s.path !== null) return 0;
+    const lead = TUNING.SEAM_GUARD_LEAD / this.track.length;
+    for (const p of pipes) {
+      if (!inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) continue;
+      const w = this.sampleHalfWidth;
+      const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
+      return -Math.sign(s.lateral) * k;
+    }
+    return 0;
+  }
+
+  /** Surface grip under the hull (ice patches) and the ship:ice edge events. */
+  private updateSurface(): void {
+    const s = this.state;
+    const near = s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT && !this.jumping;
+    this.surfaceGrip = near ? this.track.gripAt(s.trackU, s.lateral, s.path) : 1;
+    const ice = near && this.surfaceGrip < 1 && isActiveStatus(s.status);
+    if (ice !== this.onIce) {
+      this.onIce = ice;
+      this.bus.emit('ship:ice', { shipId: s.def.id, active: ice });
+    }
+  }
+
   /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */
   private respawn(nonFinite: boolean): void {
     const s = this.state;
+    // A ship that came off a split path goes back onto it, where it left the deck.
+    const branch = this.lastValidPath ? this.track.branches.find((b) => b.id === this.lastValidPath) : undefined;
     // Near a jump the ship comes back on the landing side (a slow restart before the ramp would miss again).
-    this.lastValidU = this.track.safeRespawnU(this.lastValidU);
-    const smp = this.track.sampleAt(this.lastValidU);
+    if (!branch) this.lastValidU = this.track.safeRespawnU(this.lastValidU);
+    const smp = branch ? branch.sampleAt(this.lastValidS) : this.track.sampleAt(this.lastValidU);
     const oldForward = nonFinite || !Number.isFinite(s.forwardSpeed) ? 0 : Math.max(s.forwardSpeed, 0);
 
     this.up.copy(smp.up);
@@ -837,6 +927,7 @@ export class ShipController {
     this.jumping = false;
     this.preVel.copy(s.velocity);
     this.railContact = false;
+    this.gateContacts.clear();
     this.invalidTime = 0;
 
     this.body.setTranslation(s.position, true);
@@ -844,7 +935,8 @@ export class ShipController {
     this.body.setLinvel(s.velocity, true);
     this.updateSpeeds();
 
-    s.trackU = this.lastValidU;
+    s.trackU = branch ? branch.progressU(this.lastValidS) : this.lastValidU;
+    s.path = branch ? branch.id : null;
     this.refreshProjection();
     this.bus.emit('ship:respawn', { shipId: s.def.id });
   }

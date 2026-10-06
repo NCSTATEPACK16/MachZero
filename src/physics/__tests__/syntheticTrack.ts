@@ -80,6 +80,7 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
       lateral: rho * cb - dy * sb,
       height: rho * sb + dy * cb,
       sample,
+      path: null,
     };
   };
 
@@ -118,7 +119,15 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
     features: [],
     jumps: [],
     airGravityScale: 1,
+    pipes: [],
+    branches: [],
     surfaceKindAt: () => 'road',
+    gripAt: () => 1,
+    surfacePoint(u, lateral, out, outUp) {
+      const smp = this.sampleAt(u);
+      if (outUp) outUp.copy(smp.up);
+      return out.copy(smp.position).addScaledVector(smp.right, lateral);
+    },
     safeRespawnU: (u) => u,
   };
 }

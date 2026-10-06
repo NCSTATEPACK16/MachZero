@@ -6,6 +6,7 @@
 import type { ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
+import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
 import { disposeObject3D } from '../graphics/dispose';
 import type { GraphicsSystem } from '../graphics';
@@ -24,6 +25,8 @@ export interface RaceSetup {
   field: ShipDefinition[];
   /** The player's ship is driven by its AI. */
   autopilot: boolean;
+  /** How track hazards treat ships (default normal). */
+  hazards?: Readonly<HazardPolicy>;
   records?: RecordStore;
 }
 
@@ -60,16 +63,17 @@ export class RaceSession {
     // Every ship gets a driver; the player's steers only on autopilot or after the finish line.
     for (const ship of this.ships) {
       const personality = ship.def.personality ?? 'steady';
-      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships));
+      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships, { hazardClock: () => physics.hazardTime }));
       this.controls.set(ship.def.id, neutralControls());
     }
     this.race = new RaceManager(track, this.ships, this.bus, setup.records);
   }
 
   static async create(setup: RaceSetup): Promise<RaceSession> {
-    const track = trackFromSource(setup.source, { palette: setup.palette });
+    const hazards = setup.hazards ?? HAZARDS_NORMAL;
+    const track = trackFromSource(setup.source, { palette: setup.palette, telegraphScale: hazards.telegraphScale });
     const bus: GameBus = new EventBus<GameEvents>();
-    return new RaceSession(setup, track, await PhysicsSystem.create(track, bus), bus);
+    return new RaceSession(setup, track, await PhysicsSystem.create(track, bus, { hazards }), bus);
   }
 
   get state() {
@@ -107,7 +111,7 @@ export class RaceSession {
   /** Per-frame presentation (the App renders afterwards). */
   frame(dt: number, alpha: number, time: number): void {
     if (this.disposed || !this.view) return;
-    const ctx: FrameContext = { dt, alpha, time, ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
+    const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
     this.view.graphics.update(ctx);
     this.hud?.update(ctx.race, dt);
     this.view.audio.update(ctx);
@@ -140,6 +144,7 @@ export class RaceSession {
   }
 
   private resetToGrid(): void {
+    this.physics.resetTime();
     for (const ship of this.ships) this.physics.resetShip(ship.def.id, this.track.startGrid[ship.def.gridIndex]);
     this.race.reset();
   }

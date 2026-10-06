@@ -11,6 +11,11 @@ import { buildFrames, toTrackSamples, type BankOptions, type CorkscrewRange, typ
 import { createLayout, type LayoutStats } from './TrackLayout';
 import { buildTrackCollision, buildTrackVisual, type DashPlate, type TrackPalette, type VisualStats } from './TrackMesh';
 import { TrackQuery } from './TrackQuery';
+import { curlSamples, type PipeSpan } from './features/pipe';
+import { BuiltBranch } from './features/branch';
+import { buildGates } from './features/gate';
+import { buildGateVisual } from './features/gateVisual';
+import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
 const PIT_END = 250;
@@ -58,6 +63,8 @@ export interface BuiltLayout {
 
 export interface BuildOptions {
   palette?: TrackPalette;
+  /** Hazard telegraphing strength (HazardPolicy.telegraphScale): Rookie races pulse ice patches harder. */
+  telegraphScale?: number;
 }
 
 const statsByTrack = new WeakMap<TrackData, TrackStats>();
@@ -130,6 +137,44 @@ export function seededLayout(seed: number): BuiltLayout {
   };
 }
 
+/** Is a projection on the drivable surface of a road of half-width `hw` (not off its edge, not far above/below)? */
+function onRoad(lateral: number, height: number, hw: number): boolean {
+  return Math.abs(lateral) <= hw + 0.5 && height > -3 && height < 12;
+}
+
+/**
+ * Projection with split paths: stay on the hinted road while still on it; otherwise move to whichever road the
+ * point is on (main first); a point on neither (falling) keeps its hinted road.
+ */
+function projectWithBranches(
+  query: TrackQuery,
+  branches: readonly BuiltBranch[],
+  length: number,
+  pos: THREE.Vector3,
+  hintU: number | undefined,
+  hintPath: string | null,
+): TrackProjection {
+  const main = query.project(pos, hintU);
+  const mainOk = onRoad(main.lateral, main.height, CONFIG.TRACK_HALF_WIDTH);
+  if (hintPath === null && mainOk) return main;
+  let hinted: TrackProjection | null = hintPath === null ? main : null;
+  let firstOk: TrackProjection | null = null;
+  for (const b of branches) {
+    const near = hintPath === b.id || inLoopRange(main.u, wrap01(b.uFork - 40 / length), wrap01(b.uMerge + 40 / length));
+    if (!near) continue;
+    const bp = b.project(pos, hintU !== undefined ? b.sAtProgress(hintU) : undefined);
+    const u = b.progressU(bp.s, bp.lateral);
+    const proj: TrackProjection = { u, distance: u * length, lateral: bp.lateral, height: bp.height, sample: bp.sample, path: b.id, pathS: bp.s };
+    const ok = bp.within && onRoad(bp.lateral, bp.height, b.halfWidth);
+    if (hintPath === b.id) {
+      if (ok) return proj;
+      hinted = proj;
+    } else if (ok && !firstOk) firstOk = proj;
+  }
+  if (mainOk) return main;
+  return firstOk ?? hinted ?? main;
+}
+
 /** frames -> query -> zones -> grid -> collision -> visual. */
 export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): TrackData {
   const t0 = performance.now();
@@ -138,7 +183,9 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
 
   const corkscrewFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'corkscrew' }> => f.type === 'corkscrew');
   const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
-  const frames = buildFrames(resampled, differentials, rolls, layout.bank);
+  const pipeSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'pipe' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
+  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans);
+  const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl);
   const samples = toTrackSamples(frames);
   const query = new TrackQuery(frames, CONFIG.TRACK_HALF_WIDTH);
   const curvatureAt = (d: number): number => query.sampleAt(d / length).curvature;
@@ -200,19 +247,51 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
 
   const gaps = jumps.map((j) => ({ dStart: j.dTakeoff, dEnd: j.dLanding }));
   const corkDists = corkscrewFeatures.map((f) => ({ dStart: f.dStart, dEnd: f.dEnd }));
-  const collision = buildTrackCollision(frames, gaps);
+  const branches = features.flatMap((f) => (f.type === 'branch' ? [new BuiltBranch(f, query, length)] : []));
+  const collision = buildTrackCollision(frames, gaps, branches);
   const { group, stats: visualStats } = buildTrackVisual({
     frames,
     query,
     corkscrews: corkDists,
+    pipes: pipeSpans,
+    ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
+    telegraphScale: build.telegraphScale ?? 1,
+    branches,
     pit,
     dashPlates,
     gaps,
     palette: build.palette ?? DEFAULT_TRACK_PALETTE,
   });
 
-  const surfaceKindAt = (u: number): SurfaceKind => {
-    for (const j of jumps) if (inLoopRange(wrap01(u), j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
+  // Stone gates: their slabs move, so they are posed each frame (animateHazards) from the physics clock.
+  const palette = build.palette ?? DEFAULT_TRACK_PALETTE;
+  const gateDefs = features.some((f) => f.type === 'gate')
+    ? buildGates({ features, branches, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const gateVisual = gateDefs.length > 0 ? buildGateVisual(gateDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (gateVisual) group.add(gateVisual.group);
+
+  const pipes = pipeSpans.map((p) => ({
+    uStart: wrap01(p.dStart / length),
+    uEnd: wrap01(p.dEnd / length),
+    uClosedStart: wrap01((p.dStart + p.transition) / length),
+    uClosedEnd: wrap01((p.dEnd - p.transition) / length),
+  }));
+  const ice = features.flatMap((f) =>
+    f.type === 'ice' ? [{ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip }] : [],
+  );
+  const gripAt = (u: number, lateral: number, path?: string | null): number => {
+    if (path) return 1;
+    const uw = wrap01(u);
+    for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return z.grip;
+    return 1;
+  };
+  const surfaceKindAt = (u: number, lateral: number, path?: string | null): SurfaceKind => {
+    if (path) return 'road';
+    const uw = wrap01(u);
+    for (const j of jumps) if (inLoopRange(uw, j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
+    for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return 'ice';
+    for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
     return 'road';
   };
   const safeRespawnU = (u: number): number => {
@@ -238,16 +317,21 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     curve: layout.curve,
     samples,
     sampleAt: (u, out) => query.sampleAt(u, out),
-    project: (pos, hintU) => query.project(pos, hintU),
+    project: branches.length === 0 ? (pos, hintU) => query.project(pos, hintU) : (pos, hintU, hintPath) => projectWithBranches(query, branches, length, pos, hintU, hintPath ?? null),
+    surfacePoint: (u, lateral, out, outUp) => query.surfacePoint(u, lateral, out, outUp),
     zones,
     startGrid,
     collision,
     visual: group,
+    ...(gateVisual ? { animateHazards: gateVisual.update } : {}),
     corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
     features,
     jumps,
+    branches,
+    pipes,
     airGravityScale: layout.airGravityScale,
     surfaceKindAt,
+    gripAt,
     safeRespawnU,
   };
   statsByTrack.set(track, {

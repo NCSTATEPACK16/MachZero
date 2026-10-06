@@ -77,7 +77,7 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
       const u = a / (2 * Math.PI);
       const sample = frameAt(u, blank());
       const rel = pos.clone().sub(sample.position);
-      return { u, distance: u * length, lateral: rel.dot(sample.right), height: rel.dot(sample.up), sample };
+      return { u, distance: u * length, lateral: rel.dot(sample.right), height: rel.dot(sample.up), sample, path: null };
     },
     zones,
     startGrid: [],
@@ -87,7 +87,15 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
     features: [],
     jumps: [],
     airGravityScale: 1,
+    pipes: [],
+    branches: [],
     surfaceKindAt: () => 'road',
+    gripAt: () => 1,
+    surfacePoint(u, lateral, out, outUp) {
+      const smp = this.sampleAt(u);
+      if (outUp) outUp.copy(smp.up);
+      return out.copy(smp.position).addScaledVector(smp.right, lateral);
+    },
     safeRespawnU: (u) => u,
   };
   return track;
@@ -107,6 +115,8 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     def,
     position: new THREE.Vector3(),
     quaternion: new THREE.Quaternion(),
+    path: null,
+    pathS: 0,
     prevPosition: new THREE.Vector3(),
     prevQuaternion: new THREE.Quaternion(),
     velocity: new THREE.Vector3(),

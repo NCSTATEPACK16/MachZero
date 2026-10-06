@@ -5,6 +5,7 @@
  */
 import { batch, computed, effect, signal } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
+import { hazardPolicy } from '../core/hazards';
 import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { GameLoop } from '../core/loop';
@@ -398,7 +399,9 @@ export class App {
       playerLoadout: p?.loadout ?? defaultLoadout(),
       tier: this.raceTier(p),
     });
-    const base = { field, autopilot: this.flags.autopilot };
+    // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
+    const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
+    const base = { field, autopilot: this.flags.autopilot, hazards };
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {
@@ -423,7 +426,7 @@ export class App {
   /** The race the menu would start now; reuses the current session when nothing relevant changed. */
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;

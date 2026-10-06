@@ -94,6 +94,52 @@ export interface TrackProjection {
   height: number;
   /** Interpolated frame at u. */
   sample: TrackSample;
+  /**
+   * Unit normal of the driving surface at (u, lateral), pointing into the drivable side. Differs from sample.up
+   * where the road curls into a pipe; absent means sample.up.
+   */
+  surfaceUp?: THREE.Vector3;
+  /**
+   * The road the point is on: null for the main loop, a branch id on a split path. On a branch, `u` and
+   * `distance` are race progress mapped onto the main loop, `pathS` is metres along the branch, and lateral,
+   * height and `sample` are relative to the branch.
+   */
+  path: string | null;
+  pathS?: number;
+}
+
+/**
+ * A split path (Jade Ruins): an alternative road that leaves the main loop at a fork and rejoins it at a merge.
+ * It starts and ends beside the main centreline (offset `side · (halfWidth_main − halfWidth)`), overlapping the
+ * main deck until the roads have separated.
+ */
+export interface TrackBranch {
+  id: string;
+  /** Main-loop u of the fork and merge. */
+  uFork: number;
+  uMerge: number;
+  /** Branch length (m). */
+  length: number;
+  halfWidth: number;
+  /** +1: the branch leaves on the main road's right; −1: on its left. */
+  side: 1 | -1;
+  /** Metres along the branch over which it still overlaps the main deck at the fork / merge end. */
+  overlapFork: number;
+  overlapMerge: number;
+  /** Frames every ~ds metres along the branch (u = s / length). */
+  samples: TrackSample[];
+  /** Frame at s metres along the branch (clamped). */
+  sampleAt(s: number, out?: TrackSample): TrackSample;
+  surfacePoint(s: number, lateral: number, out: THREE.Vector3, outUp?: THREE.Vector3): THREE.Vector3;
+  /**
+   * Race progress (main-loop u) of a ship s metres along the branch: monotonic from uFork to uMerge. Through the
+   * overlaps `lateral` adds its along-main share, so progress is the same on either road there.
+   */
+  progressU(s: number, lateral?: number): number;
+  /** Branch metres whose (centreline) race progress is main-loop u: the inverse of progressU, clamped. */
+  sAtProgress(u: number): number;
+  /** Lateral edges that have no rail (open drop): between these s values the side `openSide` is open. */
+  openEdge: { side: 1 | -1; sFrom: number; sTo: number } | null;
 }
 
 /** World-space triangle mesh: xyz vertex triples + triangle indices. */
@@ -138,16 +184,43 @@ export interface GridSlot {
  * A `jump` is an open-air gap: no surface and no rails between dTakeoff and dLanding. The builder raises a
  * ramp of `kick` metres over the RAMP_LENGTH before the lip, and bends the centerline through the gap along
  * the flight path of a ship at `designSpeed` (m/s), so project() and the AI keep working in the air.
+ * A `pipe` curls the road's cross-section up into a closed tube (circumference = the road width, so `lateral`
+ * becomes the arc position around the tube): it closes over `transition` metres after dStart and opens over the
+ * last `transition` metres before dEnd. Rails end where the tube closes.
+ * An `ice` patch multiplies the lateral grip of ships over it by `grip`.
  */
 export type TrackFeature =
   | { type: 'corkscrew'; dStart: number; dEnd: number; turns?: number }
   | { type: 'jump'; dTakeoff: number; dLanding: number; kick: number; designSpeed?: number }
-  | { type: 'pipe'; dStart: number; dEnd: number; radius: number; transition: number }
+  | { type: 'pipe'; dStart: number; dEnd: number; transition: number }
   | { type: 'loop'; dStart: number; dEnd: number; sideOffset: number }
-  | { type: 'branch'; id: string; dFork: number; dMerge: number; points: [number, number, number][]; halfWidth: number }
+  | {
+      type: 'branch';
+      id: string;
+      dFork: number;
+      dMerge: number;
+      /** Open centripetal Catmull-Rom control points from the fork to the merge (m). */
+      points: [number, number, number][];
+      halfWidth: number;
+      side: 1 | -1;
+      /** Branch metres (from the fork) over which its outer edge has no rail. */
+      openFrom?: number;
+      openTo?: number;
+    }
   | { type: 'dash' | 'pit'; dStart: number; dEnd: number; lateralMin: number; lateralMax: number }
   | { type: 'ice'; dStart: number; dEnd: number; lateralMin: number; lateralMax: number; grip: number }
-  | { type: 'gate'; d: number; period: number; phase: number; closedFraction: number }
+  | {
+      type: 'gate';
+      /** Metres along the main loop, or along `branch` when set. */
+      d: number;
+      branch?: string;
+      /** Timeline (s): closed for `closedFraction` of each `period`, offset by `phase`. */
+      period: number;
+      phase: number;
+      closedFraction: number;
+      /** Which part of the road the slab closes: the left or right half, or the full width (a shortcut gate). */
+      span: 'left' | 'right' | 'full';
+    }
   | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number };
 
 /** content/tracks/<id>.json */
@@ -198,22 +271,41 @@ export interface TrackData {
   samples: TrackSample[];
   /** Interpolated sample at u (wraps). Writes into `out` when provided. */
   sampleAt(u: number, out?: TrackSample): TrackSample;
-  /** Nearest point on the centerline. O(window) with hintU, O(N) without. */
-  project(pos: THREE.Vector3, hintU?: number): TrackProjection;
+  /**
+   * Nearest point on the road. O(window) with hintU, O(N) without. With split paths, `hintPath` (the road the
+   * ship was on) keeps the projection on that road while the point is still on it.
+   */
+  project(pos: THREE.Vector3, hintU?: number, hintPath?: string | null): TrackProjection;
+  /**
+   * The point on the driving surface at (u, lateral), plus its surface normal when `outUp` is given. On a flat
+   * deck this is position + right·lateral; inside a pipe it follows the curled cross-section.
+   */
+  surfacePoint(u: number, lateral: number, out: THREE.Vector3, outUp?: THREE.Vector3): THREE.Vector3;
   zones: TrackZone[];
   /** 8 slots behind the start line (4 rows × 2 staggered); index = grid position (0 = pole). */
   startGrid: GridSlot[];
   collision: TrackCollisionData;
   /** Surface, rails, neon strips, dash plates, pit, start gate, pylons. */
   visual: THREE.Group;
+  /** Pose moving hazards (stone gates) in `visual` for physics time t since the race reset; absent without any. */
+  animateHazards?: (t: number) => void;
   /** The (first) corkscrew, or null when the track has none. */
   corkscrew: { uStart: number; uEnd: number } | null;
   features: TrackFeature[];
   jumps: TrackJump[];
+  /** Split paths (empty on most tracks). */
+  branches: TrackBranch[];
+  /**
+   * Pipe extents in u: the whole curl (uStart..uEnd, transitions included) and the stretch where the tube is
+   * fully closed (uClosedStart..uClosedEnd).
+   */
+  pipes: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
   /** Gravity multiplier while airborne. */
   airGravityScale: number;
-  /** What a ship at (u, lateral) is driving on. */
-  surfaceKindAt(u: number, lateral: number): SurfaceKind;
+  /** What a ship at (u, lateral) is driving on (on a branch: pass its id; u is then ignored for main features). */
+  surfaceKindAt(u: number, lateral: number, path?: string | null): SurfaceKind;
+  /** Lateral-grip multiplier of the surface at (u, lateral): an ice patch's `grip`, otherwise 1. */
+  gripAt(u: number, lateral: number, path?: string | null): number;
   /**
    * Where a ship whose last valid position was u is put back: u itself, except near or inside a jump, where it
    * is the landing side (respawning before the ramp at low speed would only miss the jump again).
@@ -306,6 +398,10 @@ export interface ShipState {
   onDash: boolean;
   /** Cached track projection, refreshed every fixed step. */
   trackU: number;
+  /** null on the main loop, or the id of the split path the ship is on (lateral is then relative to it). */
+  path: string | null;
+  /** Metres along that split path (0 on the main loop). */
+  pathS: number;
   lateral: number;
   heightAboveTrack: number;
   /** In the air over a jump gap (no surface under the hover rays). */
@@ -373,6 +469,8 @@ export interface FrameContext {
   alpha: number;
   /** Seconds since boot. */
   time: number;
+  /** Physics seconds since the race reset (the stone gates' timeline). */
+  hazardTime: number;
   ships: ShipState[];
   player: ShipState;
   track: TrackData;
@@ -411,7 +509,7 @@ export interface IGraphicsSystem {
   dispose(): void;
 }
 
-/** Constructed as new AIDriver(ship, track, personality, rngSeed, rivals). */
+/** Constructed as new AIDriver(ship, track, personality, rngSeed, rivals, { hazardClock }). */
 export interface IAIDriver {
   readonly shipId: ShipId;
   update(dt: number): ControlInput;
