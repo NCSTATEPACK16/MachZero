@@ -287,6 +287,8 @@ export interface TrackData {
   collision: TrackCollisionData;
   /** Surface, rails, neon strips, dash plates, pit, start gate, pylons. */
   visual: THREE.Group;
+  /** Pose moving hazards (stone gates) in `visual` for physics time t since the race reset; absent without any. */
+  animateHazards?: (t: number) => void;
   /** The (first) corkscrew, or null when the track has none. */
   corkscrew: { uStart: number; uEnd: number } | null;
   features: TrackFeature[];
@@ -467,6 +469,8 @@ export interface FrameContext {
   alpha: number;
   /** Seconds since boot. */
   time: number;
+  /** Physics seconds since the race reset (the stone gates' timeline). */
+  hazardTime: number;
   ships: ShipState[];
   player: ShipState;
   track: TrackData;
@@ -505,7 +509,7 @@ export interface IGraphicsSystem {
   dispose(): void;
 }
 
-/** Constructed as new AIDriver(ship, track, personality, rngSeed, rivals). */
+/** Constructed as new AIDriver(ship, track, personality, rngSeed, rivals, { hazardClock }). */
 export interface IAIDriver {
   readonly shipId: ShipId;
   update(dt: number): ControlInput;

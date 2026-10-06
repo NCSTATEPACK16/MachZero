@@ -14,6 +14,7 @@ import { neutralControls } from '../core/controls';
 import { clamp, damp, inLoopRange, loopDelta, wrap01, wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
 import { TrackRoute } from '../track/TrackRoute';
+import { type BuiltGate, buildGates, gateBand, gateBlocksDuring } from '../track/features/gate';
 
 /**
  * Chance of taking a split path's shortcut on each approach, by tier (SPEC: Rookie never, Pilot ≈ 30%, Ace ≈ 60%,
@@ -26,6 +27,17 @@ const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
 const ROUTE_DECIDE = 300;
 /** Metres before a fork over which a driver taking the shortcut moves to its side of the road. */
 const FORK_APPROACH = 160;
+/** Stone gates: metres ahead the driver plans for, the arrival window (s) it wants clear, the margin (m) from a
+ *  shut slab's edge, and the slowest it will crawl to time a shut gate. */
+const GATE_LOOKAHEAD = 240;
+const GATE_WINDOW = 0.4;
+const GATE_MARGIN = 3;
+const GATE_MIN_SPEED = 20;
+
+export interface AIDriverOptions {
+  /** Physics seconds since the race reset (the stone gates' timeline); default: the driver's own clock. */
+  hazardClock?: () => number;
+}
 
 export function shortcutOdds(tier: AITier, personality: AIPersonality): number {
   const base = SHORTCUT_ODDS[tier];
@@ -150,6 +162,8 @@ export class AIDriver implements IAIDriver {
   private readonly decided = new Set<string>();
   /** Route metres of last step's aim point (to carry tLat across a change of road). */
   private prevTargetR = Number.NaN;
+  private readonly gates: BuiltGate[];
+  private readonly hazardClock: () => number;
 
   private readonly out: ControlInput = neutralControls();
   private readonly fwd = new Vector3();
@@ -189,7 +203,14 @@ export class AIDriver implements IAIDriver {
   private mistakeUntil = 0;
   private mistakeSide = 1;
 
-  constructor(ship: ShipState, track: TrackData, personality: AIPersonality, rngSeed: number, rivals: readonly ShipState[] = []) {
+  constructor(
+    ship: ShipState,
+    track: TrackData,
+    personality: AIPersonality,
+    rngSeed: number,
+    rivals: readonly ShipState[] = [],
+    opts: AIDriverOptions = {},
+  ) {
     this.shipId = ship.def.id;
     this.ship = ship;
     this.track = track;
@@ -212,6 +233,8 @@ export class AIDriver implements IAIDriver {
     this.mainRoute = new TrackRoute(track);
     this.shortcuts = track.branches.map((b) => new TrackRoute(track, b));
     this.route = this.mainRoute;
+    this.gates = buildGates(track);
+    this.hazardClock = opts.hazardClock ?? (() => this.time);
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
     this.phaseA = this.rng.range(0, Math.PI * 2);
@@ -259,7 +282,7 @@ export class AIDriver implements IAIDriver {
     const u = ship.trackU;
 
     // --- route: the road ahead, in route metres (main loop, or through a shortcut) ---
-    this.updateRoute(ship);
+    this.updateRoute(ship, speed);
     const route = this.route;
     const R = route.shipR(ship.path, u, ship.pathS);
 
@@ -394,6 +417,13 @@ export class AIDriver implements IAIDriver {
       }
     }
 
+    // --- stone gates: keep to the open half of one that will be shut on arrival ---
+    const gateCap = this.planGates(R, speed, (lo, hi) => {
+      // The shut slab covers [lo, hi] of the road: stay beside it.
+      if (lo <= -halfWidth + 0.01 && desired < hi + GATE_MARGIN) desired = hi + GATE_MARGIN;
+      else if (hi >= halfWidth - 0.01 && desired > lo - GATE_MARGIN) desired = lo - GATE_MARGIN;
+    });
+
     // --- pit ---
     this.updatePit(u, ship);
     let pitSlow = false;
@@ -441,6 +471,7 @@ export class AIDriver implements IAIDriver {
       if (vAllowed < vTarget) vTarget = vAllowed;
     }
     if (pitSlow) vTarget = Math.min(vTarget, PIT_SPEED);
+    vTarget = Math.min(vTarget, gateCap);
 
     const over = speed - vTarget;
     let throttle = over > 0 ? clamp(1 - over / 6, 0, 1) : 1;
@@ -553,7 +584,7 @@ export class AIDriver implements IAIDriver {
    * Choose the road for each split path once per approach, ROUTE_DECIDE metres before its fork; follow the
    * shortcut while on it; fall back to the main loop when the shortcut was missed.
    */
-  private updateRoute(ship: ShipState): void {
+  private updateRoute(ship: ShipState, speed: number): void {
     if (this.shortcuts.length === 0) return;
     if (ship.path !== null) {
       const on = this.shortcuts.find((r) => r.branch!.id === ship.path);
@@ -568,7 +599,8 @@ export class AIDriver implements IAIDriver {
       if (!between && toFork <= ROUTE_DECIDE) {
         if (!this.decided.has(b.id)) {
           this.decided.add(b.id);
-          const take = this.odds >= 1 ? !this.shortcutBlocked(sc) : this.odds > 0 && this.routeRng.next() < this.odds;
+          const roll = this.odds >= 1 || (this.odds > 0 && this.routeRng.next() < this.odds);
+          const take = roll && !this.shortcutBlocked(sc, toFork, speed);
           this.setRoute(take ? sc : this.mainRoute);
         }
       } else if (!between) {
@@ -583,9 +615,51 @@ export class AIDriver implements IAIDriver {
     this.prevTargetR = Number.NaN;
   }
 
-  /** Will this shortcut be closed when the ship gets there? (Stone gates: see shortcutBlocked in M4b step 5.) */
-  private shortcutBlocked(_route: TrackRoute): boolean {
+  /** Will a full-width gate on this shortcut be shut when the ship gets there (`toFork` metres from its fork)? */
+  private shortcutBlocked(route: TrackRoute, toFork: number, speed: number): boolean {
+    const now = this.hazardClock();
+    const v = Math.max(speed, 60);
+    for (const g of this.gates) {
+      if (g.branch !== route.branch!.id || g.span !== 'full') continue;
+      const ta = now + (toFork + g.d) / v;
+      if (gateBlocksDuring(g, ta - GATE_WINDOW * 2, ta + GATE_WINDOW * 2)) return true;
+    }
     return false;
+  }
+
+  /** Route metres of a gate on the current route, or NaN when it is not on it. */
+  private gateR(g: BuiltGate): number {
+    const route = this.route;
+    if (g.branch !== null) return route.branch?.id === g.branch ? g.d : Number.NaN;
+    return route.shipR(null, g.progressU);
+  }
+
+  /**
+   * Gates ahead on the route that will be (partly) shut on arrival: `avoid` gets the shut band of a half gate;
+   * the result caps the speed so the ship reaches a shut full-width gate once it has opened (Infinity if none).
+   */
+  private planGates(R: number, speed: number, avoid: (lo: number, hi: number) => void): number {
+    if (this.gates.length === 0) return Infinity;
+    const now = this.hazardClock();
+    let cap = Infinity;
+    for (const g of this.gates) {
+      const gR = this.gateR(g);
+      if (Number.isNaN(gR)) continue;
+      const dist = this.route.wrap(gR - R);
+      if (dist > GATE_LOOKAHEAD) continue;
+      const ta = now + dist / Math.max(speed, 30);
+      if (!gateBlocksDuring(g, ta - GATE_WINDOW, ta + GATE_WINDOW)) continue;
+      if (g.span !== 'full') {
+        const [lo, hi] = gateBand(g);
+        avoid(lo, hi);
+        continue;
+      }
+      // Arrive when it is open: the first clear window, at most 8 s on.
+      let t = ta;
+      while (t < now + 8 && gateBlocksDuring(g, t - GATE_WINDOW, t + GATE_WINDOW)) t += 0.1;
+      cap = Math.min(cap, Math.max(GATE_MIN_SPEED, dist / Math.max(0.1, t - now)));
+    }
+    return cap;
   }
 
   /** Energy as a percentage of this ship's max (thresholds are tuned on v1's 0..100 scale). */

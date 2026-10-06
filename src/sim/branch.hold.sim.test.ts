@@ -16,6 +16,7 @@ import { PhysicsSystem } from '../physics';
 import { trackFromSource } from '../track';
 import type { BuiltBranch } from '../track/features/branch';
 import { AIDriver, shortcutOdds } from '../game/AIDriver';
+import { gateClosure } from '../track/features/gate';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -210,37 +211,59 @@ describe('Jade Ruins split path', () => {
     expect(r.leftAtS).toBeLessThan(e.sTo);
   });
 
-  describe.each(['legend', 'rookie'] as AITier[])('an AI driver (%s)', (tier) => {
-    it(tier === 'legend' ? 'takes the shortcut from 400 m out and rejoins the main road' : 'stays on the main road', async () => {
-      const bus = new EventBus<GameEvents>();
-      const physics = await PhysicsSystem.create(track, bus);
-      const ship = physics.addShip({ ...SHIP_ROSTER[0], tier }, track.startGrid[0]);
-      physics.resetShip(0, slotAt(wrap01((branch.dFork - 400) / L), 0));
-      ship.status = 'racing';
-      ship.velocity.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion)).multiplyScalar(80);
-      const ai = new AIDriver(ship, track, 'steady', 12345, [ship]);
-      let respawns = 0;
-      bus.on('ship:respawn', () => respawns++);
-      const roads: (string | null)[] = [null];
-      const controls = new Map<ShipId, ControlInput>();
-      let worstRegress = 0;
-      let prevD = unwrap(ship.trackU);
-      for (let i = 0; i < 120 * 40; i++) {
-        controls.set(0, ai.update(CONFIG.FIXED_DT));
-        physics.step(CONFIG.FIXED_DT, controls);
-        if (roads[roads.length - 1] !== ship.path) roads.push(ship.path);
-        const d = unwrap(ship.trackU);
-        worstRegress = Math.max(worstRegress, prevD - d);
-        prevD = d;
-        if (d > pastMerge) break;
-      }
-      physics.dispose();
-      console.log(`branch AI ${tier}: roads=${roads.map((p) => p ?? 'main').join('>')} respawns=${respawns} regress=${worstRegress.toFixed(2)}m reached=${prevD > pastMerge}`);
-      expect(prevD).toBeGreaterThan(pastMerge);
-      expect(respawns).toBe(0);
-      expect(worstRegress).toBeLessThan(0.05);
-      expect(roads).toEqual(tier === 'legend' ? [null, 'shortcut', null] : [null]);
-    });
+  /**
+   * An AI driver from 400 m before the fork at 80 m/s, with the gate clock started at `t0` (the shortcut's gate is
+   * shut for 2.1 s of every 7 s); returns the roads driven.
+   */
+  async function aiRun(tier: AITier, t0: number): Promise<{ roads: (string | null)[]; respawns: number; regress: number; reached: boolean; gateHits: number; closureAtGate: number }> {
+    const bus = new EventBus<GameEvents>();
+    const physics = await PhysicsSystem.create(track, bus);
+    while (physics.hazardTime < t0) physics.step(CONFIG.FIXED_DT, new Map());
+    const ship = physics.addShip({ ...SHIP_ROSTER[0], tier }, track.startGrid[0]);
+    physics.resetShip(0, slotAt(wrap01((branch.dFork - 400) / L), 0));
+    ship.status = 'racing';
+    ship.velocity.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion)).multiplyScalar(80);
+    const ai = new AIDriver(ship, track, 'steady', 12345, [ship], { hazardClock: () => physics.hazardTime });
+    let respawns = 0;
+    let gateHits = 0;
+    bus.on('ship:respawn', () => respawns++);
+    bus.on('hazard:gate', () => gateHits++);
+    const roads: (string | null)[] = [null];
+    const controls = new Map<ShipId, ControlInput>();
+    let regress = 0;
+    let prevD = unwrap(ship.trackU);
+    const gate = physics.gates.find((g) => g.branch === branch.id)!;
+    let closureAtGate = Number.NaN;
+    for (let i = 0; i < 120 * 40; i++) {
+      controls.set(0, ai.update(CONFIG.FIXED_DT));
+      physics.step(CONFIG.FIXED_DT, controls);
+      if (roads[roads.length - 1] !== ship.path) roads.push(ship.path);
+      if (ship.path === branch.id && Number.isNaN(closureAtGate) && ship.pathS > gate.d) closureAtGate = gateClosure(gate, physics.hazardTime);
+      const d = unwrap(ship.trackU);
+      regress = Math.max(regress, prevD - d);
+      prevD = d;
+      if (d > pastMerge) break;
+    }
+    physics.dispose();
+    const r = { roads, respawns, regress, reached: prevD > pastMerge, gateHits, closureAtGate };
+    console.log(`branch AI ${tier} t0=${t0}: roads=${roads.map((p) => p ?? 'main').join('>')} respawns=${respawns} gateHits=${gateHits} regress=${regress.toFixed(2)}m reached=${r.reached}`);
+    return r;
+  }
+
+  // The AI reaches the shortcut's gate ≈ 5.5 s after the start: t0 = 5 puts that in the open part of the gate's
+  // cycle, t0 = 1.5 while it is shut.
+  it.each([
+    ['legend', 5, [null, 'shortcut', null]],
+    ['legend', 1.5, [null]],
+    ['rookie', 5, [null]],
+  ] as [AITier, number, (string | null)[]][])('an AI driver (%s, gate clock from %f s) drives %j', async (tier, t0, expected) => {
+    const r = await aiRun(tier, t0);
+    expect(r.reached).toBe(true);
+    expect(r.respawns).toBe(0);
+    expect(r.gateHits).toBe(0);
+    expect(r.regress).toBeLessThan(0.05);
+    expect(r.roads).toEqual(expected);
+    if (expected.includes('shortcut')) expect(r.closureAtGate).toBe(0);
   });
 
   it('shortcut odds follow the tier table (Rookie never, Legend always, PIXEL a coin flip, aggressive lean in)', () => {

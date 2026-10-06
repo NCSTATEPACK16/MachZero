@@ -63,7 +63,7 @@ export class RaceSession {
     // Every ship gets a driver; the player's steers only on autopilot or after the finish line.
     for (const ship of this.ships) {
       const personality = ship.def.personality ?? 'steady';
-      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships));
+      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships, { hazardClock: () => physics.hazardTime }));
       this.controls.set(ship.def.id, neutralControls());
     }
     this.race = new RaceManager(track, this.ships, this.bus, setup.records);
@@ -111,7 +111,7 @@ export class RaceSession {
   /** Per-frame presentation (the App renders afterwards). */
   frame(dt: number, alpha: number, time: number): void {
     if (this.disposed || !this.view) return;
-    const ctx: FrameContext = { dt, alpha, time, ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
+    const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
     this.view.graphics.update(ctx);
     this.hud?.update(ctx.race, dt);
     this.view.audio.update(ctx);
@@ -144,6 +144,7 @@ export class RaceSession {
   }
 
   private resetToGrid(): void {
+    this.physics.resetTime();
     for (const ship of this.ships) this.physics.resetShip(ship.def.id, this.track.startGrid[ship.def.gridIndex]);
     this.race.reset();
   }

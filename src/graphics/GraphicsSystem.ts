@@ -442,6 +442,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.camera.updateMatrixWorld();
 
     for (const m of this.modelList) m.updateVisuals(dt, time);
+    ctx.track.animateHazards?.(ctx.hazardTime);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
     this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
     this.theme.update(this.camera, time);

@@ -13,6 +13,8 @@ import { buildTrackCollision, buildTrackVisual, type DashPlate, type TrackPalett
 import { TrackQuery } from './TrackQuery';
 import { curlSamples, type PipeSpan } from './features/pipe';
 import { BuiltBranch } from './features/branch';
+import { buildGates } from './features/gate';
+import { buildGateVisual } from './features/gateVisual';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -261,6 +263,14 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     palette: build.palette ?? DEFAULT_TRACK_PALETTE,
   });
 
+  // Stone gates: their slabs move, so they are posed each frame (animateHazards) from the physics clock.
+  const palette = build.palette ?? DEFAULT_TRACK_PALETTE;
+  const gateDefs = features.some((f) => f.type === 'gate')
+    ? buildGates({ features, branches, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const gateVisual = gateDefs.length > 0 ? buildGateVisual(gateDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (gateVisual) group.add(gateVisual.group);
+
   const pipes = pipeSpans.map((p) => ({
     uStart: wrap01(p.dStart / length),
     uEnd: wrap01(p.dEnd / length),
@@ -313,6 +323,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     startGrid,
     collision,
     visual: group,
+    ...(gateVisual ? { animateHazards: gateVisual.update } : {}),
     corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
     features,
     jumps,

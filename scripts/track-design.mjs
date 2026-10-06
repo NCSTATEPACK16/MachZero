@@ -128,9 +128,9 @@ const TRACKS = {
           // Level with the main deck until the roads have separated (the overlaps), at both ends.
           { s: 40, y: 44 },
           { r: 160, a: 18, y: 44 },
-          { s: 200, y: 50, adjust: true },
+          { s: 200, y: 50, adjust: true, f: [{ type: 'gate', at: 170, period: 7, phase: 1, closedFraction: 0.3, span: 'full' }] },
           { r: 180, a: -36, y: 52 },
-          { s: 200, y: 44, adjust: true, f: [{ type: 'open', from: 20, to: 180 }, { type: 'gate', at: 100, period: 7, phase: 1, closedFraction: 0.3, span: 'full' }] },
+          { s: 200, y: 44, adjust: true, f: [{ type: 'open', from: 20, to: 180 }] },
           { r: 160, a: 18, y: 44 },
           { s: 60, y: 44 },
         ],

@@ -118,6 +118,9 @@ export class ShipController {
 
   /** Set by the PhysicsSystem from collision events. */
   railContact = false;
+  /** Stone gates (indices) this ship's hull is touching, and those first touched this step. */
+  readonly gateContacts = new Set<number>();
+  readonly gateHitsStarted = new Set<number>();
 
   // Orientation frame (unit, mutually orthogonal: right = fwd × up).
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -476,11 +479,11 @@ export class ShipController {
    * Resolve a contact between this ship and a rail wall. `n` is the wall normal
    * pointing from the wall toward the ship; `point` is the deepest contact point.
    */
-  applyWallContact(n: THREE.Vector3, point: Vec3Like, dt: number, now: number): void {
+  applyWallContact(n: THREE.Vector3, point: Vec3Like, dt: number, now: number, damage = true): void {
     const s = this.state;
     if (s.status === 'retired') return;
     const v = s.velocity;
-    const damageActive = isActiveStatus(s.status);
+    const damageActive = damage && isActiveStatus(s.status);
 
     const closing = -this.preVel.dot(n);
     const vnPost = v.dot(n);
@@ -533,6 +536,13 @@ export class ShipController {
         intensity,
       });
     }
+  }
+
+  /** Scale the ship's velocity (a hazard hit under the Rookie policy). */
+  scaleVelocity(f: number): void {
+    this.state.velocity.multiplyScalar(f);
+    this.body.setLinvel(this.state.velocity, true);
+    this.updateSpeeds();
   }
 
   /** Apply damage from a ship-ship collision. */
@@ -593,6 +603,7 @@ export class ShipController {
     this.colliderEnabled = true;
     this.collider.setEnabled(true);
     this.railContact = false;
+    this.gateContacts.clear();
 
     s.position.copy(slot.position);
     s.quaternion.copy(slot.quaternion);
@@ -655,6 +666,7 @@ export class ShipController {
       this.colliderEnabled = false;
       this.collider.setEnabled(false);
       this.railContact = false;
+      this.gateContacts.clear();
     } else if (!retired && !this.colliderEnabled) {
       this.colliderEnabled = true;
       this.collider.setEnabled(true);
@@ -915,6 +927,7 @@ export class ShipController {
     this.jumping = false;
     this.preVel.copy(s.velocity);
     this.railContact = false;
+    this.gateContacts.clear();
     this.invalidTime = 0;
 
     this.body.setTranslation(s.position, true);
