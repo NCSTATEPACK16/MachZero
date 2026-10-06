@@ -449,15 +449,16 @@ function mainRailCuts(branches: readonly BuiltBranch[], side: 1 | -1): [number, 
 }
 
 /** The crash-barrier nose where a branch separates from the main road (pointing back toward the fork). */
-function branchNose(b: BuiltBranch): { center: THREE.Vector3; right: THREE.Vector3; up: THREE.Vector3; forward: THREE.Vector3; length: number; width: number; height: number } {
-  const smp = b.sampleAt(b.overlapFork);
+export function branchNose(b: BuiltBranch): { center: THREE.Vector3; right: THREE.Vector3; up: THREE.Vector3; forward: THREE.Vector3; length: number; width: number; height: number } {
   const length = 10;
   const width = 2 * T;
-  // Centre of the two adjacent rails (branch inner rail + main rail), half the nose length back toward the fork.
+  // Over the first metres of the two adjacent rails (branch inner rail + main rail), capping their ends: its back
+  // face is at the separation, where the gap between the decks is exactly the two rails wide, so it never
+  // reaches into either road.
+  const smp = b.sampleAt(b.overlapFork + length / 2);
   const center = smp.position
     .clone()
     .addScaledVector(smp.right, -b.side * (b.halfWidth + T))
-    .addScaledVector(smp.forward, -length / 2)
     .addScaledVector(smp.up, (H + 0.5) / 2 - 0.25);
   return { center, right: smp.right.clone(), up: smp.up.clone(), forward: smp.forward.clone(), length, width, height: H + 0.5 };
 }

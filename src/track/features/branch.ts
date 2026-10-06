@@ -6,8 +6,10 @@
  * rails to stand between them (main right rail and branch inner rail side by side), marked by a crash-barrier
  * nose.
  *
- * Frames are built like the main loop's (world-up projected, banked by curvature) but open-ended, and the bank
- * fades out over the overlaps so the two decks are coplanar where they touch. Race progress on the branch is
+ * Frames are built like the main loop's (world-up projected, banked by curvature) but open-ended. Over the
+ * overlaps the branch lies on the main deck's surface with its normal (the main road is straight there but may
+ * keep a little smoothed bank), easing onto its own centreline and bank after separating, so the two decks are
+ * coplanar where they touch. Race progress on the branch is
  * the main loop's u: projected onto the main centreline through the overlaps (where the roads run side by side)
  * and linear in between, so it is monotonic and continuous when a ship changes road.
  */
@@ -104,24 +106,6 @@ export class BuiltBranch implements TrackBranch {
     }
     this.pos = pos;
 
-    // ---- tangents (central differences, one-sided at the ends) ----
-    const tan = new Float64Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const a = Math.max(0, i - 1);
-      const b = Math.min(count - 1, i + 1);
-      let x = pos[b * 3] - pos[a * 3];
-      let y = pos[b * 3 + 1] - pos[a * 3 + 1];
-      let z = pos[b * 3 + 2] - pos[a * 3 + 2];
-      const l = Math.hypot(x, y, z) || 1;
-      x /= l;
-      y /= l;
-      z /= l;
-      tan[i * 3] = x;
-      tan[i * 3 + 1] = y;
-      tan[i * 3 + 2] = z;
-    }
-    this.tan = tan;
-
     // ---- overlap with the main deck: where the centrelines are closer than the separation ----
     const sep = branchSeparation(def.halfWidth);
     const p = new THREE.Vector3();
@@ -165,6 +149,49 @@ export class BuiltBranch implements TrackBranch {
     }
     this.prog = prog;
 
+    // ---- on the main deck through the overlaps ----
+    // The main road is straight there but may keep some bank (smoothed in from the corners either side), so
+    // over the overlaps the branch lies exactly on the main surface and takes its normal, then eases onto its
+    // own centreline and banked frames over BANK_FADE once the roads have separated.
+    const sFork = iSepF * ds;
+    const sMerge = iSepM * ds;
+    const own = new Float64Array(count);
+    const mainUp = new Float64Array(count * 3);
+    const q = new THREE.Vector3();
+    const qUp = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      const s = i * ds;
+      own[i] = smoothstep(sFork, sFork + BANK_FADE, s) * (1 - smoothstep(sMerge - BANK_FADE, sMerge, s));
+      if (own[i] >= 1) continue;
+      main.surfacePoint(mainU[i], mainLat[i] * def.side, q, qUp);
+      const w = 1 - own[i];
+      pos[i * 3] += (q.x - pos[i * 3]) * w;
+      pos[i * 3 + 1] += (q.y - pos[i * 3 + 1]) * w;
+      pos[i * 3 + 2] += (q.z - pos[i * 3 + 2]) * w;
+      mainUp[i * 3] = qUp.x;
+      mainUp[i * 3 + 1] = qUp.y;
+      mainUp[i * 3 + 2] = qUp.z;
+    }
+
+    // ---- tangents (central differences, one-sided at the ends) ----
+    const tan = new Float64Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const a = Math.max(0, i - 1);
+      const b = Math.min(count - 1, i + 1);
+      let x = pos[b * 3] - pos[a * 3];
+      let y = pos[b * 3 + 1] - pos[a * 3 + 1];
+      let z = pos[b * 3 + 2] - pos[a * 3 + 2];
+      const l = Math.hypot(x, y, z) || 1;
+      x /= l;
+      y /= l;
+      z /= l;
+      tan[i * 3] = x;
+      tan[i * 3 + 1] = y;
+      tan[i * 3 + 2] = z;
+    }
+    this.tan = tan;
+
+
     // ---- banked frames, flat over the overlaps ----
     const up = new Float64Array(count * 3);
     const right = new Float64Array(count * 3);
@@ -196,11 +223,8 @@ export class BuiltBranch implements TrackBranch {
       rawBank[i] = clamp(k * CONFIG.BANK_FACTOR, -CONFIG.MAX_BANK, CONFIG.MAX_BANK);
     }
     const bank = smoothClamped(rawBank, 45 / ds);
-    const sFork = this.overlapFork;
-    const sMerge = length - this.overlapMerge;
     for (let i = 0; i < count; i++) {
-      const s = i * ds;
-      const fade = smoothstep(sFork, sFork + BANK_FADE, s) * (1 - smoothstep(sMerge - BANK_FADE, sMerge, s));
+      const fade = own[i];
       const ang = bank[i] * fade;
       const i3 = i * 3;
       const ax = tan[i3];
@@ -215,9 +239,23 @@ export class BuiltBranch implements TrackBranch {
       const cx = ay * vz - az * vy;
       const cy = az * vx - ax * vz;
       const cz = ax * vy - ay * vx;
-      const nx = vx * c + cx * sn;
-      const ny = vy * c + cy * sn;
-      const nz = vz * c + cz * sn;
+      let nx = vx * c + cx * sn;
+      let ny = vy * c + cy * sn;
+      let nz = vz * c + cz * sn;
+      if (fade < 1) {
+        // Toward the main deck's normal (kept perpendicular to the tangent).
+        nx += (mainUp[i3] - nx) * (1 - fade);
+        ny += (mainUp[i3 + 1] - ny) * (1 - fade);
+        nz += (mainUp[i3 + 2] - nz) * (1 - fade);
+        const along = nx * ax + ny * ay + nz * az;
+        nx -= along * ax;
+        ny -= along * ay;
+        nz -= along * az;
+        const nl = Math.hypot(nx, ny, nz) || 1;
+        nx /= nl;
+        ny /= nl;
+        nz /= nl;
+      }
       up[i3] = nx;
       up[i3 + 1] = ny;
       up[i3 + 2] = nz;
