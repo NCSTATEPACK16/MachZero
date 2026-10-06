@@ -252,6 +252,16 @@ describe('split path (Jade Ruins)', () => {
       expect(pr.path).toBeNull();
       expect(Math.abs(unwrapped(pr.u) - unwrapped(b.progressU(s)))).toBeLessThan(0.5);
     }
+    // ...whichever lateral the ship changes road at, not only on the centreline.
+    for (const s of [5, b.overlapFork * 0.5, b.overlapFork * 0.9, b.length - b.overlapMerge * 0.9, b.length - b.overlapMerge * 0.5]) {
+      for (const lat of [-6, 6]) {
+        const p = onBranch(s, lat, 1);
+        const m = track.sampleAt(b.progressU(s));
+        // Main is straight here: its progress for p is the along-forward offset from that frame.
+        const dMain = unwrapped(m.u) + p.clone().sub(m.position).dot(m.forward);
+        expect(Math.abs(unwrapped(b.progressU(s, lat)) - dMain)).toBeLessThan(0.3);
+      }
+    }
     // sAtProgress inverts progressU.
     for (const s of [3, 200, b.length / 2, b.length - 200]) expect(b.sAtProgress(b.progressU(s))).toBeCloseTo(s, 0);
   });

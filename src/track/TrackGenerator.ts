@@ -161,7 +161,7 @@ function projectWithBranches(
     const near = hintPath === b.id || inLoopRange(main.u, wrap01(b.uFork - 40 / length), wrap01(b.uMerge + 40 / length));
     if (!near) continue;
     const bp = b.project(pos, hintU !== undefined ? b.sAtProgress(hintU) : undefined);
-    const u = b.progressU(bp.s);
+    const u = b.progressU(bp.s, bp.lateral);
     const proj: TrackProjection = { u, distance: u * length, lateral: bp.lateral, height: bp.height, sample: bp.sample, path: b.id, pathS: bp.s };
     const ok = bp.within && onRoad(bp.lateral, bp.height, b.halfWidth);
     if (hintPath === b.id) {

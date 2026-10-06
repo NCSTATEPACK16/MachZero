@@ -65,8 +65,11 @@ export class BuiltBranch implements TrackBranch {
   readonly up: Float64Array;
   readonly right: Float64Array;
   readonly curvature: Float64Array;
-  /** Race progress (unwrapped main u) per sample. */
+  /** Race progress (unwrapped main metres) per sample, on the centreline. */
   private readonly prog: Float64Array;
+  /** Main metres of progress per metre of lateral offset (the along-main share of the branch's right), faded out
+   *  after the overlaps: keeps progress continuous for a ship that changes road off the branch centreline. */
+  private readonly latGain: Float64Array;
   private readonly mainLength: number;
 
   constructor(def: BranchFeature, main: TrackQuery, mainLength: number) {
@@ -263,6 +266,16 @@ export class BuiltBranch implements TrackBranch {
       right[i3 + 1] = az * nx - ax * nz;
       right[i3 + 2] = ax * ny - ay * nx;
     }
+    // Along-main share of the branch's right, over the overlaps (fading out with `own`).
+    const latGain = new Float64Array(count);
+    const mainSmp = main.sampleAt(0);
+    for (let i = 0; i < count; i++) {
+      if (own[i] >= 1) continue;
+      main.sampleAt(mainU[i], mainSmp);
+      const i3 = i * 3;
+      latGain[i] = (right[i3] * mainSmp.forward.x + right[i3 + 1] * mainSmp.forward.y + right[i3 + 2] * mainSmp.forward.z) * (1 - own[i]);
+    }
+    this.latGain = latGain;
     this.up = up;
     this.right = right;
     this.curvature = curvature;
@@ -317,9 +330,10 @@ export class BuiltBranch implements TrackBranch {
     return out.copy(smp.position).addScaledVector(smp.right, lateral);
   }
 
-  progressU(s: number): number {
+  progressU(s: number, lateral = 0): number {
     const { i0, i1, t } = this.index(s);
-    const d = this.prog[i0] + (this.prog[i1] - this.prog[i0]) * t;
+    const g = this.latGain[i0] + (this.latGain[i1] - this.latGain[i0]) * t;
+    const d = this.prog[i0] + (this.prog[i1] - this.prog[i0]) * t + lateral * g;
     return wrap01(d / this.mainLength);
   }
 

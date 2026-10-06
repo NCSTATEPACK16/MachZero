@@ -131,8 +131,11 @@ export interface TrackBranch {
   /** Frame at s metres along the branch (clamped). */
   sampleAt(s: number, out?: TrackSample): TrackSample;
   surfacePoint(s: number, lateral: number, out: THREE.Vector3, outUp?: THREE.Vector3): THREE.Vector3;
-  /** Race progress (main-loop u) of a ship s metres along the branch: monotonic from uFork to uMerge. */
-  progressU(s: number): number;
+  /**
+   * Race progress (main-loop u) of a ship s metres along the branch: monotonic from uFork to uMerge. Through the
+   * overlaps `lateral` adds its along-main share, so progress is the same on either road there.
+   */
+  progressU(s: number, lateral?: number): number;
   /** Lateral edges that have no rail (open drop): between these s values the side `openSide` is open. */
   openEdge: { side: 1 | -1; sFrom: number; sTo: number } | null;
 }
