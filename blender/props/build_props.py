@@ -488,6 +488,151 @@ def build_cryo_station(out_dir):
 
 
 # ---------------------------------------------------------------------------
+# Jade Ruins
+# ---------------------------------------------------------------------------
+
+def mossy(seed):
+    """Weathered temple stone: grey-green blocks with moss creeping up from the foot, varying by course."""
+    rng = random.Random(seed)
+    courses = [rng.uniform(0, 1) for _ in range(64)]
+    stone = (0.2, 0.24, 0.2)
+    pale = (0.36, 0.4, 0.33)
+    moss = (0.06, 0.2, 0.08)
+
+    def f(x, y, z):
+        c = lerp3(stone, pale, courses[int(z / 2.5) % 64])
+        return lerp3(moss, c, min(1.0, 0.35 + z / 18.0))
+
+    return f
+
+
+def build_temple(name, seed, base, height, steps):
+    """Stepped pyramid with a stairway up the front, a shrine on top and a neon glyph band round the shrine."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    col = mossy(seed)
+    sh = height / (steps + 1)
+    top = base * 0.28
+    for k in range(steps):
+        b0 = base / 2 - (base / 2 - top / 2) * k / steps
+        b1 = base / 2 - (base / 2 - top / 2) * (k + 1) / steps
+        z0, z1 = k * sh, (k + 1) * sh
+        # Each terrace: a slightly battered wall, then a ledge.
+        frustum(pb, [(-b0, -b0), (b0, -b0), (b0, b0), (-b0, b0)], [(-b0 * 0.97, -b0 * 0.97), (b0 * 0.97, -b0 * 0.97), (b0 * 0.97, b0 * 0.97), (-b0 * 0.97, b0 * 0.97)], z0, z1, "sandstone", col, cap_bottom=(k == 0), cap_top=False)
+        frustum(pb, [(-b0 * 0.97, -b0 * 0.97), (b0 * 0.97, -b0 * 0.97), (b0 * 0.97, b0 * 0.97), (-b0 * 0.97, b0 * 0.97)], [(-b1, -b1), (b1, -b1), (b1, b1), (-b1, b1)], z1, z1, "sandstone", col, cap_top=(k == steps - 1))
+    # Stairway up the -Y face: a ramp of steps.
+    sw = base * 0.09
+    n = steps * 4
+    for i in range(n):
+        t0, t1 = i / n, (i + 1) / n
+        y0 = -(base / 2 - (base / 2 - top / 2) * t0) - 1.5
+        z0, z1 = t0 * steps * sh, t1 * steps * sh
+        box(pb, -sw, sw, y0, y0 + (base / 2 - top / 2) / n + 1.5, z0, z1, "sandstone", lerp3(col(0, 0, z1), (0.5, 0.52, 0.45), 0.3))
+    # Shrine: a block with a doorway band of neon glyphs, and a roof comb.
+    zs = steps * sh
+    hs = top * 0.36
+    box(pb, -hs, hs, -hs, hs, zs, zs + sh * 0.9, "sandstone", col)
+    frustum(pb, [(-hs - 0.3, -hs - 0.3), (hs + 0.3, -hs - 0.3), (hs + 0.3, hs + 0.3), (-hs - 0.3, hs + 0.3)], [(-hs - 0.3, -hs - 0.3), (hs + 0.3, -hs - 0.3), (hs + 0.3, hs + 0.3), (-hs - 0.3, hs + 0.3)], zs + sh * 0.45, zs + sh * 0.6, "neon", (1, 1, 1), cap_top=False)
+    box(pb, -hs * 0.7, hs * 0.7, -0.8, 0.8, zs + sh * 0.9, zs + sh * 0.9 + rng.uniform(4, 7), "sandstone", col)
+    return pb.done()
+
+
+def build_column(name, seed, height, broken):
+    """Ruined column: base plinth, a fluted shaft in drums (the top drums missing if broken), maybe a capital."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    col = mossy(seed)
+    r = height * 0.075
+    box(pb, -r * 1.6, r * 1.6, -r * 1.6, r * 1.6, 0, r * 0.9, "sandstone", col)
+    drums = 6
+    keep = rng.randint(2, 4) if broken else drums
+    dz = (height - r * 2.2) / drums
+    z = r * 0.9
+    for i in range(keep):
+        off = rng.uniform(-0.25, 0.25) * r if broken else 0.0
+        frustum(pb, ring(off, 0, r, 10, phase=i * 0.3), ring(off, 0, r * 0.97, 10, phase=i * 0.3), z, z + dz * 0.97, "sandstone", col, cap_bottom=True, cap_top=True)
+        z += dz
+    if not broken:
+        box(pb, -r * 1.5, r * 1.5, -r * 1.5, r * 1.5, z, z + r * 1.3, "sandstone", col)
+        # A thin neon glyph ring under the capital.
+        frustum(pb, ring(0, 0, r * 1.02, 10), ring(0, 0, r * 1.02, 10), z - dz * 0.25, z - dz * 0.15, "neon", (1, 1, 1), cap_top=False)
+    else:
+        # A fallen drum beside it.
+        a = rng.uniform(0, math.tau)
+        cx, cy = math.cos(a) * r * 3.2, math.sin(a) * r * 3.2
+        box(pb, cx - r, cx + r, cy - dz / 2, cy + dz / 2, 0, r * 1.8, "sandstone", col)
+    return pb.done()
+
+
+def build_statue(name, seed, height):
+    """Temple guardian: a squat idol of stacked blocks with a heavy head, slab ears and glowing eyes."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    col = mossy(seed)
+    w = height * 0.22
+    box(pb, -w * 1.3, w * 1.3, -w * 1.1, w * 1.1, 0, height * 0.12, "sandstone", col)
+    box(pb, -w, w, -w * 0.8, w * 0.8, height * 0.12, height * 0.55, "sandstone", col)
+    hw = w * rng.uniform(1.15, 1.35)
+    hz0, hz1 = height * 0.55, height * 0.95
+    box(pb, -hw, hw, -w * 0.95, w * 0.95, hz0, hz1, "sandstone", col)
+    for side in (-1, 1):
+        box(pb, side * hw, side * (hw + w * 0.35), -w * 0.3, w * 0.3, hz0 + (hz1 - hz0) * 0.2, hz1 - (hz1 - hz0) * 0.1, "sandstone", col)
+        # Eyes on the -Y face.
+        ex = side * hw * 0.42
+        box(pb, ex - w * 0.16, ex + w * 0.16, -w * 0.95 - 0.25, -w * 0.95, hz0 + (hz1 - hz0) * 0.55, hz0 + (hz1 - hz0) * 0.68, "neon", (1, 1, 1))
+    box(pb, -hw * 0.8, hw * 0.8, -w * 0.6, w * 0.6, hz1, height, "sandstone", col)
+    return pb.done()
+
+
+def build_fern(name, seed, size):
+    """Giant fern: arching fronds from a short stump, each a tapered strip with leaflet zig-zags."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    frustum(pb, ring(0, 0, size * 0.06, 6), ring(0, 0, size * 0.04, 6), 0, size * 0.18, "dark", (0.06, 0.05, 0.03), cap_bottom=True)
+    fronds = rng.randint(9, 13)
+    for k in range(fronds):
+        a = k / fronds * math.tau + rng.uniform(-0.15, 0.15)
+        L = size * rng.uniform(0.75, 1.0)
+        rise = size * rng.uniform(0.35, 0.55)
+        ca, sa = math.cos(a), math.sin(a)
+        px, py = -sa, ca
+        green = lerp3((0.04, 0.22, 0.06), (0.16, 0.42, 0.1), rng.uniform(0, 1))
+        verts = []
+        faces = []
+        n = 8
+        for j in range(n + 1):
+            t = j / n
+            r = L * t
+            z = size * 0.16 + rise * math.sin(math.pi * 0.8 * t) - size * 0.25 * t * t
+            wdt = size * 0.13 * math.sin(math.pi * min(1.0, t * 1.05)) + 0.05
+            zig = wdt * (0.25 if j % 2 else 0.0)
+            cx, cy = ca * r, sa * r
+            verts.append((cx - px * (wdt + zig), cy - py * (wdt + zig), z))
+            verts.append((cx + px * (wdt + zig), cy + py * (wdt + zig), z))
+        for j in range(n):
+            a0 = 2 * j
+            faces.append((a0, a0 + 1, a0 + 3, a0 + 2))
+            faces.append((a0 + 2, a0 + 3, a0 + 1, a0))
+        pb.add(verts, faces, "foliage", green)
+    return pb.done()
+
+
+def build_jade_ruins(out_dir):
+    C.reset_scene()
+    objs = [
+        build_temple("temple_0", 301, 120, 60, 6),
+        build_temple("temple_1", 307, 80, 38, 4),
+        build_column("column_0", 311, 22, broken=False),
+        build_column("column_1", 313, 20, broken=True),
+        build_column("column_2", 317, 24, broken=True),
+        build_statue("statue_0", 331, 16),
+        build_fern("fern_0", 337, 14),
+        build_fern("fern_1", 347, 20),
+    ]
+    export(out_dir, "jade-ruins", objs)
+
+
+# ---------------------------------------------------------------------------
 
 
 def export(out_dir, world, objs):
@@ -500,7 +645,7 @@ def export(out_dir, world, objs):
     print(f"[props] {world}: {sum(tris.values())} tris {tris} -> {path}")
 
 
-WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay, "cryo-station": build_cryo_station}
+WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay, "cryo-station": build_cryo_station, "jade-ruins": build_jade_ruins}
 
 
 def main():
