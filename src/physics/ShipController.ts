@@ -6,6 +6,7 @@ import type { ControlInput, GridSlot, ShipState, ShipStats, TrackData } from '..
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
+import { pipeLineCurvature } from './PipeCompensation';
 
 /**
  * Physics-only tuning that is not part of the shared CONFIG. Everything the
@@ -80,6 +81,13 @@ export const TUNING = {
   SHIP_INTENSITY_SPEED: 30,
   /** Contact points deeper than this distance count as touching. */
   CONTACT_MAX_DIST: 0.15,
+  // --- pipes ---
+  /** Lateral acceleration (m/s²) easing a ship off the top seam while a pipe opens (the deck splits there). */
+  SEAM_GUARD_ACCEL: 70,
+  /** Metres from the seam (|lateral| = halfWidth) over which the guard fades in. */
+  SEAM_GUARD_BAND: 4.5,
+  /** The guard starts this far (m) before the tube begins to open. */
+  SEAM_GUARD_LEAD: 60,
   // --- jumps ---
   /** Speed into the surface (m/s) at touchdown that maps to ship:land intensity 1. */
   LAND_INTENSITY_SPEED: 20,
@@ -161,6 +169,9 @@ export class ShipController {
 
   // Jumps: true from leaving a lip until the hover rays find the landing deck.
   private jumping = false;
+  /** Lateral-grip multiplier of the surface under the ship (ice patches < 1). */
+  private surfaceGrip = 1;
+  private onIce = false;
 
   // Safety respawn.
   private invalidTime = 0;
@@ -291,6 +302,19 @@ export class ShipController {
       this.right.crossVectors(this.fwd, up);
     }
 
+    if (grounded && this.hasProjection && this.track.pipes.length > 0) {
+      // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
+      // (see PipeCompensation), the pipe counterpart of the twist compensation above.
+      const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
+      if (k !== 0) {
+        const angle = k * s.velocity.dot(this.fwd) * dt;
+        this.yaw(angle);
+        this.alignRot.setFromAxisAngle(up, angle);
+        s.velocity.applyQuaternion(this.alignRot);
+        this.right.crossVectors(this.fwd, up);
+      }
+    }
+
     // --- decompose current velocity in the surface plane ---
     const v = s.velocity;
     let vUp = v.dot(up);
@@ -356,12 +380,19 @@ export class ShipController {
 
       // Lateral grip: anti-slip thrusters remove sideways speed and convert most of it
       // into forward speed (momentum is redirected, not destroyed).
-      const grip = (this.stats.lateralGrip + (this.stats.airbrakeGrip - this.stats.lateralGrip) * abMax) * (grounded ? 1 : TUNING.AIR_GRIP_FACTOR);
+      const grip =
+        (this.stats.lateralGrip + (this.stats.airbrakeGrip - this.stats.lateralGrip) * abMax) *
+        (grounded ? this.surfaceGrip : TUNING.AIR_GRIP_FACTOR);
       const latNew = lat * Math.exp(-grip * dt);
       const transfer = TUNING.GRIP_SPEED_TRANSFER + (TUNING.AIRBRAKE_SPEED_TRANSFER - TUNING.GRIP_SPEED_TRANSFER) * abMax;
       const keep = Math.sqrt(Math.max(0, f * f + lat * lat - latNew * latNew));
       f = f + (Math.sign(f || 1) * keep - f) * transfer;
       lat = latNew;
+
+      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth) and the rails come back
+      // there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
+      const guard = this.seamGuard();
+      if (guard !== 0) lat += guard * TUNING.SEAM_GUARD_ACCEL * dt;
 
       // Brake: reduces the planar speed toward zero, never reverses.
       if (brake > 0) {
@@ -531,6 +562,7 @@ export class ShipController {
 
     this.refreshProjection();
     this.updateZones(dt);
+    this.updateSurface();
 
     // Safety respawn.
     if (s.status !== 'grid') {
@@ -570,6 +602,8 @@ export class ShipController {
     s.onDash = false;
     s.airborne = false;
     this.jumping = false;
+    this.surfaceGrip = 1;
+    this.onIce = false;
     if (s.inPit) {
       s.inPit = false;
       this.bus.emit('ship:pit', { shipId: s.def.id, active: false });
@@ -769,7 +803,8 @@ export class ShipController {
     s.trackU = p.u;
     s.lateral = p.lateral;
     s.heightAboveTrack = p.height;
-    this.sampleUp.copy(p.sample.up);
+    // Inside a pipe the surface normal turns with the curled deck (toward the tube's axis).
+    this.sampleUp.copy(p.surfaceUp ?? p.sample.up);
     this.sampleFwd.copy(p.sample.forward);
     this.sampleRight.copy(p.sample.right);
     this.sampleHalfWidth = p.sample.halfWidth;
@@ -811,6 +846,33 @@ export class ShipController {
       this.bus.emit('ship:pit', { shipId: s.def.id, active: pit });
     }
     if (s.energy >= this.lowEnergyLevel) this.lowEnergyFired = false;
+  }
+
+  /** −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the top seam of an opening pipe, else 0. */
+  private seamGuard(): number {
+    const pipes = this.track.pipes;
+    if (pipes.length === 0 || !this.hasProjection) return 0;
+    const s = this.state;
+    const lead = TUNING.SEAM_GUARD_LEAD / this.track.length;
+    for (const p of pipes) {
+      if (!inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) continue;
+      const w = this.sampleHalfWidth;
+      const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
+      return -Math.sign(s.lateral) * k;
+    }
+    return 0;
+  }
+
+  /** Surface grip under the hull (ice patches) and the ship:ice edge events. */
+  private updateSurface(): void {
+    const s = this.state;
+    const near = s.heightAboveTrack < TUNING.ZONE_MAX_HEIGHT && !this.jumping;
+    this.surfaceGrip = near ? this.track.gripAt(s.trackU, s.lateral) : 1;
+    const ice = near && this.surfaceGrip < 1 && isActiveStatus(s.status);
+    if (ice !== this.onIce) {
+      this.onIce = ice;
+      this.bus.emit('ship:ice', { shipId: s.def.id, active: ice });
+    }
   }
 
   /** Teleport onto the centerline at the last valid u, facing forward, at a fraction of the old speed. */

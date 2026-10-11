@@ -11,7 +11,7 @@ import type { TrackData, TrackFeature } from '../core/contracts';
 import { RAMP_LENGTH, LANDING_BLEND } from './features/jump';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe';
   message: string;
 }
 
@@ -44,6 +44,11 @@ export const VALIDATION = {
   START_AHEAD: 260,
   /** Straight run needed after a jump's landing edge (a boosted ship can fly ~200 m past the gap). */
   JUMP_RUNOUT: 250,
+  /** Pipes bend gently (plan radius) and close/open over at least this many metres. */
+  PIPE_MIN_RADIUS: 300,
+  PIPE_MIN_TRANSITION: 60,
+  /** A pipe's closed stretch must be at least this long. */
+  PIPE_MIN_CLOSED: 150,
 } as const;
 
 /** [start, end] metres a feature occupies, including its approach/exit (jump ramp and landing blend). */
@@ -159,6 +164,18 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
           issues.push({ code: 'feature-straight', message: `${A.f.type} at ${A.span[0].toFixed(0)} m is not on a straight (bends at ${d.toFixed(0)} m)` });
           break;
         }
+      }
+    }
+  }
+  for (const f of track.features) {
+    if (f.type !== 'pipe') continue;
+    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
+    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
+    for (let d = f.dStart; d <= f.dEnd; d += 5) {
+      const k = Math.abs(track.sampleAt((((d % L) + L) % L) / L).curvature);
+      if (k > 1 / VALIDATION.PIPE_MIN_RADIUS) {
+        issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+        break;
       }
     }
   }

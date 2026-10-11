@@ -67,6 +67,25 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     else if (f.type === 'jump') label(f.dTakeoff, `JUMP ${(f.dLanding - f.dTakeoff).toFixed(0)} m`, '#ff4f6e');
     else if (f.type === 'pit') label((f.dStart + f.dEnd) / 2, 'PIT', '#7dff3a');
     else if (f.type === 'dash') label((f.dStart + f.dEnd) / 2, 'DASH', '#ffe066');
+    else if (f.type === 'pipe') label((f.dStart + f.dEnd) / 2, `PIPE ${(f.dEnd - f.dStart).toFixed(0)} m`, '#7fe8ff');
+    else if (f.type === 'ice') label((f.dStart + f.dEnd) / 2, 'ICE', '#cff4ff');
+  }
+  // Pipes: a translucent cyan sleeve over the deck; ice patches: pale strips on their lateral band.
+  for (const f of track.features) {
+    if (f.type !== 'pipe' && f.type !== 'ice') continue;
+    for (let d = f.dStart; d < f.dEnd; d += 6) {
+      const a = at(d);
+      const b = at(Math.min(d + 6, f.dEnd));
+      if (f.type === 'pipe') {
+        marks.push(`<line x1="${px(a.position.x)}" y1="${pz(a.position.z)}" x2="${px(b.position.x)}" y2="${pz(b.position.z)}" stroke="#7fe8ff" stroke-opacity="0.45" stroke-width="${(2.6 * track.halfWidth * scale).toFixed(1)}"/>`);
+      } else {
+        const mid = (f.lateralMin + f.lateralMax) / 2;
+        const w = ((f.lateralMax - f.lateralMin) * scale).toFixed(1);
+        marks.push(
+          `<line x1="${px(a.position.x + a.right.x * mid)}" y1="${pz(a.position.z + a.right.z * mid)}" x2="${px(b.position.x + b.right.x * mid)}" y2="${pz(b.position.z + b.right.z * mid)}" stroke="#eaffff" stroke-opacity="0.85" stroke-width="${w}"/>`,
+        );
+      }
+    }
   }
   // Start line and direction arrow.
   const s0 = track.samples[0];
@@ -87,10 +106,10 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
   }
   prof.push(`<path d="${path}" fill="none" stroke="#19f0ff" stroke-width="2"/>`);
   for (const f of track.features) {
-    if (f.type !== 'jump' && f.type !== 'corkscrew') continue;
+    if (f.type !== 'jump' && f.type !== 'corkscrew' && f.type !== 'pipe') continue;
     const a = f.type === 'jump' ? f.dTakeoff : f.dStart;
     const b = f.type === 'jump' ? f.dLanding : f.dEnd;
-    const c = f.type === 'jump' ? '#ff4f6e' : '#ffb319';
+    const c = f.type === 'jump' ? '#ff4f6e' : f.type === 'pipe' ? '#7fe8ff' : '#ffb319';
     prof.push(`<rect x="${((a / L) * W).toFixed(1)}" y="${top}" width="${(((b - a) / L) * W).toFixed(1)}" height="${PROFILE_H}" fill="${c}" fill-opacity="0.25"/>`);
   }
   prof.push(

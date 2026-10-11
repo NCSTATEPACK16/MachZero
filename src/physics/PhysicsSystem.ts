@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Collider, EventQueue, RigidBody, TempContactManifold, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { COLLISION, CONFIG } from '../core/config';
 import type {
   ControlInput,
@@ -76,6 +77,8 @@ export class PhysicsSystem implements IPhysicsSystem {
     private readonly track: TrackData,
     private readonly bus: GameBus,
     world: World,
+    /** How hazards treat ships in this race (gates and mines read it; M4b/M4c). */
+    readonly hazards: Readonly<HazardPolicy>,
   ) {
     this.world = world;
     this.eventQueue = new RAPIER.EventQueue(true);
@@ -106,10 +109,10 @@ export class PhysicsSystem implements IPhysicsSystem {
   }
 
   /** Initialise Rapier and build the track colliders. */
-  static async create(track: TrackData, bus: GameBus): Promise<PhysicsSystem> {
+  static async create(track: TrackData, bus: GameBus, opts: { hazards?: Readonly<HazardPolicy> } = {}): Promise<PhysicsSystem> {
     await RAPIER.init();
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    return new PhysicsSystem(track, bus, world);
+    return new PhysicsSystem(track, bus, world, opts.hazards ?? HAZARDS_NORMAL);
   }
 
   private static meshDesc(mesh: TriMesh, flags: number) {

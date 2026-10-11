@@ -60,3 +60,21 @@ describe('event bus', () => {
     expect(got).toBe(2);
   });
 });
+
+describe('hazard policy', () => {
+  it('?hazards=rookie selects the Rookie policy; anything else is ignored', async () => {
+    const { readUrlFlags } = await import('./config');
+    const { hazardPolicy, HAZARDS_NORMAL, HAZARDS_ROOKIE } = await import('./hazards');
+    expect(readUrlFlags('?hazards=rookie').hazards).toBe('rookie');
+    expect(readUrlFlags('?hazards=normal').hazards).toBe('normal');
+    expect(readUrlFlags('?hazards=lol').hazards).toBeNull();
+    expect(readUrlFlags('').hazards).toBeNull();
+    expect(hazardPolicy('rookie')).toBe(HAZARDS_ROOKIE);
+    expect(hazardPolicy('normal')).toBe(HAZARDS_NORMAL);
+  });
+  it('Rookie hazards telegraph twice as long, never damage and only slow a ship to 0.85', async () => {
+    const { HAZARDS_ROOKIE, HAZARDS_NORMAL } = await import('./hazards');
+    expect(HAZARDS_ROOKIE).toMatchObject({ telegraphScale: 2, damage: false, hitSpeedScale: 0.85 });
+    expect(HAZARDS_NORMAL).toMatchObject({ telegraphScale: 1, damage: true, hitSpeedScale: 1 });
+  });
+});

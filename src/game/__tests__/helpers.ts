@@ -87,7 +87,14 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
     features: [],
     jumps: [],
     airGravityScale: 1,
+    pipes: [],
     surfaceKindAt: () => 'road',
+    gripAt: () => 1,
+    surfacePoint(u, lateral, out, outUp) {
+      const smp = this.sampleAt(u);
+      if (outUp) outUp.copy(smp.up);
+      return out.copy(smp.position).addScaledVector(smp.right, lateral);
+    },
     safeRespawnU: (u) => u,
   };
   return track;

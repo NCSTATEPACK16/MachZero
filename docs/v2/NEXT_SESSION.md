@@ -3,11 +3,11 @@
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-10-02, end of the M2 session)
+## Where things stand (2026-10-04, after M3 merged)
 
-- **The live site is 2.0 through M2** at https://machzero.netlify.app.
+- **The live site is 2.0 through M3** at https://machzero.netlify.app.
   - Netlify site `machzero` is connected to `NCSTATEPACK16/MachZero`. Each merge to `main` deploys, and each PR gets a deploy preview at `https://deploy-preview-<N>--machzero.netlify.app`.
-  - `main` has profiles, menus, settings, quality presets, Blender ships, the garage and the livery editor.
+  - `main` has profiles, menus, settings, quality presets, Blender ships, the garage, the livery editor, Neon Bay and Sunset Mesa, and world select.
 - **The 2.0 design is agreed and merged:**
   - `docs/v2/SPEC.md` (what and why)
   - `docs/v2/IMPLEMENTATION.md` (how, milestone by milestone, pinned to v1's files)
@@ -17,7 +17,7 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
   - **M0:** PR #2. CI (`verify` + `smoke`), Netlify, size budgets, Playwright, feature flags, `CODEBASE.md`.
   - **M1:** PRs #3, #4, #5. Per-ship stats, 6 chassis, 8-ship field, App + RaceSession, saves, settings, Preact menus, quality presets.
   - **M2:** PRs #6, #7. The Blender asset pipeline, GLB ships and parts, economy and credits, the garage with a turntable, and the livery editor.
-- **Flags on `main`:** `profiles` and `garage` are on. `worlds`, `tiers`, `music`, `touch` and `modes` are off. **M3 turns on `worlds`** (the doc's M2 line said "garage and world map"; the world map is M3 work).
+- **Flags on `main`:** `profiles`, `garage` and `worlds` are on. `tiers`, `music`, `touch` and `modes` are off.
 - **Tests:**
   - 188 unit/integration tests. They include the 3-lap headless race sims (v1 4-ship; 8-ship at rookie, pilot and legend fits), the corkscrew hold test, the parts sim (Prototype engine beats stock), the asset validator, economy, garage stat bars, save migrations and the RaceSession lifecycle.
   - 6 Playwright tests:
@@ -28,7 +28,10 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
   - Read `docs/TDD.md` §7 before touching `physics/ShipController.ts`: it records four hard-won physics invariants.
 - **M3:** PR #9 (one PR for the whole milestone, at the user's request). Authored tracks, jumps, Neon Bay + Sunset Mesa, world themes and props, world select; turns `worlds` on. Read M3's as-built notes in IMPLEMENTATION.md.
 - **Test-time rule (user, 2026-10-03):** keep every test under 60 s and the suite fast; leave visual checks to human playtesting (no screenshot loops). The full `npm test` runs in ~14 s locally. The in-app browser preview rendering the game saturates this Mac's CPU — stop it before timing tests.
-- **Next:** M4 (Cryo Station, Jade Ruins, Orbital Ring + hazards). Author tracks with `npm run tracks:design` (segments in `scripts/track-design.mjs`), add a theme in `graphics/themes/`, props in `blender/props/build_props.py`.
+- **Design decisions for M4 and M5 (grilling session, 2026-10-04):** recorded at the top of IMPLEMENTATION.md §M4 and §M5. They are settled; don't re-open them. In short: M4 is three stacked PRs (M4a Cryo Station with the hazard framework, M4b Jade Ruins, M4c Orbital Ring), then M5 is one PR. The pipe is a real tube, the split path is a real branch, the loop holds at any speed, and debris is solid on every preset.
+- **In progress:** M4a on branch `v2/m4a-cryo-station` (check `gh pr list` for its state).
+- **Logged for later sessions:** M6 audio ([#10](https://github.com/NCSTATEPACK16/MachZero/issues/10)), M7 touch/comfort ([#11](https://github.com/NCSTATEPACK16/MachZero/issues/11)) and M8 progression/modes ([#12](https://github.com/NCSTATEPACK16/MachZero/issues/12)). Each issue lists its scope, done-when criteria and the design gaps to resolve in a grilling session before building (M6 song content, M8 tutorial script and world map look).
+- **How to add a world:** author tracks with `npm run tracks:design` (segments in `scripts/track-design.mjs`), add a theme in `graphics/themes/`, and add props in `blender/props/build_props.py`.
 
 ## Environment facts (already verified; don't rediscover)
 
@@ -58,7 +61,7 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: implement milestones M3 → M8 in order (M0–M2 are done and merged), as far as this session allows, each shippable on its own.
+GOAL: implement milestones M4 → M5 in order (M0–M3 are done and merged; M6–M8 are logged as issues #10–#12 and need a design session first), as far as this session allows, each shippable on its own.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - You (Opus) implement everything yourself, sequentially. No parallel Sonnet builders. Sub-agents only for
@@ -99,5 +102,5 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green, then begin M3.
+Start by confirming the open PRs' state (gh pr list) and that main is green, then resume M4 where the docs say it stands.
 ```

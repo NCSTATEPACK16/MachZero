@@ -3,7 +3,7 @@ import type { RaceState, RacerStanding, ShipId } from './contracts';
 
 /**
  * Every cross-system event. Emitters:
- *  - physics → ship:railHit | shipHit | boost | dash | pit | lowEnergy | respawn | jump | land
+ *  - physics → ship:railHit | shipHit | boost | dash | pit | lowEnergy | respawn | jump | land | ice
  *  - game    → race:*, ship:destroyed, audio:mute
  * Graphics, HUD and Audio only subscribe.
  */
@@ -22,6 +22,8 @@ export interface GameEvents {
   'ship:lowEnergy': { shipId: ShipId };
   'ship:destroyed': { shipId: ShipId; position: THREE.Vector3 };
   'ship:respawn': { shipId: ShipId };
+  /** A ship's hull moved onto (active) or off an ice patch. */
+  'ship:ice': { shipId: ShipId; active: boolean };
   /** Left a jump lip; intensity 0..1 from speed. */
   'ship:jump': { shipId: ShipId; intensity: number };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */

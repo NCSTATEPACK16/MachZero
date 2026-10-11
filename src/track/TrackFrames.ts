@@ -47,6 +47,8 @@ export interface FrameSet {
   roll: Float64Array;
   /** Banking part of the roll only. */
   bank: Float64Array;
+  /** Pipe curl of the cross-section, 0 (flat deck) to 1 (closed tube); see features/pipe.ts. */
+  curl: Float64Array;
   /** Signed lateral curvature (dT/ds)·rmfRight in the unbanked frame, positive = turning right. */
   curvature: Float64Array;
 }
@@ -326,6 +328,7 @@ export function buildFrames(
   diff: Differentials,
   corkscrews: CorkscrewRange | readonly CorkscrewRange[],
   bankOpts: BankOptions = DEFAULT_BANK,
+  curl: Float64Array = new Float64Array(curve.count),
 ): FrameSet {
   const rolls: readonly CorkscrewRange[] = Array.isArray(corkscrews) ? corkscrews : [corkscrews as CorkscrewRange];
   const { count, length, ds, pos } = curve;
@@ -349,6 +352,8 @@ export function buildFrames(
   }
   // Wide Gaussian (~45 m sigma) so bank transitions are gradual; periodic so it wraps correctly.
   const bank = smoothPeriodic(rawBank, 45 / ds);
+  // A pipe is not banked: the tube would rotate about its floor. Fade the bank out as the deck curls.
+  for (let i = 0; i < count; i++) bank[i] *= 1 - curl[i];
 
   const up = new Float64Array(count * 3);
   const right = new Float64Array(count * 3);
@@ -374,7 +379,7 @@ export function buildFrames(
     right[i3 + 1] = ry;
     right[i3 + 2] = rz;
   }
-  return { count, length, ds, pos, tan, up, right, roll, bank, curvature };
+  return { count, length, ds, pos, tan, up, right, roll, bank, curvature, curl };
 }
 
 /** Convert flat frames into contract `TrackSample` objects. */

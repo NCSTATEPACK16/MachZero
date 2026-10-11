@@ -6,6 +6,7 @@
 import type { ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
+import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
 import { disposeObject3D } from '../graphics/dispose';
 import type { GraphicsSystem } from '../graphics';
@@ -24,6 +25,8 @@ export interface RaceSetup {
   field: ShipDefinition[];
   /** The player's ship is driven by its AI. */
   autopilot: boolean;
+  /** How track hazards treat ships (default normal). */
+  hazards?: Readonly<HazardPolicy>;
   records?: RecordStore;
 }
 
@@ -67,9 +70,10 @@ export class RaceSession {
   }
 
   static async create(setup: RaceSetup): Promise<RaceSession> {
-    const track = trackFromSource(setup.source, { palette: setup.palette });
+    const hazards = setup.hazards ?? HAZARDS_NORMAL;
+    const track = trackFromSource(setup.source, { palette: setup.palette, telegraphScale: hazards.telegraphScale });
     const bus: GameBus = new EventBus<GameEvents>();
-    return new RaceSession(setup, track, await PhysicsSystem.create(track, bus), bus);
+    return new RaceSession(setup, track, await PhysicsSystem.create(track, bus, { hazards }), bus);
   }
 
   get state() {

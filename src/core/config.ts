@@ -157,7 +157,7 @@ export const SHIP_ROSTER: readonly ShipDefinition[] = [
   { id: 3, name: 'VIOLET WISP', isPlayer: false, personality: 'erratic', gridIndex: 2, stats: CLASSIC_STATS, livery: { primary: 0x8a2be2, secondary: 0x00e5a8, glow: 0xff2bd6 } },
 ];
 
-/** URL flags: ?autopilot=1 ?debug=1 ?seed=N ?quality=low|med|high ?world=<id> */
+/** URL flags: ?autopilot=1 ?debug=1 ?seed=N ?quality=low|med|high ?world=<id> ?hazards=rookie */
 export interface UrlFlags {
   autopilot: boolean;
   debug: boolean;
@@ -166,6 +166,8 @@ export interface UrlFlags {
   quality: 'low' | 'med' | 'high' | null;
   /** ?world=<id> races that world (with the `worlds` feature; QA and screenshots); not saved. */
   world: string | null;
+  /** ?hazards=rookie forces the Rookie hazard policy for this page load (QA); not saved. */
+  hazards: 'normal' | 'rookie' | null;
 }
 
 export function readUrlFlags(search: string = typeof location !== 'undefined' ? location.search : ''): UrlFlags {
@@ -175,5 +177,7 @@ export function readUrlFlags(search: string = typeof location !== 'undefined' ? 
   const q = p.get('quality');
   const quality = q === 'low' || q === 'med' || q === 'high' ? q : null;
   const world = p.get('world');
-  return { autopilot: p.get('autopilot') === '1', debug: p.get('debug') === '1', seed, quality, world: world || null };
+  const h = p.get('hazards');
+  const hazards = h === 'rookie' || h === 'normal' ? h : null;
+  return { autopilot: p.get('autopilot') === '1', debug: p.get('debug') === '1', seed, quality, world: world || null, hazards };
 }

@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type { TrackProjection, TrackSample } from '../core/contracts';
 import { wrapAngle } from '../core/math';
 import type { FrameSet } from './TrackFrames';
+import { CURL_EPS, curlPoint, uncurlPoint, type CurledPoint } from './features/pipe';
 
 const HINT_WINDOW = 64;
 const SUSPICIOUS_DISTANCE = 40;
@@ -25,6 +26,7 @@ export class TrackQuery {
   private readonly up: Float64Array;
   private readonly roll: Float64Array;
   private readonly curv: Float64Array;
+  private readonly curl: Float64Array;
 
   // Scratch: result of the most recent evaluate().
   private u = 0;
@@ -42,7 +44,12 @@ export class TrackQuery {
   private rz = 0;
   private rollV = 0;
   private curvV = 0;
+  private curlV = 0;
   private bestD2 = 0;
+  private readonly bent: CurledPoint = { x: 0, y: 0, phi: 0 };
+  private readonly local = { lateral: 0, height: 0, phi: 0 };
+  private readonly pA = new THREE.Vector3();
+  private readonly pB = new THREE.Vector3();
 
   constructor(frames: FrameSet, halfWidth: number) {
     this.count = frames.count;
@@ -53,6 +60,13 @@ export class TrackQuery {
     this.up = frames.up;
     this.roll = frames.roll;
     this.curv = frames.curvature;
+    this.curl = frames.curl;
+  }
+
+  /** Pipe curl at u (0 = flat deck, 1 = closed tube). */
+  curlAt(u: number): number {
+    this.evaluate(u);
+    return this.curlV;
   }
 
   /** Interpolate the frame at loop parameter u (wraps) into the scratch fields. */
@@ -110,6 +124,7 @@ export class TrackQuery {
     const r0 = this.roll[i0];
     this.rollV = r0 + wrapAngle(this.roll[i1] - r0) * t;
     this.curvV = this.curv[i0] * s + this.curv[i1] * t;
+    this.curlV = this.curl[i0] * s + this.curl[i1] * t;
   }
 
   private makeSample(): TrackSample {
@@ -193,12 +208,65 @@ export class TrackQuery {
     const dx = p.x - this.px;
     const dy = p.y - this.py;
     const dz = p.z - this.pz;
-    return {
-      u: this.u,
-      distance: this.u * this.length,
-      lateral: dx * this.rx + dy * this.ry + dz * this.rz,
-      height: dx * this.ux + dy * this.uy + dz * this.uz,
-      sample: this.makeSample(),
-    };
+    const x = dx * this.rx + dy * this.ry + dz * this.rz;
+    const y = dx * this.ux + dy * this.uy + dz * this.uz;
+    const sample = this.makeSample();
+    if (this.curlV < CURL_EPS) return { u: this.u, distance: this.u * this.length, lateral: x, height: y, sample };
+    // Inside a pipe: lateral is the arc position around the curled deck, height is measured along its normal.
+    const loc = this.local;
+    uncurlPoint(x, y, this.curlV, loc);
+    const uHit = this.u;
+    const lateral = loc.lateral;
+    const height = loc.height;
+    const surfaceUp = this.surfaceNormal(uHit, lateral, new THREE.Vector3());
+    return { u: uHit, distance: uHit * this.length, lateral, height, sample, surfaceUp };
+  }
+
+  /**
+   * True normal of the curled deck at (u, lateral): the cross-section tangent × the along-track tangent of the
+   * constant-lateral line. Where the curl changes, a point off the centreline also climbs along the track, which
+   * pitches the surface relative to the cross-section normal.
+   */
+  private surfaceNormal(u: number, lateral: number, out: THREE.Vector3): THREE.Vector3 {
+    const du = 0.5 / this.length;
+    this.surfacePoint(u + du, lateral, this.pA);
+    this.surfacePoint(u - du, lateral, this.pB);
+    const tsx = this.pA.x - this.pB.x;
+    const tsy = this.pA.y - this.pB.y;
+    const tsz = this.pA.z - this.pB.z;
+    this.evaluate(u);
+    const b = curlPoint(lateral, 0, this.curlV, this.bent);
+    const cs = Math.cos(b.phi);
+    const sn = Math.sin(b.phi);
+    // Cross-section tangent (direction of increasing lateral).
+    const tlx = this.rx * cs + this.ux * sn;
+    const tly = this.ry * cs + this.uy * sn;
+    const tlz = this.rz * cs + this.uz * sn;
+    out.set(tly * tsz - tlz * tsy, tlz * tsx - tlx * tsz, tlx * tsy - tly * tsx);
+    const len = out.length();
+    if (len < 1e-9) return out.set(this.ux * cs - this.rx * sn, this.uy * cs - this.ry * sn, this.uz * cs - this.rz * sn);
+    return out.divideScalar(len);
+  }
+
+  /** Point on the (possibly curled) driving surface at (u, lateral); its normal goes to `outUp`. */
+  surfacePoint(u: number, lateral: number, out: THREE.Vector3, outUp?: THREE.Vector3): THREE.Vector3 {
+    this.evaluate(u);
+    const b = curlPoint(lateral, 0, this.curlV, this.bent);
+    out.set(
+      this.px + this.rx * b.x + this.ux * b.y,
+      this.py + this.ry * b.x + this.uy * b.y,
+      this.pz + this.rz * b.x + this.uz * b.y,
+    );
+    if (outUp) {
+      if (this.curlV < CURL_EPS) outUp.set(this.ux, this.uy, this.uz);
+      else {
+        const px = out.x;
+        const py = out.y;
+        const pz = out.z;
+        this.surfaceNormal(u, lateral, outUp);
+        out.set(px, py, pz);
+      }
+    }
+    return out;
   }
 }

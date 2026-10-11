@@ -54,7 +54,7 @@ export const WORLDS: readonly WorldDef[] = [
     trackId: 'cryo-station',
     palette: { left: 0x7fe8ff, right: 0xb98cff, accent: 0xffffff, pit: 0x7dff3a },
     ui: { from: '#7fe8ff', to: '#b98cff' },
-    built: false,
+    built: true,
   },
   {
     id: 'jade-ruins',
