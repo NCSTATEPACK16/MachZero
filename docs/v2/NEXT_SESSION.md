@@ -3,7 +3,7 @@
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-10-04, after M3 merged)
+## Where things stand (2026-10-05, M4a and M4b in review, M4c next)
 
 - **The live site is 2.0 through M3** at https://machzero.netlify.app.
   - Netlify site `machzero` is connected to `NCSTATEPACK16/MachZero`. Each merge to `main` deploys, and each PR gets a deploy preview at `https://deploy-preview-<N>--machzero.netlify.app`.
@@ -29,9 +29,16 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
 - **M3:** PR #9 (one PR for the whole milestone, at the user's request). Authored tracks, jumps, Neon Bay + Sunset Mesa, world themes and props, world select; turns `worlds` on. Read M3's as-built notes in IMPLEMENTATION.md.
 - **Test-time rule (user, 2026-10-03):** keep every test under 60 s and the suite fast; leave visual checks to human playtesting (no screenshot loops). The full `npm test` runs in ~14 s locally. The in-app browser preview rendering the game saturates this Mac's CPU — stop it before timing tests.
 - **Design decisions for M4 and M5 (grilling session, 2026-10-04):** recorded at the top of IMPLEMENTATION.md §M4 and §M5. They are settled; don't re-open them. In short: M4 is three stacked PRs (M4a Cryo Station with the hazard framework, M4b Jade Ruins, M4c Orbital Ring), then M5 is one PR. The pipe is a real tube, the split path is a real branch, the loop holds at any speed, and debris is solid on every preset.
-- **In progress:** M4a on branch `v2/m4a-cryo-station` (check `gh pr list` for its state).
+- **M4a, Cryo Station:** PR [#13](https://github.com/NCSTATEPACK16/MachZero/pull/13) (`v2/m4a-cryo-station`), CI green, **waiting for the user's playtest and merge**. It adds the full-pipe, ice patches, `HazardPolicy` (`?hazards=rookie`), AI ice/pipe awareness, the Cryo theme and props, and builds the world. Its as-built notes are in IMPLEMENTATION.md §M4. Preview: https://deploy-preview-13--machzero.netlify.app/?features=all
+- **M4b, Jade Ruins:** PR [#14](https://github.com/NCSTATEPACK16/MachZero/pull/14) (`v2/m4b-jade-ruins`), stacked on #13, **waiting for the user's playtest and merge**. It adds the split path (branch, routes, lateral-aware progress), the stone gates (`hazard:gate`, `PhysicsSystem.hazardTime/resetTime`, `TrackData.animateHazards`, `FrameContext.hazardTime`), AI routes and gate awareness (`track/TrackRoute.ts`, `AIDriver` `hazardClock`), the Jade theme and props, and builds the world. Its as-built notes are in IMPLEMENTATION.md §M4; read them before M4c (mines and debris reuse the gate pattern: kinematic bodies on the hazard clock, told apart by collider handle, policy-aware hits). Preview: https://deploy-preview-14--machzero.netlify.app/?features=all&world=jade-ruins
+- **Then M4c** (Orbital Ring), **then M5** (one PR). Their decisions are in IMPLEMENTATION.md §M4/§M5.
+- **Local machine load:** during the last session this Mac sat at load average 20–37 from other apps. Wall-clock asserts (track generation < 1.5 s, `project()` timing) and the Playwright specs timed out locally, yet passed alone and on CI. Check `uptime` before trusting a local failure; CI is the reference.
 - **Logged for later sessions:** M6 audio ([#10](https://github.com/NCSTATEPACK16/MachZero/issues/10)), M7 touch/comfort ([#11](https://github.com/NCSTATEPACK16/MachZero/issues/11)) and M8 progression/modes ([#12](https://github.com/NCSTATEPACK16/MachZero/issues/12)). Each issue lists its scope, done-when criteria and the design gaps to resolve in a grilling session before building (M6 song content, M8 tutorial script and world map look).
 - **How to add a world:** author tracks with `npm run tracks:design` (segments in `scripts/track-design.mjs`), add a theme in `graphics/themes/`, and add props in `blender/props/build_props.py`.
+
+## M4c next (Orbital Ring)
+
+Branch `v2/m4c-orbital-ring` off `v2/m4b-jade-ruins` (stack on #14 if it is still open). Scope and decisions: IMPLEMENTATION.md §M4 (loop that holds at any speed, low-g jumps with `airGravityScale` 0.35, mines on Lissajous paths, solid debris on every preset, Earth/atmosphere/station theme). Test-first: a loop hold sim like `sim/pipe.hold.sim.test.ts`, then the Orbital world sims and a mines/debris determinism check in `sim/hazards.sim.test.ts`. Model mines and debris on the gates: `track/features/<hazard>.ts` timeline + pose shared by physics, visuals (`animateHazards`) and the AI (`hazardClock`).
 
 ## Environment facts (already verified; don't rediscover)
 
@@ -61,7 +68,8 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: implement milestones M4 → M5 in order (M0–M3 are done and merged; M6–M8 are logged as issues #10–#12 and need a design session first), as far as this session allows, each shippable on its own.
+GOAL: finish M4 (M4c Orbital Ring), then M5, in order, as far as this session allows, each shippable on its own.
+M0–M3 are merged; M4a is PR #13 and M4b is PR #14; M6–M8 are logged as issues #10–#12 and need a design session first.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - You (Opus) implement everything yourself, sequentially. No parallel Sonnet builders. Sub-agents only for
@@ -102,5 +110,6 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green, then resume M4 where the docs say it stands.
+Start by confirming the open PRs' state (gh pr list) and that main is green. If #13/#14 were merged, branch M4c from main;
+otherwise stack it on v2/m4b-jade-ruins. Then build M4c (see "M4c next"), then M5.
 ```

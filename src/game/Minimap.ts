@@ -1,4 +1,4 @@
-import type { ShipState, TrackData } from '../core/contracts';
+import type { ShipState, TrackData, TrackSample } from '../core/contracts';
 
 const PAD = 14;
 
@@ -8,8 +8,8 @@ function hex(color: number): string {
 
 /**
  * Top-down canvas minimap. The static track outline is rendered once to an offscreen
- * layer; ship dots are drawn on top each frame. The map is rotated so the start
- * straight points up the screen.
+ * layer (split paths drawn thinner); ship dots are drawn on top each frame. The map
+ * is rotated so the start straight points up the screen.
  */
 export class Minimap {
   readonly canvas: HTMLCanvasElement;
@@ -116,7 +116,7 @@ export class Minimap {
     let maxX = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
-    for (const s of samples) {
+    for (const s of [...samples, ...this.track.branches.flatMap((b) => b.samples)]) {
       const rx = s.position.x * this.cos - s.position.z * this.sin;
       const rz = s.position.x * this.sin + s.position.z * this.cos;
       if (rx < minX) minX = rx;
@@ -139,34 +139,44 @@ export class Minimap {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     const samples = this.track.samples;
-    const stride = Math.max(1, Math.floor(samples.length / 256));
 
-    const trace = (): void => {
+    const trace = (pts: readonly TrackSample[], closed: boolean): void => {
+      const stride = Math.max(1, Math.floor(pts.length / 256));
       ctx.beginPath();
-      for (let i = 0; i < samples.length; i += stride) {
-        const [x, y] = this.map(samples[i].position.x, samples[i].position.z);
+      for (let i = 0; i < pts.length; i += stride) {
+        const [x, y] = this.map(pts[i].position.x, pts[i].position.z);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
-      ctx.closePath();
+      if (closed) ctx.closePath();
+      else {
+        const last = pts[pts.length - 1];
+        ctx.lineTo(...this.map(last.position.x, last.position.z));
+      }
     };
 
-    // dark under-stroke, neon core
-    trace();
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = 'rgba(5,3,15,0.85)';
-    ctx.stroke();
-    trace();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(25,240,255,0.30)';
-    ctx.shadowColor = '#19f0ff';
-    ctx.shadowBlur = 8;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    trace();
-    ctx.lineWidth = 1.6;
-    ctx.strokeStyle = '#19f0ff';
-    ctx.stroke();
+    // dark under-stroke, neon core; split paths (half width) drawn thinner, under the main loop
+    const roads: [readonly TrackSample[], boolean, number][] = [
+      ...this.track.branches.map((b): [readonly TrackSample[], boolean, number] => [b.samples, false, 0.6]),
+      [samples, true, 1],
+    ];
+    for (const [pts, closed, w] of roads) {
+      trace(pts, closed);
+      ctx.lineWidth = 8 * w;
+      ctx.strokeStyle = 'rgba(5,3,15,0.85)';
+      ctx.stroke();
+      trace(pts, closed);
+      ctx.lineWidth = 4 * w;
+      ctx.strokeStyle = 'rgba(25,240,255,0.30)';
+      ctx.shadowColor = '#19f0ff';
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      trace(pts, closed);
+      ctx.lineWidth = 1.6 * w;
+      ctx.strokeStyle = '#19f0ff';
+      ctx.stroke();
+    }
 
     // pit lane highlight
     for (const zone of this.track.zones) {

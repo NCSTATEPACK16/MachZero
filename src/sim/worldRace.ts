@@ -5,6 +5,7 @@
 import { CONFIG } from '../core/config';
 import type { AITier, ControlInput, ShipId, ShipState, TrackData } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
+import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { TRACK_DEFS } from '../content/tracks';
 import { AIDriver, RaceManager } from '../game';
@@ -23,6 +24,12 @@ export interface WorldRaceResult {
   /** Times each ship drove onto an ice patch. */
   ice: Map<ShipId, number>;
   destroyed: ShipId[];
+  /** Stone-gate hits per ship. */
+  gateHits: Map<ShipId, number>;
+  /** Times each ship drove onto a split path. */
+  shortcuts: Map<ShipId, number>;
+  /** Finishing order with total times (null = did not finish). */
+  standings: { id: ShipId; totalTime: number | null }[];
   playerLaps: number;
   maxLateral: number;
   stepMs: number;
@@ -31,23 +38,27 @@ export interface WorldRaceResult {
 
 const tracks = new Map<string, TrackData>();
 
-export async function runWorldRace(trackId: string, tier: AITier): Promise<WorldRaceResult> {
+export async function runWorldRace(trackId: string, tier: AITier, opts: { hazards?: Readonly<HazardPolicy> } = {}): Promise<WorldRaceResult> {
   let track = tracks.get(trackId);
   if (!track) {
     track = trackFromSource({ kind: 'authored', def: TRACK_DEFS[trackId] });
     tracks.set(trackId, track);
   }
   const bus = new EventBus<GameEvents>();
-  const physics = await PhysicsSystem.create(track, bus);
+  const physics = await PhysicsSystem.create(track, bus, { hazards: opts.hazards ?? HAZARDS_NORMAL });
   const field = buildRaceField({ playerName: 'AUTO', playerLoadout: defaultLoadout(), tier });
   const ships = field.map((d) => physics.addShip(d, track.startGrid[d.gridIndex]));
-  const drivers = ships.map((s) => new AIDriver(s, track, s.def.personality ?? 'steady', track.seed * 31 + s.def.id * 7919, ships));
+  const drivers = ships.map((s) => new AIDriver(s, track, s.def.personality ?? 'steady', track.seed * 31 + s.def.id * 7919, ships, { hazardClock: () => physics.hazardTime }));
   const race = new RaceManager(track, ships, bus);
 
   const respawns = new Map<ShipId, number>();
   const jumps = new Map<ShipId, number>();
   const ice = new Map<ShipId, number>();
   const destroyed: ShipId[] = [];
+  const gateHits = new Map<ShipId, number>();
+  const shortcuts = new Map<ShipId, number>();
+  const lastPath = new Map<ShipId, string | null>();
+  bus.on('hazard:gate', ({ shipId }) => gateHits.set(shipId, (gateHits.get(shipId) ?? 0) + 1));
   let playerLaps = 0;
   bus.on('ship:respawn', ({ shipId }) => respawns.set(shipId, (respawns.get(shipId) ?? 0) + 1));
   bus.on('ship:jump', ({ shipId }) => jumps.set(shipId, (jumps.get(shipId) ?? 0) + 1));
@@ -74,13 +85,18 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
     steps++;
     race.fixedUpdate(dt);
     t += dt;
-    for (const s of ships) if (s.status === 'racing' && !s.airborne) maxLateral = Math.max(maxLateral, Math.abs(s.lateral));
+    for (const s of ships) {
+      if (s.status === 'racing' && !s.airborne) maxLateral = Math.max(maxLateral, Math.abs(s.lateral));
+      const prev = lastPath.get(s.def.id) ?? null;
+      if (s.path !== null && prev === null) shortcuts.set(s.def.id, (shortcuts.get(s.def.id) ?? 0) + 1);
+      lastPath.set(s.def.id, s.path);
+    }
   }
   const snap = race.snapshot();
   const table = snap.standings
     .map((r) => {
       const ship = ships.find((s) => s.def.id === r.id)!;
-      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
+      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} gates=${gateHits.get(r.id) ?? 0} shortcuts=${shortcuts.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
     })
     .join('\n');
   physics.dispose();
@@ -93,6 +109,9 @@ export async function runWorldRace(trackId: string, tier: AITier): Promise<World
     jumps,
     ice,
     destroyed,
+    gateHits,
+    shortcuts,
+    standings: snap.standings.map((r) => ({ id: r.id, totalTime: r.totalTime ?? null })),
     playerLaps,
     maxLateral,
     stepMs: stepMs / Math.max(1, steps),

@@ -22,6 +22,7 @@ export const WORLD_PROPS = {
   'neon-bay': ['tower_0', 'tower_1', 'tower_2', 'pyramid_0', 'palm_0', 'palm_1', 'palm_2'],
   'sunset-mesa': ['mesa_0', 'mesa_1', 'mesa_2', 'spire_0', 'spire_1', 'pylon_0', 'billboard_0', 'cactus_0', 'cactus_1'],
   'cryo-station': ['spire_0', 'spire_1', 'spire_2', 'glacier_0', 'glacier_1', 'tower_0', 'dome_0', 'mast_0'],
+  'jade-ruins': ['temple_0', 'temple_1', 'column_0', 'column_1', 'column_2', 'statue_0', 'fern_0', 'fern_1'],
 };
 export const PROP_ROLES = ['sandstone', 'chrome', 'dark', 'neon', 'foliage', 'ice'];
 

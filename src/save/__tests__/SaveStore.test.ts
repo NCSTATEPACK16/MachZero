@@ -114,7 +114,8 @@ describe('SaveStore', () => {
     expect(createProfile('KID', 0, 'rookie').world).toBe('neon-bay');
     expect(p('sunset-mesa')).toBe('sunset-mesa');
     expect(p('cryo-station')).toBe('cryo-station');
-    expect(p('jade-ruins')).toBe('neon-bay'); // not built yet
+    expect(p('jade-ruins')).toBe('jade-ruins');
+    expect(p('orbital-ring')).toBe('neon-bay'); // not built yet
     expect(p('atlantis')).toBe('neon-bay');
     expect(p(undefined)).toBe('neon-bay');
   });

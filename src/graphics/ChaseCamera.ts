@@ -152,7 +152,7 @@ export class ChaseCamera {
     // world-space pose
     this.camPos.copy(pose.pos).add(this.offset);
     this.lookAt.copy(pose.pos).add(this.look);
-    if (ship.heightAboveTrack < 9 || mode !== 'racing') this.clampToTrack(this.camPos, ship.trackU, track);
+    if (ship.heightAboveTrack < 9 || mode !== 'racing') this.clampToTrack(this.camPos, ship.trackU, ship.path, track);
 
     // shake
     const boostShake = ship.boosting ? 0.012 : 0;
@@ -238,10 +238,10 @@ export class ChaseCamera {
     return ahead ? 58 : 62;
   }
 
-  /** Keep the camera above the driving surface and out of the rails. */
-  private clampToTrack(p: THREE.Vector3, hintU: number, track: TrackData): void {
-    const pr = track.project(p, hintU);
-    const hw = track.halfWidth;
+  /** Keep the camera above the driving surface and out of the rails (of the road the ship is on). */
+  private clampToTrack(p: THREE.Vector3, hintU: number, hintPath: string | null, track: TrackData): void {
+    const pr = track.project(p, hintU, hintPath);
+    const hw = pr.sample.halfWidth;
     const alat = Math.abs(pr.lateral);
     if (alat > hw + 2.5) return;
     const s = pr.sample;

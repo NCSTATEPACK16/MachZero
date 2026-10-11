@@ -26,6 +26,8 @@ export interface GameEvents {
   'ship:ice': { shipId: ShipId; active: boolean };
   /** Left a jump lip; intensity 0..1 from speed. */
   'ship:jump': { shipId: ShipId; intensity: number };
+  /** A ship hit a stone gate (Jade Ruins): `gate` is its index in the track's gates. */
+  'hazard:gate': { shipId: ShipId; gate: number; point: THREE.Vector3 };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */
   'ship:land': { shipId: ShipId; intensity: number };
   /** App → HUD/Audio: credits paid to the player's profile at the results. */

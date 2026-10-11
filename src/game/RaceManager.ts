@@ -381,7 +381,9 @@ export class RaceManager implements IRaceManager {
       return;
     }
     this.fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
-    const tf = this.track.sampleAt(ship.trackU, this.scratchSample).forward;
+    // On a split path, the road's direction is the branch's there, not the main loop's at the same progress.
+    const branch = ship.path ? this.track.branches.find((b) => b.id === ship.path) : undefined;
+    const tf = (branch ? branch.sampleAt(ship.pathS, this.scratchSample) : this.track.sampleAt(ship.trackU, this.scratchSample)).forward;
     if (this.fwd.dot(tf) < WRONG_WAY_DOT) {
       this.wrongWayClock += dt;
       if (this.wrongWayClock >= WRONG_WAY_DELAY) this.wrongWay = true;

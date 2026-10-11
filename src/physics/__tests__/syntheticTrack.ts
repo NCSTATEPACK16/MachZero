@@ -80,6 +80,7 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
       lateral: rho * cb - dy * sb,
       height: rho * sb + dy * cb,
       sample,
+      path: null,
     };
   };
 
@@ -119,6 +120,7 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
     jumps: [],
     airGravityScale: 1,
     pipes: [],
+    branches: [],
     surfaceKindAt: () => 'road',
     gripAt: () => 1,
     surfacePoint(u, lateral, out, outUp) {

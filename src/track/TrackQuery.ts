@@ -211,7 +211,7 @@ export class TrackQuery {
     const x = dx * this.rx + dy * this.ry + dz * this.rz;
     const y = dx * this.ux + dy * this.uy + dz * this.uz;
     const sample = this.makeSample();
-    if (this.curlV < CURL_EPS) return { u: this.u, distance: this.u * this.length, lateral: x, height: y, sample };
+    if (this.curlV < CURL_EPS) return { u: this.u, distance: this.u * this.length, lateral: x, height: y, sample, path: null };
     // Inside a pipe: lateral is the arc position around the curled deck, height is measured along its normal.
     const loc = this.local;
     uncurlPoint(x, y, this.curlV, loc);
@@ -219,7 +219,7 @@ export class TrackQuery {
     const lateral = loc.lateral;
     const height = loc.height;
     const surfaceUp = this.surfaceNormal(uHit, lateral, new THREE.Vector3());
-    return { u: uHit, distance: uHit * this.length, lateral, height, sample, surfaceUp };
+    return { u: uHit, distance: uHit * this.length, lateral, height, sample, surfaceUp, path: null };
   }
 
   /**
