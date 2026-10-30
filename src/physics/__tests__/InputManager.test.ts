@@ -363,3 +363,42 @@ describe('InputManager gamepad', () => {
     input.dispose();
   });
 });
+
+describe('InputManager devices', () => {
+  it('reports a gamepad connecting and disconnecting once each', () => {
+    const { win } = fakeWindow();
+    const input = new InputManager(win);
+    const changes: boolean[] = [];
+    input.onPadChange = (c) => changes.push(c);
+    vi.stubGlobal('navigator', { getGamepads: () => [] });
+    tick(input, 3);
+    expect(input.padConnected).toBe(false);
+    stubPad({});
+    tick(input, 3);
+    expect(input.padConnected).toBe(true);
+    vi.stubGlobal('navigator', { getGamepads: () => [null] });
+    tick(input, 3);
+    expect(input.padConnected).toBe(false);
+    expect(changes).toEqual([true, false]);
+    input.dispose();
+  });
+
+  it('the last-used device follows real input, not an idle connected pad', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    const devices: string[] = [];
+    input.onDeviceChange = (d) => devices.push(d);
+    stubPad({ axes: [0.2, 0.1] }); // resting stick drift is not use
+    tick(input);
+    expect(input.lastDevice).toBe('keyboard');
+    stubPad({ pressed: [0] });
+    tick(input);
+    expect(input.lastDevice).toBe('pad');
+    key(target, 'keydown', 'KeyW');
+    expect(input.lastDevice).toBe('keyboard');
+    stubPad({ axes: [-0.9, 0] });
+    tick(input);
+    expect(devices).toEqual(['pad', 'keyboard', 'pad']);
+    input.dispose();
+  });
+});

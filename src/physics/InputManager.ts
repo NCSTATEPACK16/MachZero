@@ -123,8 +123,23 @@ function applyDeadzone(x: number, dead: number): number {
   return Math.sign(x) * Math.min(1, (a - dead) / (1 - dead));
 }
 
+/** The device the player last used (prompts show its buttons). */
+export type InputDevice = 'keyboard' | 'pad';
+
+/** Any pad input beyond this (stick or button) makes the pad the last-used device. */
+const PAD_ACTIVITY = 0.5;
+
 /** Keyboard + gamepad input. Driving state is sampled, menu actions are edge-triggered. */
 export class InputManager implements IInputManager {
+  /** A gamepad is connected (polled each update()). */
+  padConnected = false;
+  /** Last device that produced input. */
+  lastDevice: InputDevice = 'keyboard';
+  /** Called from update() when a gamepad connects or disconnects. */
+  onPadChange: ((connected: boolean) => void) | null = null;
+  /** Called when the last-used device changes. */
+  onDeviceChange: ((device: InputDevice) => void) | null = null;
+
   private readonly held = new Set<string>();
   private codeToControl: Record<string, KeyControl> = { ...DEFAULT_CODE_TO_CONTROL };
   private readonly pending = new Int32Array(MENU_ACTIONS.length);
@@ -240,8 +255,15 @@ export class InputManager implements IInputManager {
     if (i >= 0) this.pending[i] = MENU_EXPIRY_TICKS;
   }
 
+  private setDevice(device: InputDevice): void {
+    if (this.lastDevice === device) return;
+    this.lastDevice = device;
+    this.onDeviceChange?.(device);
+  }
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone
+    this.setDevice('keyboard');
     if (isUiEvent(e)) return;
     const code = InputManager.codeOf(e);
     if (code === '') return;
@@ -276,6 +298,11 @@ export class InputManager implements IInputManager {
 
   private pollGamepad(): void {
     const pad = this.firstPad();
+    const connected = pad !== null;
+    if (connected !== this.padConnected) {
+      this.padConnected = connected;
+      this.onPadChange?.(connected);
+    }
     if (pad === null) {
       this.padSteer = 0;
       this.padThrottle = 0;
@@ -297,6 +324,12 @@ export class InputManager implements IInputManager {
       return b.pressed ? Math.max(b.value, 1e-3) : b.value > TRIGGER_DEADZONE ? b.value : 0;
     };
     const down = (i: number): boolean => btn(i) > 0 && pad.buttons[i]?.pressed === true;
+
+    if (this.lastDevice !== 'pad') {
+      let active = Math.abs(pad.axes[0] ?? 0) > PAD_ACTIVITY || Math.abs(pad.axes[1] ?? 0) > PAD_ACTIVITY;
+      for (let i = 0; i < pad.buttons.length && !active; i++) active = pad.buttons[i]?.pressed === true;
+      if (active) this.setDevice('pad');
+    }
 
     this.padSteer = applyDeadzone(pad.axes[0] ?? 0, STICK_DEADZONE);
     this.padThrottle = Math.max(btn(PAD.RT), down(PAD.A) ? 1 : 0);

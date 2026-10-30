@@ -28,6 +28,14 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** A prompt line with keyboard and gamepad wording; CSS shows the one for the last-used device (tokens.css). */
+function prompt(cls: string, keyboard: string, pad: string, parent: Element): HTMLElement {
+  const node = el('div', cls, undefined, parent);
+  el('span', 'mz-k-kb', keyboard, node);
+  el('span', 'mz-k-pad', pad, node);
+  return node;
+}
+
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, parent?: Element): SVGElementTagNameMap[K] {
   const node = document.createElementNS(SVG_NS, tag);
   for (const k of Object.keys(attrs)) node.setAttribute(k, attrs[k]);
@@ -88,6 +96,8 @@ export class HUD implements IHUD {
   private readonly wrongEl: HTMLElement;
   private readonly toastsEl: HTMLElement;
   private readonly resultsEl: HTMLElement;
+  private readonly pauseEl: HTMLElement;
+  private readonly titleEl: HTMLElement | null = null;
   /** Credits paid for this race (economy:credits), shown on the results screen. */
   private earned: { delta: number; total: number } | null = null;
 
@@ -126,6 +136,7 @@ export class HUD implements IHUD {
     // ------------------------------------------------------------ title (v1 start screen; the menu UI replaces it)
     if (opts.showTitle !== false) {
       const title = el('section', 'mz-screen mz-title', undefined, c);
+      this.titleEl = title;
       el('div', 'mz-logo', 'MACHZERO', title);
       el('p', 'mz-sub', 'ANTI-GRAVITY RACING', title);
       const controls = el('div', 'mz-controls', undefined, title);
@@ -147,17 +158,17 @@ export class HUD implements IHUD {
       el('h4', undefined, 'GAMEPAD', gp);
       for (const [k, v] of [
         ['LEFT STICK', 'STEER'],
-        ['RT', 'THRUST'],
-        ['LT', 'BRAKE'],
+        ['RT / Ⓐ', 'THRUST'],
+        ['LT / Ⓑ', 'BRAKE'],
         ['LB  RB', 'AIR-BRAKES'],
-        ['A', 'BOOST (LAP 2+)'],
+        ['Ⓧ / Ⓨ', 'BOOST (LAP 2+)'],
         ['START', 'PAUSE'],
       ]) {
         const row = el('div', 'row', undefined, gp);
         el('kbd', undefined, k, row);
         el('span', undefined, v, row);
       }
-      const start = this.button('mz-btn big', 'PRESS ENTER / CLICK TO RACE', () => this.actions.onStart(), title);
+      const start = this.button('mz-btn big', 'PRESS ENTER / Ⓐ / CLICK TO RACE', () => this.actions.onStart(), title);
       start.addEventListener('click', (e) => e.stopPropagation());
       this.addMute(title);
       el('div', 'mz-start-hint', `${CONFIG.TOTAL_LAPS} LAPS  •  7 RIVALS  •  ONE TRACK`, title);
@@ -246,6 +257,7 @@ export class HUD implements IHUD {
     this.toastsEl.setAttribute('aria-live', 'polite');
 
     const pause = el('section', 'mz-screen mz-pause', undefined, c);
+    this.pauseEl = pause;
     el('h1', 'mz-heading', 'PAUSED', pause);
     const prow = el('div', 'mz-btnrow', undefined, pause);
     this.button('mz-btn', 'RESUME', () => this.actions.onResume(), prow);
@@ -253,7 +265,7 @@ export class HUD implements IHUD {
     if (this.actions.onSettings) this.button('mz-btn', 'SETTINGS', () => this.actions.onSettings?.(), prow);
     if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
     this.addMute(prow);
-    el('div', 'mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', pause);
+    prompt('mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', `Ⓐ / START RESUME  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, pause);
 
     this.resultsEl = el('section', 'mz-screen mz-results', undefined, c);
 
@@ -517,7 +529,21 @@ export class HUD implements IHUD {
     this.button('mz-btn big', 'RACE AGAIN', () => this.actions.onRestart(), row);
     if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), row);
     this.addMute(row);
-    el('div', 'mz-hint', 'PRESS ENTER TO RACE AGAIN', root);
+    prompt('mz-hint', 'PRESS ENTER TO RACE AGAIN', `Ⓐ RACE AGAIN  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, root);
+  }
+
+  /** The full-screen panel on show (title, pause or results), for gamepad focus navigation; null while racing. */
+  get overlay(): HTMLElement | null {
+    switch (this.container.dataset.state) {
+      case 'title':
+        return this.titleEl;
+      case 'paused':
+        return this.pauseEl;
+      case 'results':
+        return this.resultsEl;
+      default:
+        return null;
+    }
   }
 
   private standingRow(s: RacerStanding): HTMLElement {
