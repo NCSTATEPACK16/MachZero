@@ -14,6 +14,7 @@ export class Settings {
   readonly reducedMotion = signal(false);
   readonly colorBlind = signal(false);
   readonly largeText = signal(false);
+  readonly perfPanel = signal(false);
   readonly keyBindings = signal<KeyBindings>(cloneBindings(DEFAULT_KEY_BINDINGS));
   readonly quality = signal<QualitySetting>('auto');
   readonly detectedQuality = signal<SettingsData['detectedQuality']>(null);
@@ -34,6 +35,7 @@ export class Settings {
       this.reducedMotion.value = d.reducedMotion;
       this.colorBlind.value = d.colorBlind;
       this.largeText.value = d.largeText;
+      this.perfPanel.value = d.perfPanel;
       this.keyBindings.value = d.keyBindings;
       this.quality.value = d.quality;
       this.detectedQuality.value = d.detectedQuality;
@@ -50,6 +52,7 @@ export class Settings {
       reducedMotion: this.reducedMotion.value,
       colorBlind: this.colorBlind.value,
       largeText: this.largeText.value,
+      perfPanel: this.perfPanel.value,
       keyBindings: cloneBindings(this.keyBindings.value),
       quality: this.quality.value,
       detectedQuality: this.detectedQuality.value,

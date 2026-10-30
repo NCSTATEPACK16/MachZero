@@ -16,15 +16,22 @@
     "assets": "node scripts/build-assets.mjs",
     "tracks:design": "node scripts/track-design.mjs",
     "tracks:check": "node scripts/track-preview.mjs --check",
-    "tracks:preview": "node scripts/track-preview.mjs"
+    "tracks:preview": "node scripts/track-preview.mjs",
+    "ios:sync": "node scripts/ios-sync.mjs",
+    "ios:open": "npx cap open ios",
+    "ios:art": "node scripts/ios-art.mjs"
   },
   "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/ios": "8.5.3",
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@preact/signals": "^2.11.2",
     "preact": "^10.29.8",
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.3",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
