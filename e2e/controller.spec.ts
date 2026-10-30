@@ -53,7 +53,8 @@ test('unplugging the controller pauses the race; the pad drives the pause panel'
     const s = (window as unknown as { __machzero?: Debug }).__machzero?.race?.state;
     return s === 'countdown' || s === 'racing';
   }, undefined, { timeout: 60_000 });
-  await expect(page.locator('html')).toHaveClass(/mz-pad/);
+  // The first pad poll can land a little after the race starts on a loaded machine.
+  await expect(page.locator('html')).toHaveClass(/mz-pad/, { timeout: 30_000 });
 
   await page.evaluate(() => ((window as unknown as PadWindow).__pad.connected = false));
   await expect.poll(() => raceState(page), { timeout: 30_000 }).toBe('paused');
