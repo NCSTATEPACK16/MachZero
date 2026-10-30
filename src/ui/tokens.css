@@ -19,3 +19,14 @@
 :root.mz-large-text {
   --u: clamp(12px, min(1.62vw, 2.65vh), 26px);
 }
+
+/* Button prompts follow the last-used device: <html class="mz-pad"> while a gamepad is in use. */
+.mz-k-pad {
+  display: none;
+}
+html.mz-pad .mz-k-pad {
+  display: inline;
+}
+html.mz-pad .mz-k-kb {
+  display: none;
+}

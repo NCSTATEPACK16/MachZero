@@ -1,7 +1,8 @@
 /** Who's racing? Pick a profile, create one (name, badge, experience preset) or delete one. */
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import { BADGE_COUNT, PROFILE_NAME_MAX, cleanName, type Profile, type ProfilePreset } from '../../save/schema';
+import { randomCallsign } from '../../content/callsigns';
 import { BADGE_NAMES, Badge } from '../badges';
 import { Screen } from '../components';
 
@@ -46,7 +47,22 @@ function ProfileCard({ p, onPick, onDelete }: { p: Profile; onPick: () => void; 
 }
 
 function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null }) {
+  // On a gamepad there is no keyboard to type with: start from a callsign (the dice button rolls another).
+  // iOS only reveals a pad after its first button press, so this also fills in when one shows up later.
   const [name, setName] = useState('');
+  /** The name is a generated callsign: the first typed character replaces it rather than appending. A ref, so a
+   * key pressed in the same frame as the fill-in already sees it. */
+  const rolled = useRef(false);
+  const field = useRef<HTMLInputElement>(null);
+  const device = app.inputDevice.value;
+  useEffect(() => {
+    if (device === 'pad' && !field.current?.value) {
+      const n = randomCallsign();
+      if (field.current) field.current.value = n;
+      rolled.current = true;
+      setName(n);
+    }
+  }, [device]);
   const [badge, setBadge] = useState(Math.floor(Math.random() * BADGE_COUNT));
   const [preset, setPreset] = useState<ProfilePreset | null>(null);
   const [error, setError] = useState('');
@@ -61,20 +77,43 @@ function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null
       <form class="mzu-create" onSubmit={submit}>
         <label class="mzu-field">
           <span class="mzu-field-label">NAME</span>
-          <input
-            type="text"
-            data-autofocus
-            maxLength={PROFILE_NAME_MAX}
-            autocomplete="off"
-            autocapitalize="characters"
-            spellcheck={false}
-            placeholder="YOUR NAME"
-            value={name}
-            onInput={(e) => {
-              setName((e.currentTarget as HTMLInputElement).value.toUpperCase());
-              setError('');
-            }}
-          />
+          <span class="mzu-name-row">
+            <input
+              ref={field}
+              type="text"
+              data-autofocus
+              maxLength={PROFILE_NAME_MAX}
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck={false}
+              placeholder="YOUR NAME"
+              value={name}
+              onKeyDown={(e) => {
+                if (rolled.current && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+                  (e.currentTarget as HTMLInputElement).value = '';
+                  rolled.current = false;
+                }
+              }}
+              onInput={(e) => {
+                setName((e.currentTarget as HTMLInputElement).value.toUpperCase());
+                rolled.current = false;
+                setError('');
+              }}
+            />
+            <button
+              type="button"
+              class="mzu-chip mzu-roll"
+              aria-label="Random name"
+              onClick={(e) => {
+                e.preventDefault();
+                setName((n) => randomCallsign(Math.random, n));
+                rolled.current = true;
+                setError('');
+              }}
+            >
+              🎲 RANDOM
+            </button>
+          </span>
         </label>
         <div class="mzu-field">
           <span class="mzu-field-label">BADGE</span>

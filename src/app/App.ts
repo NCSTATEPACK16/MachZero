@@ -19,11 +19,13 @@ import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
 import { WORLDS, worldById, type WorldDef } from '../content/worlds';
 import { InputManager } from '../physics';
+import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
 import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
+import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { initialRoute, isMenuRoute, type Route } from './routes';
 
@@ -40,6 +42,7 @@ export interface Toast {
 }
 
 const NAV_ACTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right', 'confirm', 'back'];
+const DIRECTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right'];
 
 const FALLBACK_TEXT: Record<FallbackReason, string> = {
   unavailable: 'This browser is blocking storage, so progress won’t be kept after you close the page.',
@@ -74,6 +77,8 @@ export class App {
   readonly qualityLevel = signal<QualityLevel>('high');
   /** True while the first-launch benchmark runs. */
   readonly benchmarking = signal(false);
+  /** Device whose buttons the prompts show (the last one used; a pad as soon as one connects). */
+  readonly inputDevice = signal<InputDevice>('keyboard');
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -105,6 +110,8 @@ export class App {
     if (pendingFallback) this.toast(FALLBACK_TEXT[pendingFallback], 'warn', 9);
 
     this.graphics = new GraphicsSystem(els.app);
+    this.input.onDeviceChange = (d) => this.setInputDevice(d);
+    this.input.onPadChange = (connected) => this.padChanged(connected);
     this.applySettings(this.settings.snapshot());
     this.settings.onChange((s) => {
       this.applySettings(s);
@@ -395,8 +402,14 @@ export class App {
         this.quitToMenu();
         return;
       }
+      // Pause and results panels: the d-pad / stick moves focus between their buttons and Ⓐ presses the
+      // focused one; with nothing focused, Ⓐ keeps its default (resume, race again).
+      const overlay = s.hudOverlay;
+      if (overlay) for (const dir of DIRECTIONS) if (input.consume(dir)) navigate(overlay, dir);
+      const focused = overlay !== null && document.activeElement instanceof HTMLElement && overlay.contains(document.activeElement) ? document.activeElement : null;
       if (input.consume('confirm')) {
-        if (s.state === 'title' || s.state === 'results') s.start();
+        if (focused) focused.click();
+        else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
       s.fixed(dt, input.sample());
@@ -408,6 +421,27 @@ export class App {
     input.consume('restart');
     input.sample(); // drop any boost latch
     s?.fixed(dt, null);
+  }
+
+  private setInputDevice(d: InputDevice): void {
+    this.inputDevice.value = d;
+    document.documentElement.classList.toggle('mz-pad', d === 'pad');
+  }
+
+  /** A controller dropping mid-race pauses it (never resumes by itself); connecting one switches the prompts. */
+  private padChanged(connected: boolean): void {
+    if (connected) {
+      this.setInputDevice('pad');
+      this.toast('Controller connected.', 'good');
+      return;
+    }
+    const s = this.session;
+    if (this.route.value.name === 'race' && s && (s.state === 'racing' || s.state === 'countdown')) {
+      s.pause(true);
+      this.toast('Controller disconnected — race paused. Reconnect it to carry on.', 'warn', 6);
+    } else {
+      this.toast('Controller disconnected.', 'warn');
+    }
   }
 
   /** Frame stats, the perf panel and dynamic resolution (racing frames only: menus and pauses are not judged). */

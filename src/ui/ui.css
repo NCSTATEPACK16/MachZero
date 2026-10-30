@@ -1403,3 +1403,18 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Profile name: text field plus a random-callsign button (gamepad players can't type). */
+.mzu-name-row {
+  display: flex;
+  gap: 0.5em;
+  align-items: stretch;
+}
+.mzu-name-row input {
+  flex: 1;
+  min-width: 0;
+}
+.mzu-roll {
+  flex: none;
+  white-space: nowrap;
+}

@@ -80,6 +80,11 @@ export class RaceSession {
     return this.race.state;
   }
 
+  /** The HUD's title, pause or results panel when one is up (gamepad focus navigation). */
+  get hudOverlay(): HTMLElement | null {
+    return this.hud?.overlay ?? null;
+  }
+
   get isDisposed(): boolean {
     return this.disposed;
   }
