@@ -157,10 +157,14 @@ export const SHIP_ROSTER: readonly ShipDefinition[] = [
   { id: 3, name: 'VIOLET WISP', isPlayer: false, personality: 'erratic', gridIndex: 2, stats: CLASSIC_STATS, livery: { primary: 0x8a2be2, secondary: 0x00e5a8, glow: 0xff2bd6 } },
 ];
 
-/** URL flags: ?autopilot=1 ?debug=1 ?seed=N ?quality=low|med|high ?world=<id> ?hazards=rookie */
+/** URL flags: ?autopilot=1 ?debug=1 ?perf=1 ?dynres=0 ?seed=N ?quality=low|med|high ?world=<id> ?hazards=rookie */
 export interface UrlFlags {
   autopilot: boolean;
   debug: boolean;
+  /** ?perf=1 shows the frame-time panel (also on with ?debug=1). */
+  perf: boolean;
+  /** ?dynres=0 turns dynamic resolution off (QA: measure a preset at its fixed resolution). */
+  dynres: boolean;
   seed: number | null;
   /** ?quality=low|med|high forces a preset for this page load (QA); not saved. */
   quality: 'low' | 'med' | 'high' | null;
@@ -179,5 +183,6 @@ export function readUrlFlags(search: string = typeof location !== 'undefined' ? 
   const world = p.get('world');
   const h = p.get('hazards');
   const hazards = h === 'rookie' || h === 'normal' ? h : null;
-  return { autopilot: p.get('autopilot') === '1', debug: p.get('debug') === '1', seed, quality, world: world || null, hazards };
+  const debug = p.get('debug') === '1';
+  return { autopilot: p.get('autopilot') === '1', debug, perf: debug || p.get('perf') === '1', dynres: p.get('dynres') !== '0', seed, quality, world: world || null, hazards };
 }

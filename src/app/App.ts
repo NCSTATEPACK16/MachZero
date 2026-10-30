@@ -8,11 +8,13 @@ import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
 import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
+import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
+import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
 import { WORLDS, worldById, type WorldDef } from '../content/worlds';
@@ -20,6 +22,7 @@ import { InputManager } from '../physics';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
 import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
+import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { initialRoute, isMenuRoute, type Route } from './routes';
@@ -87,6 +90,12 @@ export class App {
   private buildingKey = '';
   private toastId = 0;
   private bench: QualityBenchmark | null = null;
+  private readonly frameStats = new FrameStats();
+  private readonly perf: PerfOverlay | null;
+  /** Dynamic resolution, learnt across races (null with ?dynres=0). */
+  private readonly dynres: DynamicResolution | null;
+  private dynresFeeding = false;
+  private simMs = 0;
 
   constructor(private readonly els: AppElements) {
     let pendingFallback: FallbackReason | null = null;
@@ -107,12 +116,22 @@ export class App {
       els.hud.style.visibility = isMenuRoute(this.route.value) ? 'hidden' : '';
     });
 
+    this.perf = this.flags.perf ? new PerfOverlay(document.body, this.frameStats) : null;
+    this.dynres = this.flags.dynres && !this.flags.quality ? new DynamicResolution() : null;
     this.loop = new GameLoop({
-      fixed: (dt) => this.fixed(dt),
+      fixed: (dt) => {
+        const t0 = performance.now();
+        this.fixed(dt);
+        this.simMs += performance.now() - t0;
+      },
       frame: (dt, alpha, time) => {
+        const t0 = performance.now();
         this.session?.frame(dt, alpha, time);
+        const t1 = performance.now();
         this.graphics.render();
+        const t2 = performance.now();
         if (this.bench) this.benchFrame(dt);
+        this.afterFrame(this.loop.rawDt * 1000, t1 - t0, t2 - t1);
       },
     });
     const onResize = () => this.graphics.resize(window.innerWidth, window.innerHeight);
@@ -141,6 +160,10 @@ export class App {
         startRace: () => app.startRace(),
         restartRace: () => app.session?.restart(),
         memory: () => app.graphics.memoryInfo,
+        /** Shader programs compiled so far (warm-up check). */
+        programs: () => app.graphics.programCount,
+        /** Frame stats of the current race (perf checks). */
+        perf: () => app.frameStats.summary(),
         /** Add credits to the active profile (tests). */
         grantCredits: (n: number) => app.updateProfile((p) => (p.credits += n)),
         /** Dispose the current race and build a fresh one (leak checks). */
@@ -387,6 +410,43 @@ export class App {
     s?.fixed(dt, null);
   }
 
+  /** Frame stats, the perf panel and dynamic resolution (racing frames only: menus and pauses are not judged). */
+  private afterFrame(frameMs: number, updateMs: number, renderMs: number): void {
+    const s = this.session;
+    const racing = this.route.value.name === 'race' && s !== null && (s.state === 'racing' || s.state === 'countdown');
+    if (racing) this.frameStats.push({ frameMs, simMs: this.simMs, updateMs, renderMs });
+    this.simMs = 0;
+    if (this.dynres) {
+      if (racing && !this.bench) {
+        if (!this.dynresFeeding) this.dynres.resetWindow();
+        if (this.dynres.feed(frameMs)) this.graphics.setDynamicScale(this.dynres.scale);
+      }
+      this.dynresFeeding = racing;
+    }
+    if (this.perf) {
+      const r = this.graphics.renderStats;
+      this.perf.update(frameMs / 1000, {
+        preset: this.qualityLevel.value,
+        pixelRatio: this.graphics.renderPixelRatio,
+        dynScale: this.dynres?.scale ?? 1,
+        calls: r.calls,
+        triangles: r.triangles,
+      });
+    }
+  }
+
+  /** Per race: restart the run stats at GO; at the results, log the race's frame summary. */
+  private bindPerf(s: RaceSession): void {
+    s.bus.on('race:countdown', ({ value }) => {
+      if (value === 3) this.frameStats.resetRun();
+    });
+    s.bus.on('race:results', () => {
+      const sum = this.frameStats.summary();
+      this.perf?.setRaceSummary(s.setup.worldId, sum);
+      if (this.perf) console.info(`[perf] ${s.setup.worldId} ${this.qualityLevel.value}: ${formatSummary(sum)}; p95 ${sum.p95.toFixed(1)} ms (missed = over ${MISSED_FRAME_MS} ms)`);
+    });
+  }
+
   private raceTier(p: Profile | null): AITier {
     // AI tiers arrive in M5; until then every race uses stock rivals (v1 difficulty).
     return this.features.tiers && p ? p.aiTier : 'rookie';
@@ -441,9 +501,13 @@ export class App {
       this.session = null;
       next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus });
       this.bindStats(next);
+      this.bindPerf(next);
       this.session = next;
       this.sessionKey = key;
-      this.building = null;
+      // Pose the camera on the grid, then compile every shader behind the loading screen (no mid-race stalls).
+      next.frame(1 / 60, 1, 0);
+      await this.graphics.warmUp();
+      if (this.buildingKey === key) this.building = null;
       return next;
     })();
     this.building = build;

@@ -75,6 +75,16 @@ function buildEnvironmentMap(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTa
   return target;
 }
 
+/** Textures a material samples (its maps and any shader uniforms), skipping render-target textures. */
+function collectTextures(mat: THREE.Material, out: Set<THREE.Texture>): void {
+  const add = (v: unknown) => {
+    if (v instanceof THREE.Texture && !(v as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture && v.image) out.add(v);
+  };
+  for (const v of Object.values(mat)) add(v);
+  const uniforms = (mat as THREE.ShaderMaterial).uniforms;
+  if (uniforms) for (const u of Object.values(uniforms)) add(u?.value);
+}
+
 /**
  * Owns the renderer, scene and every visual subsystem. Subscribes to game events
  * (never emits) and renders through the post-processing chain.
@@ -116,6 +126,8 @@ export class GraphicsSystem implements IGraphicsSystem {
   private lastDt = 1 / 60;
   private reducedMotion = false;
   private disposed = false;
+  /** Dynamic-resolution factor on top of the preset's pixel ratio (1 = the preset's full resolution). */
+  private dynScale = 1;
 
   // scratch
   private readonly tmpV = new THREE.Vector3();
@@ -516,7 +528,57 @@ export class GraphicsSystem implements IGraphicsSystem {
 
   private pixelRatio(): number {
     const q = this.quality ?? QUALITY_PROFILES.high;
-    return Math.min(window.devicePixelRatio || 1, q.pixelRatioCap) * q.renderScale;
+    return Math.min(window.devicePixelRatio || 1, q.pixelRatioCap) * q.renderScale * this.dynScale;
+  }
+
+  /** Dynamic resolution (settings/DynamicResolution): a factor on the preset's resolution. */
+  setDynamicScale(scale: number): void {
+    if (scale === this.dynScale) return;
+    this.dynScale = scale;
+    this.resize(this.width, this.height);
+  }
+
+  /** Render pixels per CSS pixel right now (preset × dynamic scale), for the perf overlay. */
+  get renderPixelRatio(): number {
+    return this.renderer.getPixelRatio();
+  }
+
+  /** Shader programs compiled so far (the warm-up test checks none appear mid-race). */
+  get programCount(): number {
+    return this.renderer.info.programs?.length ?? 0;
+  }
+
+  /** Draw calls and triangles of the last frame. */
+  get renderStats(): { calls: number; triangles: number } {
+    return this.renderer.info.render;
+  }
+
+  /**
+   * Compile every shader and upload every texture the race can show, behind the loading screen, so nothing
+   * compiles mid-race (a compile stalls the GPU for tens to hundreds of ms on phones). `compileAsync` walks the
+   * whole scene, hidden objects included (boost flames, shields, effect pools); one full post-processing frame
+   * with every effect pass the preset allows then builds the passes that only switch on at speed (speed blur,
+   * heat shimmer) and the shadow pass.
+   */
+  async warmUp(): Promise<void> {
+    if (this.disposed || !this.hasRace) return;
+    const textures = new Set<THREE.Texture>();
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      for (const mat of Array.isArray(m) ? m : [m]) collectTextures(mat, textures);
+    });
+    for (const t of textures) this.renderer.initTexture(t);
+    // Compile for the composer's scene target, not the screen: a program's key includes the output colour
+    // space and tone mapping, which differ between the two, so screen variants would never be used.
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.post.sceneTarget);
+    const compiled = this.renderer.compileAsync(this.scene, this.camera);
+    this.renderer.setRenderTarget(prev);
+    await compiled;
+    if (this.disposed || !this.hasRace) return;
+    this.renderer.info.reset();
+    this.post.warmUp(this.lastDt);
   }
 
   resize(width: number, height: number): void {

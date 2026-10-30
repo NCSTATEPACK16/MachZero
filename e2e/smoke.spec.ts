@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 
 interface MachZeroDebug {
   race: { state: string; snapshot(): { raceTime: number; player: { speed: number } } };
+  programs(): number;
+  perf(): { frames: number };
 }
 
-test('boots, starts an autopilot race and runs without console errors', async ({ page }) => {
+test('boots, starts an autopilot race and runs without console errors or mid-race shader compiles', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -21,11 +23,24 @@ test('boots, starts an autopilot race and runs without console errors', async ({
     undefined,
     { timeout: 60_000 },
   );
+  // The warm-up behind the loading screen compiled everything: no shader program may appear once the race
+  // runs, including what only switches on at speed (speed blur from 40 m/s, speed lines from 50 m/s).
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: MachZeroDebug }).__machzero.programs());
+  expect(programsAtGo).toBeGreaterThan(0);
   await page.waitForFunction(
-    () => (window as unknown as { __machzero: MachZeroDebug }).__machzero.race.snapshot().raceTime > 1,
+    () => {
+      const s = (window as unknown as { __machzero: MachZeroDebug }).__machzero.race.snapshot();
+      return s.raceTime > 1 && s.player.speed > 52;
+    },
     undefined,
-    { timeout: 60_000 },
+    { timeout: 90_000 },
   );
+  const after = await page.evaluate(() => {
+    const m = (window as unknown as { __machzero: MachZeroDebug }).__machzero;
+    return { programs: m.programs(), frames: m.perf().frames };
+  });
+  expect(after.programs, 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(after.frames).toBeGreaterThan(0);
 
   const snap = await page.evaluate(() => {
     const s = (window as unknown as { __machzero: MachZeroDebug }).__machzero.race.snapshot();

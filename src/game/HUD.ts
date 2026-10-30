@@ -81,6 +81,8 @@ export class HUD implements IHUD {
   private readonly boostText: Txt;
   private readonly speedBox: HTMLElement;
   private readonly speedArc: SVGPathElement;
+  /** A wide faint copy of the arc under it: the glow, without a CSS filter re-rasterised every frame. */
+  private readonly speedGlow: SVGPathElement;
   private readonly speedNum: Txt;
   private readonly countdownEl: HTMLElement;
   private readonly wrongEl: HTMLElement;
@@ -223,6 +225,7 @@ export class HUD implements IHUD {
     const r = 84;
     const d = `M ${polar(100, 100, r, 135)} A ${r} ${r} 0 1 1 ${polar(100, 100, r, 45)}`;
     svg('path', { class: 'arc-bg', d, pathLength: '100' }, gauge);
+    this.speedGlow = svg('path', { class: 'arc-glow', d, pathLength: '100' }, gauge);
     this.speedArc = svg('path', { class: 'arc-fg', d, pathLength: '100' }, gauge);
     // tick at standard top speed (TOP_SPEED of BOOST_TOP_SPEED)
     const topPct = (CONFIG.TOP_SPEED / CONFIG.BOOST_TOP_SPEED) * 100;
@@ -383,7 +386,9 @@ export class HUD implements IHUD {
     const aq = Math.round(clamp(this.speedDisp / GAUGE_MAX_KMH, 0, 1) * 200) / 2;
     if (aq !== this.shownArcQ) {
       this.shownArcQ = aq;
-      this.speedArc.style.strokeDashoffset = (100 - aq).toFixed(1);
+      const offset = (100 - aq).toFixed(1);
+      this.speedArc.style.strokeDashoffset = offset;
+      this.speedGlow.style.strokeDashoffset = offset;
     }
     if (p.boosting !== this.shownBoosting) {
       this.shownBoosting = p.boosting;

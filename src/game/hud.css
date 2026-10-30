@@ -463,7 +463,6 @@
   right: 2.2em;
   width: 17em;
   height: 17em;
-  filter: drop-shadow(0 0 0.5em rgba(25, 240, 255, 0.35));
 }
 .mz-speed svg {
   position: absolute;
@@ -486,14 +485,25 @@
   stroke-dashoffset: 100;
   stroke-linecap: butt;
 }
+.mz-speed .arc-glow {
+  fill: none;
+  stroke: url(#mz-speed-grad);
+  stroke-width: 26;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  stroke-linecap: butt;
+  opacity: 0.22;
+}
 .mz-speed .arc-tick {
   fill: none;
   stroke: rgba(244, 247, 255, 0.55);
   stroke-width: 14;
   stroke-dasharray: 0.7 100;
 }
-.mz-speed.boosting .arc-fg {
-  filter: drop-shadow(0 0 6px #ff2bd6);
+.mz-speed.boosting .arc-glow {
+  stroke: #ff2bd6;
+  stroke-width: 30;
+  opacity: 0.4;
 }
 .mz-speed-read {
   position: absolute;
