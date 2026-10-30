@@ -256,6 +256,22 @@ export class PostFX {
     this.composer.render(dt);
   }
 
+  /** The off-screen target the scene is drawn into (shader programs are keyed to it). */
+  get sceneTarget(): THREE.WebGLRenderTarget {
+    return this.composer.renderTarget1;
+  }
+
+  /** Render one frame with every pass the preset can switch on, so their shaders compile now. */
+  warmUp(dt: number): void {
+    const blur = this.speedBlurPass.enabled;
+    const shimmer = this.shimmerPass.enabled;
+    this.speedBlurPass.enabled = this.blurAllowed;
+    this.shimmerPass.enabled = this.shimmerAllowed && !this.reducedMotion;
+    this.composer.render(dt);
+    this.speedBlurPass.enabled = blur;
+    this.shimmerPass.enabled = shimmer;
+  }
+
   dispose(): void {
     for (const pass of this.composer.passes) pass.dispose();
     this.composer.dispose();

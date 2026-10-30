@@ -14,6 +14,8 @@ export class GameLoop {
   private running = false;
   private rafId = 0;
   private elapsed = 0;
+  /** The last frame's real interval in seconds, before the MAX_FRAME_DT clamp (perf stats). */
+  rawDt = 0;
 
   constructor(private readonly cb: LoopCallbacks) {}
 
@@ -24,7 +26,8 @@ export class GameLoop {
     const tick = (now: number) => {
       if (!this.running) return;
       this.rafId = requestAnimationFrame(tick);
-      this.advance(Math.min((now - this.last) / 1000, CONFIG.MAX_FRAME_DT));
+      this.rawDt = (now - this.last) / 1000;
+      this.advance(Math.min(this.rawDt, CONFIG.MAX_FRAME_DT));
       this.last = now;
     };
     this.rafId = requestAnimationFrame(tick);
