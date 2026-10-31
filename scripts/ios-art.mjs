@@ -1,48 +1,75 @@
 /**
- * Renders the iOS app icon (1024², opaque) and launch splash (2732², logo centred so any crop works) from
- * HTML with the game's colours and font, into ios/App/App/Assets.xcassets. Run: node scripts/ios-art.mjs
+ * Renders the iOS app icon (1024², opaque) and launch splash (2732²) into ios/App/App/Assets.xcassets. The mark is
+ * "Mach 0": an italic neon zero broken by a speed streak with a bright dart at its tip. The splash is shown
+ * aspect-fill, so a landscape iPhone sees only the middle ~1260 px band: the mark and wordmark stay inside it.
+ * Run: npm run ios:art
  */
 import { chromium } from '@playwright/test';
 
 const ICON = 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png';
-const SPLASH = 'ios/App/App/Assets.xcassets/Splash.imageset';
+const SPLASH = 'ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png';
 
-const page = (size, mode) => `<!doctype html><html><head><style>
-  html, body { margin: 0; width: ${size}px; height: ${size}px; overflow: hidden; background: #05030f; }
-  .wrap { position: relative; width: 100%; height: 100%; overflow: hidden;
-    background: radial-gradient(ellipse at 50% 120%, #3a0b5c 0%, #160631 45%, #05030f 80%); }
-  .sun { position: absolute; left: 50%; top: ${mode === 'icon' ? 50 : 50}%; width: ${mode === 'icon' ? 70 : 26}%; aspect-ratio: 1;
-    transform: translate(-50%, -62%); border-radius: 50%;
-    background: linear-gradient(180deg, #ffe066 0%, #ff8a3d 38%, #ff2bd6 72%, #8a2be2 100%);
-    -webkit-mask: repeating-linear-gradient(180deg, #000 0 ${size * 0.028}px, transparent ${size * 0.028}px ${size * 0.036}px);
-    mask-image: linear-gradient(180deg, #000 52%, transparent 52%), repeating-linear-gradient(180deg, #000 0 ${size * 0.026}px, transparent ${size * 0.026}px ${size * 0.036}px);
-    mask-composite: add; filter: drop-shadow(0 0 ${size * 0.03}px rgba(255, 43, 214, 0.6)); }
-  .grid { position: absolute; left: -50%; right: -50%; bottom: 0; height: ${mode === 'icon' ? 44 : 30}%;
-    background:
-      repeating-linear-gradient(90deg, rgba(25, 240, 255, 0.85) 0 ${size * 0.004}px, transparent ${size * 0.004}px ${size * 0.06}px),
-      repeating-linear-gradient(180deg, rgba(25, 240, 255, 0.85) 0 ${size * 0.004}px, transparent ${size * 0.004}px ${size * 0.05}px);
-    transform: perspective(${size * 0.6}px) rotateX(62deg); transform-origin: 50% 100%;
-    -webkit-mask: linear-gradient(180deg, transparent, #000 60%); }
-  .mz { position: absolute; left: 0; right: 0; top: ${mode === 'icon' ? 47 : 49}%; text-align: center; transform: translateY(-50%);
-    font: italic 900 ${mode === 'icon' ? size * 0.42 : size * 0.13}px/1 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
-    letter-spacing: -0.02em; color: #f4f7ff;
-    background: linear-gradient(180deg, #ffffff 0%, #c9d6ff 45%, #19f0ff 52%, #5b2bd6 100%); -webkit-background-clip: text; color: transparent;
-    filter: drop-shadow(0 0 ${size * 0.012}px #19f0ff) drop-shadow(0 ${size * 0.01}px 0 #ff2bd6); }
-  .word { position: absolute; left: 0; right: 0; top: 60%; text-align: center; font: italic 800 ${size * 0.045}px/1 'Avenir Next Condensed', sans-serif;
-    letter-spacing: 0.35em; color: #19f0ff; text-shadow: 0 0 ${size * 0.01}px #19f0ff; }
-</style></head><body><div class="wrap"><div class="sun"></div><div class="grid"></div>
-  <div class="mz">${mode === 'icon' ? 'MZ' : 'MACHZERO'}</div>${mode === 'icon' ? '' : '<div class="word">ANTI-GRAVITY RACING</div>'}</div></body></html>`;
+const DEFS = `
+  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+  <filter id="glowS" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
+  <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+    <stop offset="0" stop-color="#2a0b52"/><stop offset="0.55" stop-color="#12052b"/><stop offset="1" stop-color="#05030f"/>
+  </radialGradient>
+  <linearGradient id="cm" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#19f0ff"/><stop offset="1" stop-color="#ff2bd6"/>
+  </linearGradient>
+  <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#19f0ff" stop-opacity="0"/><stop offset="0.7" stop-color="#19f0ff"/><stop offset="1" stop-color="#ffffff"/>
+  </linearGradient>
+  <mask id="cut"><rect width="1024" height="1024" fill="#fff"/><path d="M0 498 L1024 452 L1024 584 L0 600 Z" fill="#000"/></mask>`;
+
+const RING = `<ellipse cx="512" cy="512" rx="250" ry="330" fill="none" stroke-width="112" transform="skewX(-12) translate(108 0)"/>`;
+const DART = `M760 486 L964 522 L760 560 L800 522 Z`;
+
+/** The mark on a 1024 canvas, without background. */
+const MARK = `
+  <g mask="url(#cut)">
+    <g stroke="url(#cm)" filter="url(#glow)" opacity="0.8">${RING}</g>
+    <g stroke="url(#cm)">${RING}</g>
+    <ellipse cx="512" cy="512" rx="250" ry="330" fill="none" stroke="#ffffff" stroke-width="10" opacity="0.35"
+      transform="skewX(-12) translate(108 0)"/>
+  </g>
+  <path d="M60 530 L800 506 L800 540 L60 544 Z" fill="url(#trail)" filter="url(#glowS)"/>
+  <path d="M60 534 L800 514 L800 534 L60 540 Z" fill="url(#trail)"/>
+  <path d="${DART}" fill="#ffffff" filter="url(#glowS)"/>
+  <path d="${DART}" fill="#ffffff"/>`;
+
+/** Faint speed lines behind the mark (icon only). */
+const STREAKS = [180, 270, 760, 850]
+  .map((y, i) => `<rect x="${i % 2 ? 90 : 40}" y="${y}" width="${i % 2 ? 260 : 340}" height="6" rx="3" fill="#19f0ff" opacity="0.25"/>`)
+  .join('');
+
+const svg = (body, size) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="${size}" height="${size}"><defs>${DEFS}</defs>${body}</svg>`;
+
+const iconPage = `<body style="margin:0">${svg(`<rect width="1024" height="1024" fill="url(#bg)"/>${STREAKS}${MARK}`, 1024)}</body>`;
+
+const splashPage = (size) => `<!doctype html><html><head><style>
+  html, body { margin: 0; width: ${size}px; height: ${size}px; overflow: hidden; }
+  body { background: radial-gradient(ellipse at 50% 45%, #2a0b52 0%, #12052b 30%, #05030f 60%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  svg { display: block; margin: -40px 0 -20px; }
+  .word { font: italic 900 150px/1 'Avenir Next Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.06em;
+    color: #f4f7ff; text-shadow: 0 0 24px rgba(25, 240, 255, 0.8), 0 6px 0 #ff2bd6; }
+  .tag { margin-top: 36px; font: italic 700 46px/1 'Avenir Next Condensed', sans-serif; letter-spacing: 0.4em;
+    color: #19f0ff; text-shadow: 0 0 12px #19f0ff; }
+</style></head><body>${svg(MARK, 760)}<div class="word">MACHZERO</div><div class="tag">ANTI-GRAVITY RACING</div></body></html>`;
 
 const browser = await chromium.launch();
-for (const [size, mode, out] of [
-  [1024, 'icon', [ICON]],
-  [2732, 'splash', [`${SPLASH}/splash-2732x2732.png`]],
+for (const [size, html, path] of [
+  [1024, iconPage, ICON],
+  [2732, splashPage(2732), SPLASH],
 ]) {
   const p = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
-  await p.setContent(page(size, mode));
+  await p.setContent(html);
   await p.evaluate(() => document.fonts.ready);
-  for (const path of out) await p.screenshot({ path, omitBackground: false });
+  await p.screenshot({ path, omitBackground: false });
   await p.close();
-  console.log(`${mode}: ${out.join(', ')}`);
+  console.log(path);
 }
 await browser.close();
