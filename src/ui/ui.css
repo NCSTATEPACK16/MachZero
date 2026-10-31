@@ -124,7 +124,9 @@
 #ui :focus {
   outline: none;
 }
-#ui :focus-visible {
+/* Script focus from a gamepad never matches :focus-visible in WebKit, so pad mode rings plain :focus too. */
+#ui :focus-visible,
+html.mz-pad #ui :focus {
   outline: 2px solid var(--cyan);
   outline-offset: 3px;
   box-shadow: 0 0 1.2em rgba(25, 240, 255, 0.55);
@@ -206,7 +208,8 @@
   transform: skewX(10deg);
 }
 .mzu-item:hover,
-.mzu-item:focus-visible {
+.mzu-item:focus-visible,
+html.mz-pad .mzu-item:focus {
   border-color: var(--cyan);
   background: linear-gradient(90deg, rgba(25, 240, 255, 0.2), rgba(138, 77, 255, 0.16));
   transform: skewX(-10deg) translateX(0.4em);
@@ -359,7 +362,8 @@
   font-size: 1em;
 }
 .mzu-card-del:hover,
-.mzu-card-del:focus-visible {
+.mzu-card-del:focus-visible,
+html.mz-pad .mzu-card-del:focus {
   color: var(--red);
   background: rgba(255, 51, 68, 0.12);
 }
@@ -1320,7 +1324,8 @@
   background: linear-gradient(90deg, var(--w-from), var(--w-to));
 }
 .mzu-world:hover:not(:disabled),
-.mzu-world:focus-visible {
+.mzu-world:focus-visible,
+html.mz-pad .mzu-world:focus {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--w-from) 30%, transparent), color-mix(in srgb, var(--w-to) 24%, transparent)),
     rgba(8, 6, 26, 0.72);

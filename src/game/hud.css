@@ -104,6 +104,11 @@
   box-shadow: 0 0 2em rgba(25, 240, 255, 0.7), 0 0 4em rgba(255, 43, 214, 0.25), inset 0 0 1.2em rgba(255, 255, 255, 0.25);
   transform: skewX(-12deg) scale(1.04);
 }
+.mz-btn:focus {
+  background: linear-gradient(180deg, rgba(25, 240, 255, 0.45), rgba(255, 43, 214, 0.4));
+  box-shadow: 0 0 0 2px var(--cyan), 0 0 2em rgba(25, 240, 255, 0.7), inset 0 0 1.2em rgba(255, 255, 255, 0.25);
+  transform: skewX(-12deg) scale(1.04);
+}
 .mz-btn:active {
   transform: skewX(-12deg) scale(0.98);
 }
@@ -128,9 +133,13 @@
   outline: none;
   transition: border-color 0.15s, color 0.15s;
 }
-.mz-chip:hover {
+.mz-chip:hover,
+.mz-chip:focus {
   border-color: var(--cyan);
   color: var(--cyan);
+}
+.mz-chip:focus {
+  box-shadow: 0 0 0 1px var(--cyan), 0 0 1em rgba(25, 240, 255, 0.5);
 }
 .mz-chip.off {
   color: var(--red);

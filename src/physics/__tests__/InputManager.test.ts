@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { InputManager } from '../InputManager';
+import { CONFIG } from '../../core/config';
+import { InputManager, NAV_REPEAT_DELAY, NAV_REPEAT_EVERY, PAD_ECHO_MS } from '../InputManager';
 
 interface KeyInit {
+  key?: string;
   repeat?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
@@ -309,14 +311,47 @@ describe('InputManager gamepad', () => {
     stubPad({ pressed: [15] });
     input.update();
     expect(input.consume('right')).toBe(true);
+    stubPad({});
+    input.update();
     stubPad({ axes: [0.9, 0, 0, 0] });
     input.update();
     expect(input.consume('right')).toBe(true);
     input.update();
-    expect(input.consume('right')).toBe(false); // held: no repeat
+    expect(input.consume('right')).toBe(false); // held: no repeat yet
     stubPad({ axes: [-0.9, 0, 0, 0] });
     input.update();
     expect(input.consume('left')).toBe(true);
+    input.dispose();
+  });
+
+  it('a held direction repeats after a delay, then steadily', () => {
+    const { win } = fakeWindow();
+    const input = new InputManager(win);
+    stubPad({ pressed: [13] });
+    let presses = 0;
+    const ticks = Math.round(1 / CONFIG.FIXED_DT); // hold 1 s
+    for (let i = 0; i < ticks; i++) {
+      input.update();
+      if (input.consume('down')) presses++;
+    }
+    // first press + repeats at 0.35, 0.47, … ≤ 1 s
+    expect(presses).toBe(1 + 1 + Math.floor((1 - NAV_REPEAT_DELAY) / NAV_REPEAT_EVERY));
+    input.dispose();
+  });
+
+  it('drops arrow / Enter key echoes that follow a pad press, but not later keys', () => {
+    let t = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    stubPad({ pressed: [13] });
+    input.update();
+    expect(input.consume('down')).toBe(true);
+    expect(key(target, 'keydown', 'ArrowDown', { key: 'ArrowDown' }).defaultPrevented).toBe(true);
+    expect(input.lastDevice).toBe('pad'); // the echo never reached the keyboard handler
+    t += PAD_ECHO_MS + 50;
+    key(target, 'keydown', 'ArrowDown', { key: 'ArrowDown' });
+    expect(input.lastDevice).toBe('keyboard');
     input.dispose();
   });
 
