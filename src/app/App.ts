@@ -25,6 +25,7 @@ import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type Sav
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
+import { bindHaptics, isNativeApp } from '../native/haptics';
 import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { initialRoute, isMenuRoute, type Route } from './routes';
@@ -96,7 +97,7 @@ export class App {
   private toastId = 0;
   private bench: QualityBenchmark | null = null;
   private readonly frameStats = new FrameStats();
-  private readonly perf: PerfOverlay | null;
+  private perf: PerfOverlay | null = null;
   /** Dynamic resolution, learnt across races (null with ?dynres=0). */
   private readonly dynres: DynamicResolution | null;
   private dynresFeeding = false;
@@ -123,7 +124,6 @@ export class App {
       els.hud.style.visibility = isMenuRoute(this.route.value) ? 'hidden' : '';
     });
 
-    this.perf = this.flags.perf ? new PerfOverlay(document.body, this.frameStats) : null;
     this.dynres = this.flags.dynres && !this.flags.quality ? new DynamicResolution() : null;
     this.loop = new GameLoop({
       fixed: (dt) => {
@@ -536,6 +536,7 @@ export class App {
       next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus });
       this.bindStats(next);
       this.bindPerf(next);
+      if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
       this.session = next;
       this.sessionKey = key;
       // Pose the camera on the grid, then compile every shader behind the loading screen (no mid-race stalls).
@@ -608,7 +609,9 @@ export class App {
   private applyQuality(s: SettingsData): void {
     let level: QualityLevel | null = this.flags.quality ?? (s.quality !== 'auto' ? s.quality : s.detectedQuality);
     // The device hint is recomputed each launch (cheap); only a benchmark result is stored.
-    if (level === null) level = deviceHint(navigator) ?? (this.flags.autopilot ? 'high' : null);
+    // The iOS app starts at Medium: its target devices are recent iPhones and iPads, and dynamic resolution
+    // backs off if frames drop (Low's 0.75× resolution looks blocky on a 3× Retina screen).
+    if (level === null) level = (isNativeApp() ? 'med' : deviceHint(navigator)) ?? (this.flags.autopilot ? 'high' : null);
     if (level === null) {
       if (!this.bench) {
         this.bench = new QualityBenchmark();
@@ -647,6 +650,12 @@ export class App {
 
   private applySettings(s: SettingsData): void {
     this.applyQuality(s);
+    const perf = this.flags.perf || s.perfPanel;
+    if (perf && !this.perf) this.perf = new PerfOverlay(document.body, this.frameStats);
+    else if (!perf && this.perf) {
+      this.perf.dispose();
+      this.perf = null;
+    }
     this.audio.setVolumes(s.masterVolume, s.sfxVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });

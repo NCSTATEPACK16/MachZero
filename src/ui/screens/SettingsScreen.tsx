@@ -128,6 +128,7 @@ function Graphics({ app }: { app: App }) {
           </button>
         </div>
       ) : null}
+      <Toggle label="PERFORMANCE PANEL" hint="Frame times and missed frames in the corner, with a summary after each race." value={s.perfPanel.value} onChange={(v) => (s.perfPanel.value = v)} />
     </div>
   );
 }

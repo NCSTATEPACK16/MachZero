@@ -51,6 +51,8 @@ export interface SettingsData {
   reducedMotion: boolean;
   colorBlind: boolean;
   largeText: boolean;
+  /** Frame-time panel (the in-app way to get ?perf=1, e.g. in the iOS app). */
+  perfPanel: boolean;
   keyBindings: KeyBindings;
   quality: QualitySetting;
   /** What 'auto' resolved to on this device (device hint or first-launch benchmark); null = not yet. */
@@ -95,6 +97,7 @@ export function defaultSettings(): SettingsData {
     reducedMotion: false,
     colorBlind: false,
     largeText: false,
+    perfPanel: false,
     keyBindings: cloneBindings(DEFAULT_KEY_BINDINGS),
     quality: 'auto',
     detectedQuality: null,
@@ -259,6 +262,7 @@ export function sanitizeSettings(v: unknown): SettingsData {
     reducedMotion: bool(v.reducedMotion, d.reducedMotion),
     colorBlind: bool(v.colorBlind, d.colorBlind),
     largeText: bool(v.largeText, d.largeText),
+    perfPanel: bool(v.perfPanel, d.perfPanel),
     keyBindings: sanitizeBindings(v.keyBindings),
     quality: oneOf(v.quality, ['auto', 'low', 'med', 'high'] as const, d.quality),
     detectedQuality: v.detectedQuality === 'low' || v.detectedQuality === 'med' || v.detectedQuality === 'high' ? v.detectedQuality : null,

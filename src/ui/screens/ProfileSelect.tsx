@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import { BADGE_COUNT, PROFILE_NAME_MAX, cleanName, type Profile, type ProfilePreset } from '../../save/schema';
 import { randomCallsign } from '../../content/callsigns';
+import { isNativeApp } from '../../native/haptics';
 import { BADGE_NAMES, Badge } from '../badges';
 import { Screen } from '../components';
 
@@ -49,10 +50,13 @@ function ProfileCard({ p, onPick, onDelete }: { p: Profile; onPick: () => void; 
 function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null }) {
   // On a gamepad there is no keyboard to type with: start from a callsign (the dice button rolls another).
   // iOS only reveals a pad after its first button press, so this also fills in when one shows up later.
-  const [name, setName] = useState('');
+  // In the iOS app the name starts as a callsign and focus starts on RANDOM: focusing the text field there
+  // would pop the on-screen keyboard over half the screen before anyone touched it.
+  const native = isNativeApp();
+  const [name, setName] = useState(() => (native ? randomCallsign() : ''));
   /** The name is a generated callsign: the first typed character replaces it rather than appending. A ref, so a
    * key pressed in the same frame as the fill-in already sees it. */
-  const rolled = useRef(false);
+  const rolled = useRef(native);
   const field = useRef<HTMLInputElement>(null);
   const device = app.inputDevice.value;
   useEffect(() => {
@@ -81,7 +85,7 @@ function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null
             <input
               ref={field}
               type="text"
-              data-autofocus
+              data-autofocus={native ? undefined : true}
               maxLength={PROFILE_NAME_MAX}
               autocomplete="off"
               autocapitalize="characters"
@@ -103,6 +107,7 @@ function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null
             <button
               type="button"
               class="mzu-chip mzu-roll"
+              data-autofocus={native ? true : undefined}
               aria-label="Random name"
               onClick={(e) => {
                 e.preventDefault();
