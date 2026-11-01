@@ -1,13 +1,16 @@
 /**
- * Renders the iOS app icon (1024², opaque) and launch splash (2732²) into ios/App/App/Assets.xcassets. The mark is
+ * Renders the iOS app icon (1024², opaque) and launch splash (2732²) into ios/App/App/Assets.xcassets, and the
+ * website's icons (favicon.svg, apple-touch-icon and the web-app-manifest sizes) into public/icons. The mark is
  * "Mach 0": an italic neon zero broken by a speed streak with a bright dart at its tip. The splash is shown
  * aspect-fill, so a landscape iPhone sees only the middle ~1260 px band: the mark and wordmark stay inside it.
  * Run: npm run ios:art
  */
+import { writeFileSync } from 'node:fs';
 import { chromium } from '@playwright/test';
 
 const ICON = 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png';
 const SPLASH = 'ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png';
+const WEB = 'public/icons';
 
 const DEFS = `
   <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
@@ -47,7 +50,8 @@ const STREAKS = [180, 270, 760, 850]
 const svg = (body, size) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="${size}" height="${size}"><defs>${DEFS}</defs>${body}</svg>`;
 
-const iconPage = `<body style="margin:0">${svg(`<rect width="1024" height="1024" fill="url(#bg)"/>${STREAKS}${MARK}`, 1024)}</body>`;
+const ICON_BODY = `<rect width="1024" height="1024" fill="url(#bg)"/>${STREAKS}${MARK}`;
+const iconPage = (size) => `<body style="margin:0">${svg(ICON_BODY, size)}</body>`;
 
 const splashPage = (size) => `<!doctype html><html><head><style>
   html, body { margin: 0; width: ${size}px; height: ${size}px; overflow: hidden; }
@@ -60,10 +64,20 @@ const splashPage = (size) => `<!doctype html><html><head><style>
     color: #19f0ff; text-shadow: 0 0 12px #19f0ff; }
 </style></head><body>${svg(MARK, 760)}<div class="word">MACHZERO</div><div class="tag">ANTI-GRAVITY RACING</div></body></html>`;
 
+// Browser tab icon: the same artwork as vector, rounded like an app icon.
+writeFileSync(
+  `${WEB}/favicon.svg`,
+  svg(`<clipPath id="r"><rect width="1024" height="1024" rx="228"/></clipPath><g clip-path="url(#r)">${ICON_BODY}</g>`, 1024).replace(/ width="1024" height="1024">/, '>') + '\n',
+);
+console.log(`${WEB}/favicon.svg`);
+
 const browser = await chromium.launch();
 for (const [size, html, path] of [
-  [1024, iconPage, ICON],
+  [1024, iconPage(1024), ICON],
   [2732, splashPage(2732), SPLASH],
+  [180, iconPage(180), `${WEB}/apple-touch-icon.png`],
+  [192, iconPage(192), `${WEB}/icon-192.png`],
+  [512, iconPage(512), `${WEB}/icon-512.png`],
 ]) {
   const p = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
   await p.setContent(html);
