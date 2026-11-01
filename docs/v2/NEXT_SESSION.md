@@ -1,44 +1,41 @@
-# Next-session brief — build MachZero 2.0 (milestones M4 → M8; M0–M3 done)
+# Next-session brief — build MachZero 2.0 (next: M4c Orbital Ring → §P Powerups → §GP Grand Prix)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-10-05, M4a and M4b in review, M4c next)
+## Where things stand (2026-11-01: M0–M4b, perf, controller and the iOS app merged; next is M4c → §P → §GP)
 
-- **The live site is 2.0 through M3** at https://machzero.netlify.app.
-  - Netlify site `machzero` is connected to `NCSTATEPACK16/MachZero`. Each merge to `main` deploys, and each PR gets a deploy preview at `https://deploy-preview-<N>--machzero.netlify.app`.
-  - `main` has profiles, menus, settings, quality presets, Blender ships, the garage, the livery editor, Neon Bay and Sunset Mesa, and world select.
-- **The 2.0 design is agreed and merged:**
-  - `docs/v2/SPEC.md` (what and why)
-  - `docs/v2/IMPLEMENTATION.md` (how, milestone by milestone, pinned to v1's files)
+- **The live site** is https://machzero.netlify.app. Every merge to `main` deploys there, and every PR gets a preview at `https://deploy-preview-<N>--machzero.netlify.app`.
+- **The iOS app** (Capacitor 8, `ios/App`, bundle `com.ncstatepack16.machzero`) is on TestFlight.
+  - The user tested on an iPhone 18 Pro Max (also an iPad Air 11") with an 8BitDo pad in X-input mode, and was happy with it ("looks great", steady 60 fps).
+  - **Every PR must work on both the web and iOS, and end with the iOS build command** (IMPLEMENTATION §0 rule 9). Guide: `docs/IOS_TESTFLIGHT.md`.
+- **Merged into `main`:**
+  - M0–M3: #2–#9.
+  - **M4a Cryo Station (#13), M4b Jade Ruins (#14).**
+  - **#15:** 60 fps work. Shader warm-up, dynamic resolution, the `?perf=1` / Settings perf panel.
+  - **#16:** controller polish. Pad prompts, pause on disconnect, pad-driven pause and results panels, random callsigns.
+  - **#17:** the iOS shell. Controller-first native setup, haptics, icon, splash.
+  - **#18:**
+    - the Mach 0 app icon;
+    - visible pad focus ring and spatial d-pad/stick menu navigation with hold-to-repeat;
+    - Rookie CPUs at 90% pace with no catch-up, and a CPU difficulty picker;
+    - wall and ship damage halved;
+    - **the EMP item**.
+- **Open:** **#19**, the website Mach 0 favicon, touch icon and manifest, plus these spec updates.
+- **Flags on `main`:** `profiles`, `garage` and `worlds` are on; `tiers`, `music`, `touch` and `modes` are off. Note: since #18 the tier comes from the profile whatever the `tiers` flag says.
+- **Tests:** 312 unit and integration tests, including every race sim (about 21 s locally), and 8 Playwright tests (smoke, menus ×3, garage ×2, controller ×2). Keep every test under 60 s.
 
-  Every design decision in them was settled in a design interview with the user. **Do not re-open them.** Ask the user only when something genuinely isn't covered.
-- **Done and merged into `main`** (merge commits, in order). Each milestone in IMPLEMENTATION.md has **as-built notes**; read M1's and M2's before coding.
-  - **M0:** PR #2. CI (`verify` + `smoke`), Netlify, size budgets, Playwright, feature flags, `CODEBASE.md`.
-  - **M1:** PRs #3, #4, #5. Per-ship stats, 6 chassis, 8-ship field, App + RaceSession, saves, settings, Preact menus, quality presets.
-  - **M2:** PRs #6, #7. The Blender asset pipeline, GLB ships and parts, economy and credits, the garage with a turntable, and the livery editor.
-- **Flags on `main`:** `profiles`, `garage` and `worlds` are on. `tiers`, `music`, `touch` and `modes` are off.
-- **Tests:**
-  - 188 unit/integration tests. They include the 3-lap headless race sims (v1 4-ship; 8-ship at rookie, pilot and legend fits), the corkscrew hold test, the parts sim (Prototype engine beats stock), the asset validator, economy, garage stat bars, save migrations and the RaceSession lifecycle.
-  - 6 Playwright tests:
-    - smoke;
-    - menus by keyboard, gamepad and touch (asserts no main-thread task ≥ 2 s);
-    - garage buy, fit, paint, persist and race;
-    - turntable and race-rebuild GPU-memory leak checks.
-  - Read `docs/TDD.md` §7 before touching `physics/ShipController.ts`: it records four hard-won physics invariants.
-- **M3:** PR #9 (one PR for the whole milestone, at the user's request). Authored tracks, jumps, Neon Bay + Sunset Mesa, world themes and props, world select; turns `worlds` on. Read M3's as-built notes in IMPLEMENTATION.md.
-- **Test-time rule (user, 2026-10-03):** keep every test under 60 s and the suite fast; leave visual checks to human playtesting (no screenshot loops). The full `npm test` runs in ~14 s locally. The in-app browser preview rendering the game saturates this Mac's CPU — stop it before timing tests.
-- **Design decisions for M4 and M5 (grilling session, 2026-10-04):** recorded at the top of IMPLEMENTATION.md §M4 and §M5. They are settled; don't re-open them. In short: M4 is three stacked PRs (M4a Cryo Station with the hazard framework, M4b Jade Ruins, M4c Orbital Ring), then M5 is one PR. The pipe is a real tube, the split path is a real branch, the loop holds at any speed, and debris is solid on every preset.
-- **M4a, Cryo Station:** PR [#13](https://github.com/NCSTATEPACK16/MachZero/pull/13) (`v2/m4a-cryo-station`), CI green, **waiting for the user's playtest and merge**. It adds the full-pipe, ice patches, `HazardPolicy` (`?hazards=rookie`), AI ice/pipe awareness, the Cryo theme and props, and builds the world. Its as-built notes are in IMPLEMENTATION.md §M4. Preview: https://deploy-preview-13--machzero.netlify.app/?features=all
-- **M4b, Jade Ruins:** PR [#14](https://github.com/NCSTATEPACK16/MachZero/pull/14) (`v2/m4b-jade-ruins`), stacked on #13, **waiting for the user's playtest and merge**. It adds the split path (branch, routes, lateral-aware progress), the stone gates (`hazard:gate`, `PhysicsSystem.hazardTime/resetTime`, `TrackData.animateHazards`, `FrameContext.hazardTime`), AI routes and gate awareness (`track/TrackRoute.ts`, `AIDriver` `hazardClock`), the Jade theme and props, and builds the world. Its as-built notes are in IMPLEMENTATION.md §M4; read them before M4c (mines and debris reuse the gate pattern: kinematic bodies on the hazard clock, told apart by collider handle, policy-aware hits). Preview: https://deploy-preview-14--machzero.netlify.app/?features=all&world=jade-ruins
-- **Then M4c** (Orbital Ring), **then M5** (one PR). Their decisions are in IMPLEMENTATION.md §M4/§M5.
-- **Local machine load:** during the last session this Mac sat at load average 20–37 from other apps. Wall-clock asserts (track generation < 1.5 s, `project()` timing) and the Playwright specs timed out locally, yet passed alone and on CI. Check `uptime` before trusting a local failure; CI is the reference.
-- **Logged for later sessions:** M6 audio ([#10](https://github.com/NCSTATEPACK16/MachZero/issues/10)), M7 touch/comfort ([#11](https://github.com/NCSTATEPACK16/MachZero/issues/11)) and M8 progression/modes ([#12](https://github.com/NCSTATEPACK16/MachZero/issues/12)). Each issue lists its scope, done-when criteria and the design gaps to resolve in a grilling session before building (M6 song content, M8 tutorial script and world map look).
-- **How to add a world:** author tracks with `npm run tracks:design` (segments in `scripts/track-design.mjs`), add a theme in `graphics/themes/`, and add props in `blender/props/build_props.py`.
+## Next (specs settled 2026-11-01; build in this order, one PR each)
 
-## M4c next (Orbital Ring)
+1. **M4c, Orbital Ring:** IMPLEMENTATION §M4, "M4c, Orbital Ring: design decisions", plus the 2026-10-04 decisions above it.
+   - Branch `v2/m4c-orbital-ring` from `main`.
+   - Test-first: a loop hold sim like `sim/pipe.hold.sim.test.ts`, the Orbital world sims, and a mine/debris determinism check in `sim/hazards.sim.test.ts`.
+   - Model mines and debris on the stone gates (`track/features/gate.ts`: timeline and pose shared by physics, visuals via `animateHazards`, and the AI via `hazardClock`).
+   - Write the mine so the Drop Mine item can reuse it.
+2. **§P, Powerups:** Shield, Drop Mine, item select, CPU items. IMPLEMENTATION §P.
+3. **§GP, Grand Prix cups:** IMPLEMENTATION §GP. It starts `game/modes/`.
 
-Branch `v2/m4c-orbital-ring` off `v2/m4b-jade-ruins` (stack on #14 if it is still open). Scope and decisions: IMPLEMENTATION.md §M4 (loop that holds at any speed, low-g jumps with `airGravityScale` 0.35, mines on Lissajous paths, solid debris on every preset, Earth/atmosphere/station theme). Test-first: a loop hold sim like `sim/pipe.hold.sim.test.ts`, then the Orbital world sims and a mines/debris determinism check in `sim/hazards.sim.test.ts`. Model mines and debris on the gates: `track/features/<hazard>.ts` timeline + pose shared by physics, visuals (`animateHazards`) and the AI (`hazardClock`).
+**Left for future sessions (don't start without the user):** the rest of M5 (per-tier AI tuning, drafting, pilot intro cards, Legend in the picker), M6 audio (#10), M7 touch and comfort (#11), and the rest of M8 (World Tour, Time Trial, ghosts, polish; #12). Also more scenery for the existing worlds. M6, M7 and M8 need a design session first.
 
 ## Environment facts (already verified; don't rediscover)
 
@@ -59,7 +56,7 @@ Branch `v2/m4c-orbital-ring` off `v2/m4b-jade-ruins` (stack on #14 if it is stil
 
 ```
 You are the Principal Engineer building MachZero 2.0, a Three.js + Rapier + Vite anti-gravity racer (F-Zero-like)
-in /Users/johnbradner/Documents/ClaudeWork/MachZero. v1 is live at https://machzero.netlify.app.
+in /Users/johnbradner/Documents/ClaudeWork/MachZero. It is live at https://machzero.netlify.app and on TestFlight as an iOS app.
 
 READ FIRST, in this order, before writing any code:
   1. docs/v2/NEXT_SESSION.md: current state and verified environment facts. Trust them; don't rediscover.
@@ -68,10 +65,15 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: finish M4 (M4c Orbital Ring), then M5, in order, as far as this session allows, each shippable on its own.
-M0–M3 are merged; M4a is PR #13 and M4b is PR #14; M6–M8 are logged as issues #10–#12 and need a design session first.
+GOAL: build M4c Orbital Ring, then §P Powerups, then §GP Grand Prix cups (IMPLEMENTATION.md), in order, as far as this
+session allows, each its own PR and shippable on its own. Everything up to #18 is merged. The rest of M5, and M6–M8,
+are for future sessions and need the user first.
 
 HOW TO WORK (agreed with the user; follow exactly):
+- Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play
+  and safe areas, and end every PR hand-off with the preview URL plus this iOS build command:
+  cd /Users/johnbradner/Documents/ClaudeWork/MachZero && git checkout main && git pull && npm ci && npm run ios:sync && npm run ios:open
+  (then in Xcode: Any iOS Device (arm64) → Product → Archive → Distribute App → App Store Connect → Upload).
 - You (Opus) implement everything yourself, sequentially. No parallel Sonnet builders. Sub-agents only for
   read-only lookups or an optional second-opinion review of a finished PR.
 - One branch per milestone (split big ones such as M1 into sub-PRs): v2/m<N>-<slug>. Open a PR into main with
@@ -110,6 +112,6 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green. If #13/#14 were merged, branch M4c from main;
-otherwise stack it on v2/m4b-jade-ruins. Then build M4c (see "M4c next"), then M5.
+Start by confirming the open PRs' state (gh pr list) and that main is green. Branch M4c from main (rebase
+onto #19 is not needed; it only touches the website icons and docs). Then build M4c, then §P, then §GP.
 ```

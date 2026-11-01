@@ -32,6 +32,16 @@ Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating 
 6. **Library docs:** confirm current APIs through Context7 before using them. That covers three.js r186 addons, Rapier 0.21, Preact and Signals, `@gltf-transform`, Playwright and the Web Audio details.
 7. **Local dev port:** 5173 is taken on this machine by another project, so use `npm run dev -- --port 5180`. `.claude/launch.json` already points there.
 8. **Performance budget is a feature.** Any new effect must declare how it scales across Low, Med and High (§M1.6).
+9. **Every PR ships to both targets: the Netlify site and the iOS app** (Capacitor, `ios/App`; see [`../IOS_TESTFLIGHT.md`](../IOS_TESTFLIGHT.md)).
+   - Check that changes work in the iOS WKWebView: controller-only play (8BitDo in X-input mode), safe areas, no on-screen keyboard popping up, offline assets.
+   - Note any iOS-only effects in the PR.
+   - **End every PR hand-off** with the deploy-preview URL **and** the iOS build command, so the user can choose to ship it to TestFlight:
+
+     ```
+     cd /Users/johnbradner/Documents/ClaudeWork/MachZero && git checkout main && git pull && npm ci && npm run ios:sync && npm run ios:open
+     ```
+
+     Then in Xcode: Any iOS Device (arm64) → Product → Archive → Distribute App → App Store Connect → Upload. The version stays 1.0.0 during TestFlight; `ios:sync` raises the build number.
 
 ---
 
@@ -435,7 +445,7 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
-## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards — 🚧 M4a (Cryo Station) in review (#13); M4b (Jade Ruins) in review; M4c to do
+## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards — ✅ M4a (#13) and M4b (#14) DONE; M4c (Orbital Ring) next
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
@@ -448,6 +458,17 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 - **Stone gates:** on the main road they slide across **half** the width, alternating sides, so there is always a way through. One gate can close the **whole** shortcut.
 - **Loop (Orbital):** built from the centre line, nudged sideways so it doesn't cross itself; the magnetic hold keeps the ship on at **any** speed (no minimum speed). Low-g jumps use `airGravityScale` 0.35.
 - **Debris:** solid kinematic obstacles on **every** preset (Low only draws simpler meshes), so the game plays the same on every device and the sims match.
+
+**M4c, Orbital Ring: design decisions (grilling session with the user, 2026-11-01; settled, don't re-open).** These add to the 2026-10-04 decisions above (loop at any speed, low-g 0.35, Lissajous mines, solid debris on every preset).
+
+- **Shape:** one loop-the-loop about 30 m tall, 2 low-gravity jumps, the pit strip and dash plates as usual, a lap of about 38–42 s at Pilot pace.
+- **Mine hit** (`hazard:mine`):
+  - Normal rules: a sideways and upward knock plus `CONFIG.MINE_DAMAGE` = **8 energy** (about a medium wall hit at the halved damage rates from PR #18).
+  - Rookie rules (`HazardPolicy`): no energy loss, velocity × 0.85, as for the stone gates.
+  - The mine reappears 6 s later. Mines are sensors on the hazard clock (`PhysicsSystem.hazardTime`), so the sims are deterministic.
+- **Layout:** two mine fields of 4–5 mines each and one debris field (a broken satellite section). **There is always a clear lane through** (the stone-gate rule).
+- **AI:** steers round mines and debris from the hazard timeline (`hazardClock`). Rookie CPUs keep a wider margin.
+- **Shared mine code:** the mine (pose, collider, hit handling, visual) is written so the **Drop Mine** item (§P below) reuses it: the same hit effect and visual, with a different spawn and lifetime.
 
 **As built — M4a, Cryo Station** (read before M4b):
 
@@ -499,11 +520,116 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
+## P — Powerups: Shield, Drop Mine, item select, CPU items (after M4c; one PR)
+
+**Design decisions (grilling session with the user, 2026-11-01; settled, don't re-open).**
+
+**Already shipped** (PR #18; read `src/content/items.ts` and `RaceSession.fireEmp`):
+- The **EMP**: 400 credits, bought in Garage → Items, carried over between races. Ⓨ / F fires it at the nearest racer ahead who is still racing (`RaceManager.racerAhead`).
+- Its effect: `ShipState.empSlow` (2.5 s at 70% pace) and `empLock` (5 s with no boost, and a running boost is cut). It isn't spent when there's no target.
+- Slots: 2, a 3rd at 3 wins, a 4th at 10 (`empSlots`).
+- Feedback: `item:emp` / `item:fail` events, the HUD chip, the "BOOST JAMMED" state, VFX (`Effects.empHit`), audio and haptics.
+
+**Scope of this PR:**
+- **Two new items** (no repair item; the pit does that job):
+  - **Shield** (300 credits):
+    - Switched on by the player; lasts until it blocks one hit or for 8 s, whichever comes first.
+    - Blocks **EMPs, track mines and dropped mines** only. It doesn't reduce wall or ship-to-ship damage.
+    - Visual: a glowing hexagon bubble round the ship with a hum; a crack and flash when it blocks something.
+    - HUD: a "🛡 SHIELD" chip state.
+  - **Drop Mine** (350 credits):
+    - Lands about 6 m behind the ship, at its position across the track, and stays armed for 20 s before fading out.
+    - The dropper can't hit it for the first 1.5 s.
+    - Hit effect is the same as a track mine (M4c): 8 energy plus a knock, or on Rookie rules no damage and × 0.85.
+    - At most 6 dropped mines on the track at once; the oldest disappears.
+    - The AI steers round dropped mines like track mines; Rookie CPUs are a little worse at it.
+  - **EMP:** stays at 400 credits.
+- **Shared slots:** one set of slots (2, then 3 and 4 as above), filled with any mix in Garage → Items.
+  - Save change: `Profile.items` becomes counts per kind (`{ emp, shield, mine }`), with a save migration.
+  - The sanitizer limits the total to the slot count.
+- **Choosing an item:**
+  - Controller: in a race, **d-pad left/right** picks the item (the d-pad has no race job today) and **Ⓨ** uses it.
+  - Keyboard: **C** cycles and **F** uses (`KeyControl` `itemNext`, alongside `item`).
+  - HUD: the item chip shows the selected item and the count of each.
+- **Garage only:** no item boxes on the track and no random draws.
+- **CPU items:**
+  - Rookie: none.
+  - Pilot: 1 random item per CPU per race.
+  - Ace and Legend: 2 random items each.
+  - The draw and the decisions use a seeded random stream, so the sims are reproducible.
+  - When they use them:
+    - **EMP** at the racer ahead, which can be the player.
+    - **Shield** when a rival closes in behind or an EMP warning is on them.
+    - **Drop Mine** on a straight with a rival close behind.
+- **Fairness when the player is the target:**
+  - A CPU EMP shows "⚠ EMP INCOMING" for **0.5 s** before it lands, so a Shield can be raised in time.
+  - A CPU can't EMP the same racer twice within **10 s**.
+  - The player's own EMP stays instant.
+- **No restrictions** on which items go into a Grand Prix beyond the slots; no restocking during a race.
+
+**Tests:**
+- **Items:** Shield blocks one EMP or mine and then pops; the Shield expires at 8 s; the Drop Mine's lifetime, 1.5 s grace for its owner and 6-mine limit; selection cycling.
+- **Saves:** the migration of per-kind counts.
+- **CPU items:** never on Rookie; seeded and reproducible (same race twice gives the same standings); the per-target EMP cooldown.
+- **e2e:** buy a Shield and a Drop Mine by pad, pick with the d-pad, use with Ⓨ.
+
+**Done when:**
+- All three items work for the player and for CPUs on Pilot and above.
+- The sims are green at Rookie and Legend fits with CPU items.
+- Garage → Items sells any mix.
+- The iOS app is checked with the 8BitDo (d-pad select, Ⓨ use).
+
+---
+
+## GP — Grand Prix cups (after §P; one PR; pulled forward from M8)
+
+**Design decisions (grilling session with the user, 2026-11-01; settled, don't re-open).** These add to SPEC §4.2:
+- 5 tracks, points 10‑8‑6‑5‑4‑3‑2‑1, tiebreak on best finish.
+- Retiring mid-cup costs that race's points, not the cup.
+- Cup bonus: 3000 × the tier multiplier for 1st overall.
+
+- **Unlocked from the start.** World Tour doesn't exist until M8; M8 adds SPEC's "clear World Tour world 5" lock.
+- **Track order:** world order (Neon Bay → Sunset Mesa → Cryo Station → Jade Ruins → Orbital Ring).
+- **Tier:** the profile's CPU difficulty (Settings → Race, PR #18), fixed for the cup.
+- **Saved after every race:** cup progress (races done, points and standings, the tier) is stored in the profile, so the iOS app can be closed between races.
+  - The main menu shows **CONTINUE CUP** while a cup is in progress.
+  - Save change: `Profile.cup` (with a save migration).
+- **No restarts mid-cup.**
+  - The pause menu hides RESTART during a cup (keyboard R does nothing either).
+  - **QUIT CUP** asks for confirmation, then ends the cup.
+  - A destroyed or retired player scores 0 for that race, and the cup goes on.
+- **Grid:**
+  - Race 1 uses the normal grid for the tier (Rookie puts the player at the back).
+  - From race 2, the grid is the **reverse of the cup standings**: the leader starts last. `buildRaceField` takes an explicit grid order.
+- **Between races:** a cup standings screen (points table with the movement since the last race; pad and touch friendly). From it you can **open the Garage** to buy items and parts, then go to the next race. Items carry over race to race.
+- **Credits:** every race pays its normal payout (× the tier multiplier), plus the cup bonus for 1st overall at the end.
+- **Trophies:** one per tier (Rookie, Pilot, Ace, Legend) per profile, for winning the cup. They show on the Grand Prix screen and the pilot card in the menu.
+  - Save change: `Profile.trophies`.
+- **Code shape:** start M8's `game/modes/` with `GrandPrix` (the cup state machine, points, grid and payouts as pure, tested functions), driving `RaceSession` setup and results. M8 later adds World Tour and Time Trial beside it.
+
+**Tests:**
+- **Unit:** points, the tiebreak, the reverse grid, the cup state across 5 races including a retire, the migration, and trophy awarding per tier.
+- **App level:** a headless cup run (5 short autopilot races, or results injected through `race:results`) that saves and resumes mid-cup.
+- **e2e:** start a cup, finish race 1 by autopilot, see the standings, reload, CONTINUE CUP.
+
+**Done when:**
+- A full cup can be played on web and iOS with only the pad.
+- Closing and reopening the app between races resumes the cup.
+- Trophies and the cup bonus are awarded.
+
+---
+
 ## M5 — AI tiers, pilots, drafting
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
-- **One PR**, after M4c.
+> **Partly shipped early (PR #18, after the first iPhone test):**
+> - **Picker:** Settings → Race → CPU DIFFICULTY (Rookie / Pilot / Ace) saves `Profile.aiTier`, and races use it. New profiles start on Rookie, and save v3 moved existing profiles to Rookie. M5 can move the picker to World Select as planned, or keep it in Settings, and must add Legend.
+> - **Pace:** `AI_PACE` in `core/config.ts` gives each tier a base thrust scale and a rubber-band range. Rookie is 0.90 with no catch-up; Pilot, Ace and Legend keep v1's band. M5's `content/tiers.ts` `paceScale` and `rubberBand` should replace `AI_PACE` and keep Rookie no slower than today: the user playtested 0.90 on iPhone and liked it.
+> - **CPU items** (EMP, Shield, Drop Mine) arrive with §P before M5.
+> - **Damage:** wall, scrape and ship-to-ship damage were halved in PR #18 at the user's request. Balance against those values.
+
+- **One PR**, after M4c, §P and §GP.
 - **Tier picker:** a 4-way toggle (Rookie, Pilot, Ace, Legend) on World Select, saved to the profile. New profiles default to Rookie. Rival parts follow the tier, as the field builder already does. Rookie switches on the Rookie `HazardPolicy`.
 - **Drafting** applies to every ship. Only the AI's eagerness to look for a draft depends on tier (Ace and Legend hunt for it).
 - **Pilot intro card:** before every race; it moves on after ≈ 3 s, and any input skips it.
@@ -581,7 +707,7 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 - **Modes** (`game/modes/*`) drive `RaceSession` setup and results handling:
   - **WorldTour:** unlock rules, per-tier trophies, credits.
-  - **GrandPrix:** 5 races, points 10‑8‑6‑5‑4‑3‑2‑1, cup standings screen between races, tiebreak on best finish.
+  - **GrandPrix:** built early in §GP above. M8 adds its unlock (World Tour world 5 cleared at any tier).
   - **TimeTrial:** solo, with ghosts and medals.
 - **Ghosts:**
   - `GhostRecorder` samples the pose at 20 Hz (position Float32 ×3 plus quaternion as smallest-three int16), about 20 KB per 3-lap run, and stores it in IndexedDB through `GhostStore`.
