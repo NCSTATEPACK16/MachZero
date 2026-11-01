@@ -157,7 +157,7 @@ describe('InputManager keyboard', () => {
   it('setBindings remaps driving keys', () => {
     const { win, target } = fakeWindow();
     const input = new InputManager(win);
-    input.setBindings({ throttle: ['KeyI'], brake: ['KeyK'], left: ['KeyJ'], right: ['KeyL'], airLeft: ['KeyU'], airRight: ['KeyO'], boost: ['KeyB'] });
+    input.setBindings({ throttle: ['KeyI'], brake: ['KeyK'], left: ['KeyJ'], right: ['KeyL'], airLeft: ['KeyU'], airRight: ['KeyO'], boost: ['KeyB'], item: ['KeyG'] });
     key(target, 'keydown', 'KeyW');
     expect(input.sample().throttle).toBe(0);
     key(target, 'keydown', 'KeyI');
@@ -355,7 +355,7 @@ describe('InputManager gamepad', () => {
     input.dispose();
   });
 
-  it('boost (X/Y) and menu buttons are edge-triggered', () => {
+  it('boost (X), EMP (Y) and menu buttons are edge-triggered', () => {
     const { win } = fakeWindow();
     const input = new InputManager(win);
     stubPad({ pressed: [2, 9, 0] });
@@ -372,9 +372,26 @@ describe('InputManager gamepad', () => {
     // Release and press again.
     stubPad({});
     input.update();
-    stubPad({ pressed: [3] });
+    stubPad({ pressed: [2] });
     input.update();
     expect(input.sample().boost).toBe(true);
+    // Y fires the EMP (once per press) and no longer boosts.
+    stubPad({ pressed: [3] });
+    input.update();
+    const c = input.sample();
+    expect(c.fire).toBe(true);
+    expect(c.boost).toBe(false);
+    input.update();
+    expect(input.sample().fire).toBe(false);
+    input.dispose();
+  });
+
+  it('the item key (F by default) fires the EMP once per press', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    key(target, 'keydown', 'KeyF');
+    expect(input.sample().fire).toBe(true);
+    expect(input.sample().fire).toBe(false);
     input.dispose();
   });
 

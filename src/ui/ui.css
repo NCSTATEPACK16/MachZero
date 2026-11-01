@@ -917,6 +917,34 @@ html.mz-pad .mzu-card-del:focus {
 .mzu-garage-head .mzu-titles {
   flex: 1;
 }
+.mzu-emp {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin: 0.8em 0;
+  padding: 0.9em 1.1em;
+  border: 1px solid rgba(111, 184, 255, 0.5);
+  background: rgba(111, 184, 255, 0.08);
+}
+.mzu-emp .mzu-choice-name {
+  color: #cfe8ff;
+}
+.mzu-emp-pips {
+  display: flex;
+  gap: 0.4em;
+  margin-right: auto;
+}
+.mzu-emp-pips span {
+  width: 1.4em;
+  height: 0.6em;
+  transform: skewX(-12deg);
+  border: 1px solid rgba(111, 184, 255, 0.6);
+}
+.mzu-emp-pips span.on {
+  background: #6fb8ff;
+  box-shadow: 0 0 0.6em rgba(111, 184, 255, 0.8);
+}
 .mzu-credits {
   display: flex;
   align-items: center;

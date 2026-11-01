@@ -1,5 +1,5 @@
 /**
- * Garage (feature `garage`): pick a chassis, buy and fit parts, paint the ship. The turntable is WebGL,
+ * Garage (feature `garage`): pick a chassis, buy and fit parts, paint the ship, stock up on EMPs. The turntable is WebGL,
  * drawn by GraphicsSystem into the transparent stage element; hovering or focusing an option previews it on
  * the turntable and as ghost stat bars. Chassis are free, parts cost credits, nothing can be sold.
  */
@@ -8,15 +8,18 @@ import type { App } from '../../app/App';
 import type { Loadout, PartSlot, PartTier } from '../../core/contracts';
 import { owns, partPrice } from '../../content/economy';
 import { PART_EFFECTS, PART_SLOTS, PART_TIERS, SLOT_BLURBS, SLOT_NAMES, TIER_NAMES } from '../../content/parts';
+import { EMP_PRICE, empSlots, nextEmpSlotAt } from '../../content/items';
 import { CHASSIS, CLASS_LABEL, chassisById } from '../../content/ships';
+import { CONFIG } from '../../core/config';
 import { focusFirst, onUiKeyDown } from '../nav';
 import { statBars } from '../garageModel';
 
-type Tab = 'ship' | PartSlot | 'paint';
+type Tab = 'ship' | PartSlot | 'paint' | 'items';
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'ship', label: 'SHIP' },
   ...PART_SLOTS.map((s) => ({ id: s as Tab, label: SLOT_NAMES[s].toUpperCase() })),
   { id: 'paint', label: 'PAINT' },
+  { id: 'items', label: 'ITEMS' },
 ];
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -260,6 +263,41 @@ function PaintTab({ app }: { app: App }) {
   );
 }
 
+function ItemsTab({ app }: { app: App }) {
+  const p = app.activeProfile.value!;
+  const slots = empSlots(p);
+  const have = p.items.emp;
+  const full = have >= slots;
+  const short = !full && p.credits < EMP_PRICE;
+  const next = nextEmpSlotAt(p);
+  const buy = () => {
+    const r = app.buyEmp();
+    if (r === 'bought') app.toast(`EMP ready (${have + 1}/${slots}).`, 'good');
+    else if (r === 'full') app.toast('Every EMP slot is full.', 'info');
+    else app.toast(`Win races to earn ${fmt(EMP_PRICE - p.credits)} more credits.`, 'info');
+  };
+  return (
+    <div class="mzu-section">
+      <p class="mzu-note">
+        Fire with Ⓨ or F to hit the racer directly ahead: {Math.round((1 - CONFIG.EMP_SLOW) * 100)}% slower for {CONFIG.EMP_SLOW_TIME} s and no boost for{' '}
+        {CONFIG.EMP_LOCK_TIME} s. Unused EMPs carry over to your next race.
+      </p>
+      <div class="mzu-emp">
+        <span class="mzu-choice-name">⚡ EMP</span>
+        <span class="mzu-emp-pips" aria-label={`${have} of ${slots} slots filled`}>
+          {Array.from({ length: slots }, (_, i) => (
+            <span class={i < have ? 'on' : ''} />
+          ))}
+        </span>
+        <button type="button" class={`mzu-chip${full || short ? '' : ' go'}`} data-autofocus onClick={buy} aria-disabled={full || short}>
+          {full ? 'SLOTS FULL' : `BUY · ${fmt(EMP_PRICE)} CREDITS`}
+        </button>
+      </div>
+      <p class="mzu-note dim">{next === null ? 'All EMP slots unlocked.' : `Slot ${slots + 1} unlocks at ${next} wins (you have ${p.stats.wins}).`}</p>
+    </div>
+  );
+}
+
 function ConfirmBuy({ slot, tier, credits, onYes, onNo }: { slot: PartSlot; tier: PartTier; credits: number; onYes: () => void; onNo: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -388,7 +426,8 @@ export function Garage({ app }: { app: App }) {
           <div class="mzu-garage-body">
             {tab === 'ship' ? <ShipTab app={app} loadout={loadout} setPreview={setPreview} /> : null}
             {tab === 'paint' ? <PaintTab app={app} /> : null}
-            {tab !== 'ship' && tab !== 'paint' ? <PartTab app={app} slot={tab} setPreview={setPreview} onBuy={(slot, tier) => {
+            {tab === 'items' ? <ItemsTab app={app} /> : null}
+            {tab !== 'ship' && tab !== 'paint' && tab !== 'items' ? <PartTab app={app} slot={tab} setPreview={setPreview} onBuy={(slot, tier) => {
                   opener.current = document.activeElement as HTMLElement | null;
                   setBuying({ slot, tier });
                 }} /> : null}

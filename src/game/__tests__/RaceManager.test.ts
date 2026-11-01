@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG } from '../../core/config';
+import { AI_PACE, CONFIG } from '../../core/config';
 import type { ShipId, ShipState, TrackData } from '../../core/contracts';
 import { RaceManager } from '../RaceManager';
 import { makeBus, makeCircleTrack, makeShip, placeShip, type Recorded } from './helpers';
@@ -283,5 +283,18 @@ describe('RaceManager finish, retire and results', () => {
     expect(r.ships[2].thrustScale).toBeGreaterThan(1);
     expect(r.ships[2].thrustScale).toBeLessThanOrEqual(CONFIG.AI_RUBBER_BAND_MAX + 1e-9);
     expect(r.player.thrustScale).toBe(1);
+  });
+
+  it('Rookie rivals run slower and never rubber-band above their base pace', () => {
+    const r = rig();
+    for (const sh of r.ships) if (!sh.def.isPlayer) sh.def.tier = 'rookie';
+    goRacing(r);
+    for (let i = 0; i < 600; i++) {
+      r.player.trackU = (0.99 + Math.min(i, 100) * 0.002) % 1; // player pulls 0.2 laps clear
+      r.ships[1].trackU = 0.99; // stuck behind
+      r.race.fixedUpdate(DT);
+    }
+    expect(r.ships[1].thrustScale).toBeCloseTo(AI_PACE.rookie.base, 2);
+    expect(AI_PACE.rookie.base * AI_PACE.rookie.max).toBeLessThan(1);
   });
 });

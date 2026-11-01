@@ -1,10 +1,11 @@
 import { Vector3 } from 'three';
-import { CONFIG } from '../core/config';
+import { AI_PACE, CONFIG } from '../core/config';
 import type {
   IRaceManager,
   RaceSnapshot,
   RaceState,
   RacerStanding,
+  ShipId,
   ShipState,
   TrackData,
   TrackSample,
@@ -260,11 +261,26 @@ export class RaceManager implements IRaceManager {
     this.bus.emit('race:state', { state: next, prev });
   }
 
+  /** The nearest racer ahead of `id` in the standings that is still racing (the EMP target), or null. */
+  racerAhead(id: ShipId): ShipState | null {
+    this.updateStandings();
+    const i = this.sorted.findIndex((s) => s.id === id);
+    for (let j = i - 1; j >= 0; j--) {
+      const st = this.sorted[j];
+      if (st.status !== 'racing') continue;
+      const r = this.racers.find((x) => x.ship.def.id === st.id);
+      if (r) return r.ship;
+    }
+    return null;
+  }
+
   private resetShipFields(): void {
     for (const r of this.racers) {
       r.ship.status = 'grid';
       r.ship.boostUnlocked = false;
       r.ship.thrustScale = 1;
+      r.ship.empSlow = 0;
+      r.ship.empLock = 0;
     }
   }
 
@@ -402,12 +418,14 @@ export class RaceManager implements IRaceManager {
         r.ship.thrustScale = 1;
         continue;
       }
-      let target = 1;
+      const pace = AI_PACE[r.ship.def.tier ?? 'pilot'];
+      let band = 1;
       if (playerRacing) {
         const gap = (r.progress - player.progress) * this.track.length; // + = AI ahead
         const k = smoothstep(RUBBER_DEAD_ZONE, RUBBER_RANGE, Math.abs(gap));
-        target = gap < 0 ? 1 + (CONFIG.AI_RUBBER_BAND_MAX - 1) * k : 1 - (1 - CONFIG.AI_RUBBER_BAND_MIN) * k;
+        band = gap < 0 ? 1 + (pace.max - 1) * k : 1 - (1 - pace.min) * k;
       }
+      const target = pace.base * band;
       r.ship.thrustScale = damp(r.ship.thrustScale, target, RUBBER_RATE, dt);
     }
   }

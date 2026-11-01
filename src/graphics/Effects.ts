@@ -395,6 +395,18 @@ export class Effects {
     this.spawnRing(this.v2, model.visQuat, 9, 0.4, 1.6, 2.6, 3.2, 0.9);
   }
 
+  /** EMP hit: electric-blue shock rings and a crackle of sparks around the ship. */
+  empHit(model: ShipModel): void {
+    this.spawnPoint(model.pos.x, model.pos.y, model.pos.z, 0, 0, 0, 0.35, 10, 14, 1.2, 2.4, 4, 0.9, 1.8, 3.2, 0.9, 0);
+    for (let i = 0; i < 28; i++) {
+      this.v3.set(rs(), rs() * 0.6, rs()).normalize();
+      const sp = 10 + rnd() * 30;
+      this.spawnSpark(model.pos.x, model.pos.y, model.pos.z, this.v3.x * sp, this.v3.y * sp, this.v3.z * sp, 0.25 + rnd() * 0.3, 0.9, 2.0, 3.6, 1.2, 0, 0.05);
+    }
+    this.spawnRing(model.pos, model.visQuat, 8, 0.5, 0.9, 1.9, 3.4, 0.95);
+    this.spawnRing(model.pos, model.visQuat, 12, 0.8, 0.5, 1.2, 2.6, 0.6);
+  }
+
   /** Fireball, embers, debris and shock rings at a destroyed ship. */
   explosion(pos: THREE.Vector3, shipVel: THREE.Vector3 | null): void {
     const ix = shipVel ? shipVel.x * 0.5 : 0;

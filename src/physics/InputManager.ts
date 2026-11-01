@@ -20,6 +20,7 @@ const DEFAULT_CODE_TO_CONTROL: Readonly<Record<string, KeyControl>> = {
   Space: 'boost',
   ShiftLeft: 'boost',
   ShiftRight: 'boost',
+  KeyF: 'item',
 };
 
 /** KeyboardEvent.code -> menu actions triggered on key-down. */
@@ -154,6 +155,7 @@ export class InputManager implements IInputManager {
   private codeToControl: Record<string, KeyControl> = { ...DEFAULT_CODE_TO_CONTROL };
   private readonly pending = new Int32Array(MENU_ACTIONS.length);
   private boostLatch = false;
+  private fireLatch = false;
   private disposed = false;
 
   private kbSteer = 0;
@@ -165,6 +167,7 @@ export class InputManager implements IInputManager {
   private padAirLeft = 0;
   private padAirRight = 0;
   private padBoostHeld = false;
+  private padFireHeld = false;
   private readonly padPrevButtons = new Uint8Array(16);
   /** Per NAV_DIRS: direction held (d-pad or stick), seconds held, and when it next repeats. */
   private readonly navDown = new Uint8Array(NAV_DIRS.length);
@@ -196,6 +199,8 @@ export class InputManager implements IInputManager {
     const kbBrake = this.isHeld('brake') ? 1 : 0;
     const boost = this.boostLatch;
     this.boostLatch = false;
+    const fire = this.fireLatch;
+    this.fireLatch = false;
 
     const steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
     return {
@@ -205,6 +210,7 @@ export class InputManager implements IInputManager {
       airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft),
       airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight),
       boost,
+      fire,
     };
   }
 
@@ -247,6 +253,7 @@ export class InputManager implements IInputManager {
     this.target.removeEventListener('blur', this.onBlur);
     this.held.clear();
     this.boostLatch = false;
+    this.fireLatch = false;
     this.pending.fill(0);
   }
 
@@ -298,6 +305,7 @@ export class InputManager implements IInputManager {
     if (control !== undefined) {
       this.held.add(code);
       if (control === 'boost') this.boostLatch = true;
+      if (control === 'item') this.fireLatch = true;
     }
     if (menu !== undefined) {
       for (const action of menu) this.press(action);
@@ -314,6 +322,7 @@ export class InputManager implements IInputManager {
   private readonly onBlur = (): void => {
     this.held.clear();
     this.boostLatch = false;
+    this.fireLatch = false;
     this.kbSteer = 0;
   };
 
@@ -331,6 +340,7 @@ export class InputManager implements IInputManager {
       this.padAirLeft = 0;
       this.padAirRight = 0;
       this.padBoostHeld = false;
+      this.padFireHeld = false;
       this.padPrevButtons.fill(0);
       this.navDown.fill(0);
       return;
@@ -355,9 +365,12 @@ export class InputManager implements IInputManager {
     this.padAirLeft = down(PAD.LB) ? 1 : 0;
     this.padAirRight = down(PAD.RB) ? 1 : 0;
 
-    const boostHeld = down(PAD.X) || down(PAD.Y);
+    const boostHeld = down(PAD.X);
     if (boostHeld && !this.padBoostHeld) this.boostLatch = true;
     this.padBoostHeld = boostHeld;
+    const fireHeld = down(PAD.Y);
+    if (fireHeld && !this.padFireHeld) this.fireLatch = true;
+    this.padFireHeld = fireHeld;
 
     // Menu edges from buttons.
     this.padEdge(PAD.START, down(PAD.START), 'pause');

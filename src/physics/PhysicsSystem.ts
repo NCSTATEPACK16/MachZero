@@ -214,6 +214,8 @@ export class PhysicsSystem implements IPhysicsSystem {
       status: 'grid',
       boostUnlocked: false,
       thrustScale: 1,
+      empSlow: 0,
+      empLock: 0,
     };
 
     const controller = new ShipController(this.world, this.track, this.bus, state, body, collider);

@@ -30,6 +30,10 @@ export interface GameEvents {
   'hazard:gate': { shipId: ShipId; gate: number; point: THREE.Vector3 };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */
   'ship:land': { shipId: ShipId; intensity: number };
+  /** An EMP fired by `from` hit `target` (the racer directly ahead). */
+  'item:emp': { from: ShipId; target: ShipId; targetName: string };
+  /** An EMP could not fire: none left, or nobody racing ahead. */
+  'item:fail': { shipId: ShipId; reason: 'empty' | 'noTarget' };
   /** App → HUD/Audio: credits paid to the player's profile at the results. */
   'economy:credits': { delta: number; total: number };
   /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */

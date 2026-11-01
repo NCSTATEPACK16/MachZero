@@ -12,6 +12,7 @@ import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
+import { buyEmp, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
@@ -277,6 +278,18 @@ export class App {
     this.updateProfile((p) => (p.loadout.livery = { ...livery }));
   }
 
+  /** Buy one EMP for the active profile. */
+  buyEmp(): ItemPurchase {
+    let result: ItemPurchase = 'short';
+    this.updateProfile((p) => (result = buyEmp(p)), () => result === 'bought');
+    return result;
+  }
+
+  /** CPU difficulty for the active profile's next race. */
+  setAiTier(tier: AITier): void {
+    this.updateProfile((p) => (p.aiTier = tier));
+  }
+
   /** Garage turntable: draw `loadout` into `el`, or stop with null. */
   showShipPreview(el: HTMLElement | null, loadout: Loadout | null): void {
     this.graphics.showPreview(el, loadout);
@@ -482,8 +495,7 @@ export class App {
   }
 
   private raceTier(p: Profile | null): AITier {
-    // AI tiers arrive in M5; until then every race uses stock rivals (v1 difficulty).
-    return this.features.tiers && p ? p.aiTier : 'rookie';
+    return p?.aiTier ?? 'rookie';
   }
 
   private raceSetup(): RaceSetup {
@@ -495,7 +507,11 @@ export class App {
     });
     // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
     const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
-    const base = { field, autopilot: this.flags.autopilot, hazards };
+    // EMPs come from the live profile; one fired is spent from the save at once (a restart does not refill it).
+    const items = p
+      ? { count: () => this.activeProfile.value?.items.emp ?? 0, use: () => this.updateProfile((q) => (q.items.emp = Math.max(0, q.items.emp - 1))) }
+      : undefined;
+    const base = { field, autopilot: this.flags.autopilot, hazards, items };
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {

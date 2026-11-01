@@ -1,4 +1,4 @@
-import type { ShipDefinition, ShipStats } from './contracts';
+import type { AITier, ShipDefinition, ShipStats } from './contracts';
 
 /**
  * Global tunables. Units: metres, seconds, radians, m/s, m/s².
@@ -69,9 +69,13 @@ export const CONFIG = {
   BOOST_COST: 14,
   BOOST_TIME: 1.6,
   PIT_RECHARGE_RATE: 30, // energy per second
-  RAIL_DAMAGE_PER_MS: 0.22, // energy per m/s of impact normal speed
-  SHIP_DAMAGE_PER_MS: 0.15,
+  RAIL_DAMAGE_PER_MS: 0.11, // energy per m/s of impact normal speed (halved after device testing)
+  SHIP_DAMAGE_PER_MS: 0.075,
   LOW_ENERGY_THRESHOLD: 25,
+  // --- EMP item: the ship hit runs at EMP_SLOW of its top speed / acceleration, and cannot boost ---
+  EMP_SLOW: 0.7,
+  EMP_SLOW_TIME: 2.5,
+  EMP_LOCK_TIME: 5,
   DASH_IMPULSE: 45, // m/s added along forward
   RAIL_RESTITUTION: 0.35,
 
@@ -91,6 +95,18 @@ export const CONFIG = {
   BLOOM_RADIUS: 0.55,
   BLOOM_THRESHOLD: 0.8,
 } as const;
+
+/**
+ * CPU pace per difficulty: rivals' thrust scale is `base` × a rubber band between `min` (well ahead of the player)
+ * and `max` (well behind). Rookie rivals are slower and never speed up to catch the player; the higher tiers are
+ * faster through their parts (RIVAL_FITS) and shortcuts, not here.
+ */
+export const AI_PACE: Readonly<Record<AITier, { base: number; min: number; max: number }>> = {
+  rookie: { base: 0.9, min: 0.92, max: 1 },
+  pilot: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
+  ace: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
+  legend: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
+};
 
 /** Rapier collision groups: membership in the high 16 bits, filter in the low 16. */
 export const GROUP_SURFACE = 1 << 0;

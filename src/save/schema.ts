@@ -6,9 +6,10 @@ import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartT
 import { CHASSIS, chassisById } from '../content/ships';
 import { PART_SLOTS } from '../content/parts';
 import { WORLDS } from '../content/worlds';
+import { type ItemBag, empSlots } from '../content/items';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -29,7 +30,7 @@ export interface Profile {
   badge: number;
   createdAt: number;
   assists: Assists;
-  /** Last AI tier picked (the default for the next race). */
+  /** CPU difficulty (Settings → Gameplay). */
   aiTier: AITier;
   credits: number;
   loadout: Loadout;
@@ -40,6 +41,8 @@ export interface Profile {
   /** Per track key: 'classic' (the v1 track), 'bonus-<seed>', or a world's track id. */
   records: Record<string, TrackRecord>;
   stats: { races: number; wins: number };
+  /** Items bought in the garage, carried into races (unused ones carry over). */
+  items: ItemBag;
 }
 
 export interface SettingsData {
@@ -67,7 +70,7 @@ export interface SaveData {
   settings: SettingsData;
 }
 
-export const KEY_CONTROLS: readonly KeyControl[] = ['throttle', 'brake', 'left', 'right', 'airLeft', 'airRight', 'boost'];
+export const KEY_CONTROLS: readonly KeyControl[] = ['throttle', 'brake', 'left', 'right', 'airLeft', 'airRight', 'boost', 'item'];
 
 /** v1 keyboard layout. */
 export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindings> = Object.freeze({
@@ -78,6 +81,7 @@ export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindings> = Object.freeze({
   airLeft: ['KeyQ'],
   airRight: ['KeyE'],
   boost: ['Space', 'ShiftLeft', 'ShiftRight'],
+  item: ['KeyF'],
 });
 
 /** Keys that always mean a menu action and can't be bound to driving. */
@@ -149,6 +153,7 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     world: WORLDS[0].id,
     records: {},
     stats: { races: 0, wins: 0 },
+    items: { emp: 0 },
   };
 }
 
@@ -215,19 +220,22 @@ function sanitizeProfile(v: unknown): Profile | null {
     }
   }
   const st = isObj(v.stats) ? v.stats : {};
+  const stats = { races: Math.floor(num(st.races, 0, 1e9, 0)), wins: Math.floor(num(st.wins, 0, 1e9, 0)) };
+  const it = isObj(v.items) ? v.items : {};
   return {
     id: v.id,
     name: cleanName(typeof v.name === 'string' ? v.name : '') || 'PILOT',
     badge: clampInt(v.badge, 0, BADGE_COUNT - 1, 0),
     createdAt: num(v.createdAt, 0, Number.MAX_SAFE_INTEGER, 0),
     assists: sanitizeAssists(v.assists),
-    aiTier: oneOf(v.aiTier, AI_TIERS, 'pilot'),
+    aiTier: oneOf(v.aiTier, AI_TIERS, 'rookie'),
     credits: Math.floor(num(v.credits, 0, 1e9, 0)),
     loadout,
     owned,
     world: typeof v.world === 'string' && WORLDS.some((w) => w.id === v.world && w.built) ? v.world : WORLDS[0].id,
     records,
-    stats: { races: Math.floor(num(st.races, 0, 1e9, 0)), wins: Math.floor(num(st.wins, 0, 1e9, 0)) },
+    stats,
+    items: { emp: Math.floor(num(it.emp, 0, empSlots({ stats }), 0)) },
   };
 }
 

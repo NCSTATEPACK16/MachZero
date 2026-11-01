@@ -69,6 +69,13 @@ describe('SaveStore', () => {
     expect(migrate({ version: SAVE_VERSION + 1 })).toBeNull();
   });
 
+  it('migrates v2: existing profiles race Rookie rivals (the tier was never applied before)', () => {
+    const p = createProfile('ACE', 0, 'classic');
+    expect(p.aiTier).toBe('pilot');
+    const out = migrate({ version: 2, profiles: [p], activeProfileId: p.id, settings: defaultSettings() }) as { profiles: Array<{ aiTier: string }> };
+    expect(out.profiles[0].aiTier).toBe('rookie');
+  });
+
   it('corrupt JSON gives safe defaults', () => {
     const mem = new MemStorage();
     mem.map.set(SAVE_KEY, '{"version":2,"profiles":[{"id":');
@@ -97,7 +104,7 @@ describe('SaveStore', () => {
     expect(p.name).toBe('SCRIPTX');
     expect(p.badge).toBe(0);
     expect(p.credits).toBe(0);
-    expect(p.aiTier).toBe('pilot');
+    expect(p.aiTier).toBe('rookie');
     expect(p.loadout.chassisId).toBe('comet');
     expect(p.loadout.parts.engine).toBe(0); // not owned → stock
     expect(p.owned.engine).toEqual([0]);

@@ -2,7 +2,7 @@
  * Shared headless 8-ship race on an authored world track (used by the per-world sim files, so they run in
  * parallel workers). Returns what the assertions need; no expectations here.
  */
-import { CONFIG } from '../core/config';
+import { AI_PACE, CONFIG } from '../core/config';
 import type { AITier, ControlInput, ShipId, ShipState, TrackData } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
@@ -79,6 +79,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
   race.start();
   while (t < MAX_SIM_SECONDS && race.state !== 'results') {
     for (const d of drivers) controls.set(d.shipId, d.update(dt));
+    ships[0].thrustScale = AI_PACE[tier].base; // the AI-driven "player" races at its rivals' pace
     const t0 = performance.now();
     physics.step(dt, controls);
     stepMs += performance.now() - t0;

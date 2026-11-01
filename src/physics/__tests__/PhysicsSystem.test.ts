@@ -32,6 +32,8 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'race:results': [],
     'audio:mute': [],
     'economy:credits': [],
+    'item:emp': [],
+    'item:fail': [],
     'ship:railHit': [],
     'ship:shipHit': [],
     'ship:boost': [],
@@ -240,6 +242,42 @@ describe('PhysicsSystem propulsion', () => {
     for (let i = 0; i < STEPS_PER_SECOND * 4; i++) rig.physics.step(DT, controls(0, { throttle: 1, boost: true }));
     expect(rig.events['ship:boost']).toHaveLength(1);
   });
+
+  it('an EMP lock cuts a running boost and refuses new ones until it wears off', async () => {
+    const rig = await makeRig();
+    const ship = addRacer(rig);
+    ship.status = 'racing';
+    ship.boostUnlocked = true;
+    rig.physics.step(DT, controls(0, { throttle: 1, boost: true }));
+    expect(ship.boosting).toBe(true);
+    ship.empLock = 0.5;
+    rig.physics.step(DT, controls(0, { throttle: 1, boost: false }));
+    expect(ship.boosting).toBe(false);
+    rig.physics.step(DT, controls(0, { throttle: 1, boost: true }));
+    expect(rig.events['ship:boost']).toHaveLength(1); // refused while locked
+    for (let i = 0; i < STEPS_PER_SECOND; i++) rig.physics.step(DT, controls(0, { throttle: 1, boost: false }));
+    expect(ship.empLock).toBe(0);
+    rig.physics.step(DT, controls(0, { throttle: 1, boost: true }));
+    expect(rig.events['ship:boost']).toHaveLength(2);
+  });
+
+  it('an EMP slow caps the ship well under its top speed while it lasts', async () => {
+    const run = async (slowed: boolean) => {
+      const rig = await makeRig();
+      const ship = addRacer(rig);
+      ship.status = 'racing';
+      let top = 0;
+      for (let i = 0; i < 10 * STEPS_PER_SECOND; i++) {
+        if (slowed) ship.empSlow = 1;
+        rig.physics.step(DT, controls(0, { throttle: 1, steer: autoSteer(ship, rig.track) }));
+        top = Math.max(top, ship.speed);
+      }
+      return top;
+    };
+    const free = await run(false);
+    const slowed = await run(true);
+    expect(slowed).toBeLessThan(free * (CONFIG.EMP_SLOW + 0.05));
+  });
 });
 
 describe('PhysicsSystem zones', () => {
@@ -331,7 +369,7 @@ describe('PhysicsSystem collisions', () => {
     const rig = await makeRig();
     const ship = addRacer(rig);
     ship.status = 'racing';
-    ship.energy = 3;
+    ship.energy = 1.5;
     const seconds = 10;
     for (let i = 0; i < seconds * STEPS_PER_SECOND; i++) rig.physics.step(DT, controls(0, { throttle: 1, steer: 0.25 }));
     expect(ship.energy).toBe(0);
