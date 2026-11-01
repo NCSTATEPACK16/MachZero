@@ -1,6 +1,6 @@
 /**
- * Native haptics in the iOS app (Capacitor): taps for the player's boost, wall and ship hits, landings and
- * gate hits, a heavy thump for a KO. Does nothing in a browser. Fires at most one impact per 60 ms so a
+ * Native haptics in the iOS app (Capacitor): taps for the player's boost, wall and ship hits, landings,
+ * gate hits and EMPs, a heavy thump for a KO. Does nothing in a browser. Fires at most one impact per 60 ms so a
  * scrape along a rail does not buzz continuously.
  */
 import { Capacitor } from '@capacitor/core';
@@ -43,6 +43,7 @@ export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: ()
     bus.on('ship:land', ({ shipId, intensity }) => shipId === playerId && intensity > 0.3 && tap('light')),
     bus.on('hazard:gate', ({ shipId }) => shipId === playerId && tap('heavy')),
     bus.on('ship:destroyed', ({ shipId }) => shipId === playerId && tap('heavy', true)),
+    bus.on('item:emp', ({ from, target }) => (from === playerId || target === playerId) && tap('medium', true)),
   ];
   return () => {
     for (const off of offs) off();

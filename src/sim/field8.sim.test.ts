@@ -3,7 +3,7 @@
  * Everyone must finish all laps without leaving the track, exploding or respawning more than once.
  */
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from '../core/config';
+import { AI_PACE, CONFIG } from '../core/config';
 import type { AITier, ControlInput, ShipId, ShipState } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
@@ -42,6 +42,7 @@ describe.each(TIERS)('8-ship race simulation (%s fits, v1 seed)', (tier) => {
     let t = 0;
     while (t < MAX_SIM_SECONDS && race.state !== 'results') {
       for (const d of drivers) controls.set(d.shipId, d.update(dt));
+      ships[0].thrustScale = AI_PACE[tier].base; // the AI-driven "player" races at its rivals' pace
       const t0 = performance.now();
       physics.step(dt, controls);
       stepMs += performance.now() - t0;

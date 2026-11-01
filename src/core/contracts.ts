@@ -330,12 +330,14 @@ export interface ControlInput {
   airbrakeRight: number;
   /** Edge-triggered boost request (true for one sample per press). */
   boost: boolean;
+  /** Edge-triggered item (EMP) request; player only, read by the race session, not physics. */
+  fire?: boolean;
 }
 
 export type MenuAction = 'pause' | 'confirm' | 'back' | 'mute' | 'restart' | 'up' | 'down' | 'left' | 'right';
 
 /** Rebindable keyboard driving controls. */
-export type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost';
+export type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost' | 'item';
 /** KeyboardEvent.code values per control (first = primary). */
 export type KeyBindings = Record<KeyControl, string[]>;
 
@@ -413,6 +415,10 @@ export interface ShipState {
   boostUnlocked: boolean;
   /** Rubber-band thrust multiplier, default 1. */
   thrustScale: number;
+  /** EMP hit: seconds of reduced top speed and acceleration left (set by GAME, counted down by physics). */
+  empSlow: number;
+  /** EMP hit: seconds left before the ship can boost again (set by GAME, counted down by physics). */
+  empLock: number;
 }
 
 // ---------------------------------------------------------------------------

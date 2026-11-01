@@ -66,7 +66,7 @@ export const TUNING = {
   /** Continuous tangential drag (1/s) while grinding along a wall. */
   WALL_SCRAPE_DRAG: 0.9,
   /** Energy per second per m/s of tangential speed while scraping. */
-  WALL_SCRAPE_DAMAGE: 0.012,
+  WALL_SCRAPE_DAMAGE: 0.006,
   /** Yaw kick (rad) per m/s of impact speed and its cap. */
   WALL_YAW_KICK_PER_MS: 0.006,
   WALL_YAW_KICK_MAX: 0.3,
@@ -335,7 +335,8 @@ export class ShipController {
       lat = 0;
     } else {
       // --- steering (yaw about ship up; right turn = negative rotation) ---
-      const speedFrac = clamp01(Math.abs(f) / (this.stats.topSpeed * s.thrustScale));
+      const pace = s.thrustScale * (s.empSlow > 0 ? CONFIG.EMP_SLOW : 1);
+      const speedFrac = clamp01(Math.abs(f) / (this.stats.topSpeed * pace));
       const steerRate = this.stats.steerRate + (this.stats.steerRateHighSpeed - this.stats.steerRate) * speedFrac;
       const lowSpeed = clamp01(Math.abs(f) / TUNING.STEER_FULL_AUTHORITY_SPEED);
       const steerIn = clamp(c.steer, -1, 1);
@@ -352,20 +353,20 @@ export class ShipController {
       const rawThrottle = clamp01(c.throttle);
       const throttle = finished ? Math.min(rawThrottle, 0.6) : rawThrottle;
       const brake = clamp01(c.brake);
-      const topSpeed = this.stats.topSpeed * s.thrustScale;
-      const boostTop = this.stats.boostTopSpeed * s.thrustScale;
+      const topSpeed = this.stats.topSpeed * pace;
+      const boostTop = this.stats.boostTopSpeed * pace;
       const limit = boosting ? boostTop : topSpeed;
       const fPos = Math.max(f, 0);
 
       if (boosting) {
         const x = Math.min(fPos / boostTop, 1.5);
         const taper = 1 - Math.pow(x, TUNING.BOOST_TAPER_POWER);
-        if (taper > 0) f += this.stats.boostAccel * s.thrustScale * taper * authority * dt;
+        if (taper > 0) f += this.stats.boostAccel * pace * taper * authority * dt;
       } else if (throttle > 0.02) {
         const cap = topSpeed * (0.4 + 0.6 * throttle);
         if (fPos < cap) {
           const x = fPos / cap;
-          f += this.stats.thrustAccel * s.thrustScale * throttle * (1 - x * x) * authority * dt;
+          f += this.stats.thrustAccel * pace * throttle * (1 - x * x) * authority * dt;
         }
       }
 
@@ -617,6 +618,8 @@ export class ShipController {
     s.energy = this.stats.energyMax;
     s.boosting = false;
     s.boostTimer = 0;
+    s.empSlow = 0;
+    s.empLock = 0;
     s.onDash = false;
     s.airborne = false;
     this.jumping = false;
@@ -685,9 +688,15 @@ export class ShipController {
     return Number.isFinite(p.x + p.y + p.z + v.x + v.y + v.z);
   }
 
-  /** Boost edge handling (timer, energy cost). Emits ship:boost. */
+  /** Boost edge handling (timer, energy cost, EMP lock-out). Emits ship:boost. */
   private updateBoost(c: ControlInput, racing: boolean, dt: number): void {
     const s = this.state;
+    if (s.empSlow > 0) s.empSlow = Math.max(0, s.empSlow - dt);
+    if (s.empLock > 0) {
+      s.empLock = Math.max(0, s.empLock - dt);
+      s.boosting = false; // an EMP cuts a boost already running
+      s.boostTimer = 0;
+    }
     if (s.boosting) {
       s.boostTimer -= dt;
       if (s.boostTimer <= 0) {
@@ -702,7 +711,7 @@ export class ShipController {
     }
     this.prevBoostInput = c.boost;
 
-    if (this.boostArmed && racing && s.boostUnlocked && !s.boosting && s.energy > this.stats.boostCost) {
+    if (this.boostArmed && racing && s.boostUnlocked && s.empLock === 0 && !s.boosting && s.energy > this.stats.boostCost) {
       this.boostArmed = false;
       s.boosting = true;
       s.boostTimer = this.stats.boostTime;

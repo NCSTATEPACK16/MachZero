@@ -1,13 +1,14 @@
-/** Settings: audio, comfort, controls (key rebinding) and save data. Every change applies live. */
+/** Settings: race difficulty, audio, comfort, controls (key rebinding) and save data. Every change applies live. */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
-import type { KeyControl } from '../../core/contracts';
+import type { AITier, KeyControl } from '../../core/contracts';
 import { KEY_CONTROLS } from '../../save/schema';
 import type { QualitySetting } from '../../save/schema';
 import { Screen, Segmented, Slider, Toggle, keyName } from '../components';
 
-type Tab = 'audio' | 'graphics' | 'comfort' | 'controls' | 'data';
+type Tab = 'race' | 'audio' | 'graphics' | 'comfort' | 'controls' | 'data';
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+  { id: 'race', label: 'RACE' },
   { id: 'audio', label: 'SOUND' },
   { id: 'graphics', label: 'GRAPHICS' },
   { id: 'comfort', label: 'COMFORT' },
@@ -23,6 +24,7 @@ const CONTROL_LABEL: Record<KeyControl, string> = {
   airLeft: 'AIR-BRAKE LEFT',
   airRight: 'AIR-BRAKE RIGHT',
   boost: 'BOOST',
+  item: 'FIRE EMP',
 };
 
 const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
@@ -30,7 +32,8 @@ const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
   ['RT / Ⓐ', 'ACCELERATE'],
   ['LT / Ⓑ', 'BRAKE'],
   ['LB  RB', 'AIR-BRAKES'],
-  ['Ⓧ / Ⓨ', 'BOOST'],
+  ['Ⓧ', 'BOOST'],
+  ['Ⓨ', 'FIRE EMP'],
   ['START', 'PAUSE'],
 ];
 
@@ -92,6 +95,29 @@ function Controls({ app }: { app: App }) {
         ))}
       </div>
       <p class="mzu-note">ESC / P pause · M mute · R restart are fixed.</p>
+    </div>
+  );
+}
+
+const TIER_OPTIONS: ReadonlyArray<{ value: AITier; label: string }> = [
+  { value: 'rookie', label: 'ROOKIE' },
+  { value: 'pilot', label: 'PILOT' },
+  { value: 'ace', label: 'ACE' },
+];
+const TIER_HINT: Record<AITier, string> = {
+  rookie: 'Slower rivals on stock parts who never speed up to catch you. You start at the back.',
+  pilot: 'Rivals with tuned engines who push to keep up with you.',
+  ace: 'Fast, upgraded rivals who take shortcuts. Pays more credits.',
+  legend: 'Fully upgraded rivals.',
+};
+
+function Race({ app }: { app: App }) {
+  const p = app.activeProfile.value;
+  if (!p) return <p class="mzu-note">Pick a pilot to set the difficulty.</p>;
+  return (
+    <div class="mzu-section">
+      <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier === 'legend' ? 'ace' : p.aiTier} onChange={(v) => app.setAiTier(v)} />
+      <p class="mzu-note">{TIER_HINT[p.aiTier]} Applies from the next race.</p>
     </div>
   );
 }
@@ -169,7 +195,7 @@ function Data({ app }: { app: App }) {
 }
 
 export function SettingsScreen({ app }: { app: App }) {
-  const [tab, setTab] = useState<Tab>('audio');
+  const [tab, setTab] = useState<Tab>('race');
   const s = app.settings;
   const route = app.route.value;
   const fromPause = route.name === 'settings' && route.back === 'pause';
@@ -182,6 +208,7 @@ export function SettingsScreen({ app }: { app: App }) {
           </button>
         ))}
       </div>
+      {tab === 'race' ? <Race app={app} /> : null}
       {tab === 'audio' ? (
         <div class="mzu-section">
           <Slider label="MASTER" value={s.masterVolume.value} onChange={(v) => (s.masterVolume.value = v)} />

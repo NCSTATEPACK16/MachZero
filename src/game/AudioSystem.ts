@@ -84,6 +84,10 @@ export class AudioSystem implements IAudioSystem {
       bus.on('ship:railHit', (e) => this.onRailHit(e.shipId, e.intensity)),
       bus.on('ship:shipHit', (e) => this.onShipHit(e.a, e.b, e.intensity)),
       bus.on('ship:dash', (e) => this.onDash(e.shipId)),
+      bus.on('item:emp', (e) => this.onEmp(e.from, e.target)),
+      bus.on('item:fail', (e) => {
+        if (this.isPlayer(e.shipId)) this.tone(220, 0.12, 'square', 0.08, { freqEnd: 160 });
+      }),
       bus.on('ship:pit', (e) => {
         if (e.active && this.isPlayer(e.shipId)) {
           this.tone(660, 0.12, 'sine', 0.12);
@@ -455,6 +459,16 @@ export class AudioSystem implements IAudioSystem {
     this.tone(280, 0.3, 'sawtooth', 0.15 * g, { freqEnd: 1900, attack: 0.01 });
     this.tone(560, 0.22, 'square', 0.07 * g, { freqEnd: 2600, attack: 0.01, delay: 0.03 });
     this.noise(0.18, 0.2 * g, { filter: 'highpass', f0: 2500, q: 0.7 });
+  }
+
+  /** EMP: a rising zap at the firer, an electric crackle and a power-down at the ship hit. */
+  private onEmp(from: ShipId, target: ShipId): void {
+    const gf = this.nearness(from);
+    if (gf > 0.02) this.tone(400, 0.25, 'sawtooth', 0.14 * gf, { freqEnd: 2400, attack: 0.005 });
+    const gt = this.nearness(target);
+    if (gt <= 0.02) return;
+    this.noise(0.45, 0.4 * gt, { filter: 'bandpass', f0: 5000, f1: 900, q: 2.5, attack: 0.005, delay: 0.08 });
+    this.tone(880, 0.6, 'square', 0.1 * gt, { freqEnd: 70, delay: 0.08 });
   }
 
   private onDestroyed(id: ShipId): void {

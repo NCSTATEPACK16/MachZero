@@ -51,6 +51,7 @@ That opens the project in Xcode.
      no review and appear in the TestFlight app on your devices straight away.
    - **External testers** (friends outside your team) need a short Beta App Review the first time.
    - Fill in **What to Test**, e.g. "Pair a controller (8BitDo: X-input mode). Race 3 laps on each world.
+     Buy an EMP in Garage → Items and fire it with Ⓨ at the racer ahead. Try Settings → Race → CPU difficulty.
      Settings → Graphics → Performance panel shows frame stats."
 7. On the iPad and iPhone install **TestFlight** from the App Store, accept the invite and install MachZero.
 
@@ -59,8 +60,12 @@ That opens the project in Xcode.
 - 8BitDo pads: switch to **X-input mode** (the Xbox layout) before pairing. iOS then sees an Xbox controller.
 - Pair in **Settings → Bluetooth**, then open MachZero. iOS only shows a controller to the game after its
   first button press, so press any button on the title screen.
-- Driving: left stick steers, RT / Ⓐ accelerate, LT / Ⓑ brake, LB / RB air-brakes, Ⓧ / Ⓨ boost (lap 2+),
-  Menu (☰) pauses. In menus the d-pad or stick moves and Ⓐ selects; Ⓑ goes back.
+- Driving: left stick steers, RT / Ⓐ accelerate, LT / Ⓑ brake, LB / RB air-brakes, Ⓧ boost (lap 2+), Ⓨ fires
+  an EMP, Menu (☰) pauses. In menus the d-pad or stick moves the highlight (hold to repeat) and Ⓐ selects;
+  Ⓑ goes back.
+- EMPs are bought in **Garage → Items** (400 credits each; 2 slots, a 3rd at 3 wins, a 4th at 10). One hits the
+  racer directly ahead: 30% slower for 2.5 s and no boost for 5 s. Unused EMPs carry over.
+- **Settings → Race → CPU difficulty:** Rookie (default: slower rivals who don't catch up), Pilot, Ace.
 - If the controller drops mid-race the race pauses until you resume it.
 
 ## Checking performance on a device

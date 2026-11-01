@@ -87,6 +87,9 @@ export class HUD implements IHUD {
   private readonly energyVal: Txt;
   private readonly boostBox: HTMLElement;
   private readonly boostText: Txt;
+  private readonly itemsBox: HTMLElement;
+  private readonly itemsVal: Txt;
+  private shownItems: number | null | undefined = undefined;
   private readonly speedBox: HTMLElement;
   private readonly speedArc: SVGPathElement;
   /** A wide faint copy of the arc under it: the glow, without a CSS filter re-rasterised every frame. */
@@ -226,6 +229,13 @@ export class HUD implements IHUD {
     this.boostText = new Txt(bt);
     this.boostBox.dataset.s = 'locked';
 
+    const items = panel('mz-items', race);
+    this.itemsBox = items.outer;
+    el('span', 'mz-label', '⚡ EMP', items.inner);
+    this.itemsVal = new Txt(el('span', 'mz-num mz-items-val', '0', items.inner));
+    prompt('mz-items-key', 'F', 'Ⓨ', items.inner);
+    this.itemsBox.hidden = true;
+
     this.speedBox = el('div', 'mz-speed', undefined, race);
     const gauge = svg('svg', { viewBox: '0 0 200 200' }, this.speedBox);
     const defs = svg('defs', {}, gauge);
@@ -294,8 +304,24 @@ export class HUD implements IHUD {
         if (e.state === 'title' || e.state === 'countdown') this.earned = null;
       }),
       bus.on('economy:credits', (e) => (this.earned = e)),
+      bus.on('item:emp', (e) => {
+        if (e.from === PLAYER_ID) this.toast(`EMP → ${e.targetName}`, 'good');
+        else if (e.target === PLAYER_ID) this.toast('EMP HIT', 'bad');
+      }),
+      bus.on('item:fail', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast(e.reason === 'empty' ? 'NO EMP LEFT' : 'NO TARGET AHEAD', 'warn', true);
+      }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
+  }
+
+  /** The player's EMP count, or null when the player carries no items (chip hidden). */
+  setItems(n: number | null): void {
+    if (n === this.shownItems) return;
+    this.shownItems = n;
+    this.itemsBox.hidden = n === null;
+    this.itemsVal.set(`×${n ?? 0}`);
+    this.itemsBox.dataset.s = n ? 'ready' : 'empty';
   }
 
   /** Unsubscribe and remove the DOM (RaceSession.dispose). */
@@ -372,7 +398,10 @@ export class HUD implements IHUD {
     // boost indicator
     let bs: string;
     let label: string;
-    if (!p.boostUnlocked) {
+    if (p.empLock > 0) {
+      bs = 'jammed';
+      label = '⚡ BOOST JAMMED';
+    } else if (!p.boostUnlocked) {
       bs = 'locked';
       label = 'BOOST UNLOCKS LAP 2';
     } else if (p.boosting) {

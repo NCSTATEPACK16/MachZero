@@ -20,6 +20,7 @@ const DEFAULT_CODE_TO_CONTROL: Readonly<Record<string, KeyControl>> = {
   Space: 'boost',
   ShiftLeft: 'boost',
   ShiftRight: 'boost',
+  KeyF: 'item',
 };
 
 /** KeyboardEvent.code -> menu actions triggered on key-down. */
@@ -95,6 +96,16 @@ const STEER_RELEASE = 14;
 const STEER_REVERSE = 10;
 /** Unconsumed menu presses expire after this many update() ticks (0.25 s at 120 Hz). */
 const MENU_EXPIRY_TICKS = 30;
+/** A held d-pad direction or stick repeats its menu move after this delay, then at this interval (s). */
+export const NAV_REPEAT_DELAY = 0.35;
+export const NAV_REPEAT_EVERY = 0.12;
+const NAV_DIRS = ['up', 'down', 'left', 'right'] as const;
+/**
+ * iOS can also turn controller d-pad / Ⓐ presses into arrow / Enter key events for the web view; those arriving
+ * this soon (ms) after a pad menu press are dropped so focus does not move twice.
+ */
+export const PAD_ECHO_MS = 150;
+const ECHO_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ']);
 
 /** Minimal shape of the parts of a Gamepad this manager reads. */
 interface PadLike {
@@ -144,6 +155,7 @@ export class InputManager implements IInputManager {
   private codeToControl: Record<string, KeyControl> = { ...DEFAULT_CODE_TO_CONTROL };
   private readonly pending = new Int32Array(MENU_ACTIONS.length);
   private boostLatch = false;
+  private fireLatch = false;
   private disposed = false;
 
   private kbSteer = 0;
@@ -155,13 +167,17 @@ export class InputManager implements IInputManager {
   private padAirLeft = 0;
   private padAirRight = 0;
   private padBoostHeld = false;
+  private padFireHeld = false;
   private readonly padPrevButtons = new Uint8Array(16);
-  private padPrevStickUp = false;
-  private padPrevStickDown = false;
-  private padPrevStickLeft = false;
-  private padPrevStickRight = false;
+  /** Per NAV_DIRS: direction held (d-pad or stick), seconds held, and when it next repeats. */
+  private readonly navDown = new Uint8Array(NAV_DIRS.length);
+  private readonly navTime = new Float32Array(NAV_DIRS.length);
+  private readonly navNext = new Float32Array(NAV_DIRS.length);
+  /** performance.now() of the last pad menu press (for dropping iOS key echoes). */
+  private padNavAt = -Infinity;
 
   constructor(private readonly target: Window) {
+    target.addEventListener('keydown', this.onEchoKey as EventListener, true);
     target.addEventListener('keydown', this.onKeyDown as EventListener);
     target.addEventListener('keyup', this.onKeyUp as EventListener);
     target.addEventListener('blur', this.onBlur);
@@ -183,6 +199,8 @@ export class InputManager implements IInputManager {
     const kbBrake = this.isHeld('brake') ? 1 : 0;
     const boost = this.boostLatch;
     this.boostLatch = false;
+    const fire = this.fireLatch;
+    this.fireLatch = false;
 
     const steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
     return {
@@ -192,6 +210,7 @@ export class InputManager implements IInputManager {
       airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft),
       airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight),
       boost,
+      fire,
     };
   }
 
@@ -222,17 +241,19 @@ export class InputManager implements IInputManager {
     this.kbSteer = damp(this.kbSteer, target, rate, dt);
     if (Math.abs(this.kbSteer) < 1e-3 && target === 0) this.kbSteer = 0;
 
-    this.pollGamepad();
+    this.pollGamepad(dt);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.target.removeEventListener('keydown', this.onEchoKey as EventListener, true);
     this.target.removeEventListener('keydown', this.onKeyDown as EventListener);
     this.target.removeEventListener('keyup', this.onKeyUp as EventListener);
     this.target.removeEventListener('blur', this.onBlur);
     this.held.clear();
     this.boostLatch = false;
+    this.fireLatch = false;
     this.pending.fill(0);
   }
 
@@ -261,6 +282,13 @@ export class InputManager implements IInputManager {
     this.onDeviceChange?.(device);
   }
 
+  /** Capture-phase: swallow key events that echo a pad press (see PAD_ECHO_MS) before the UI or game sees them. */
+  private readonly onEchoKey = (e: KeyboardEvent): void => {
+    if (!ECHO_KEYS.has(e.key) || now() - this.padNavAt > PAD_ECHO_MS) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone
     this.setDevice('keyboard');
@@ -277,6 +305,7 @@ export class InputManager implements IInputManager {
     if (control !== undefined) {
       this.held.add(code);
       if (control === 'boost') this.boostLatch = true;
+      if (control === 'item') this.fireLatch = true;
     }
     if (menu !== undefined) {
       for (const action of menu) this.press(action);
@@ -293,10 +322,11 @@ export class InputManager implements IInputManager {
   private readonly onBlur = (): void => {
     this.held.clear();
     this.boostLatch = false;
+    this.fireLatch = false;
     this.kbSteer = 0;
   };
 
-  private pollGamepad(): void {
+  private pollGamepad(dt: number): void {
     const pad = this.firstPad();
     const connected = pad !== null;
     if (connected !== this.padConnected) {
@@ -310,11 +340,9 @@ export class InputManager implements IInputManager {
       this.padAirLeft = 0;
       this.padAirRight = 0;
       this.padBoostHeld = false;
+      this.padFireHeld = false;
       this.padPrevButtons.fill(0);
-      this.padPrevStickUp = false;
-      this.padPrevStickDown = false;
-      this.padPrevStickLeft = false;
-      this.padPrevStickRight = false;
+      this.navDown.fill(0);
       return;
     }
 
@@ -337,40 +365,54 @@ export class InputManager implements IInputManager {
     this.padAirLeft = down(PAD.LB) ? 1 : 0;
     this.padAirRight = down(PAD.RB) ? 1 : 0;
 
-    const boostHeld = down(PAD.X) || down(PAD.Y);
+    const boostHeld = down(PAD.X);
     if (boostHeld && !this.padBoostHeld) this.boostLatch = true;
     this.padBoostHeld = boostHeld;
+    const fireHeld = down(PAD.Y);
+    if (fireHeld && !this.padFireHeld) this.fireLatch = true;
+    this.padFireHeld = fireHeld;
 
     // Menu edges from buttons.
     this.padEdge(PAD.START, down(PAD.START), 'pause');
     this.padEdge(PAD.A, down(PAD.A), 'confirm');
     this.padEdge(PAD.B, down(PAD.B), 'back');
-    this.padEdge(PAD.DPAD_UP, down(PAD.DPAD_UP), 'up');
-    this.padEdge(PAD.DPAD_DOWN, down(PAD.DPAD_DOWN), 'down');
-    this.padEdge(PAD.DPAD_LEFT, down(PAD.DPAD_LEFT), 'left');
-    this.padEdge(PAD.DPAD_RIGHT, down(PAD.DPAD_RIGHT), 'right');
 
-    // Left stick vertical acts as menu up/down.
-    const stickY = pad.axes[1] ?? 0;
-    const stickUp = stickY < -STICK_MENU_THRESHOLD;
-    const stickDown = stickY > STICK_MENU_THRESHOLD;
-    if (stickUp && !this.padPrevStickUp) this.press('up');
-    if (stickDown && !this.padPrevStickDown) this.press('down');
-    this.padPrevStickUp = stickUp;
-    this.padPrevStickDown = stickDown;
-    // ...and horizontal as menu left/right.
+    // Directions: d-pad or left stick, repeating while held.
     const stickX = pad.axes[0] ?? 0;
-    const stickLeft = stickX < -STICK_MENU_THRESHOLD;
-    const stickRight = stickX > STICK_MENU_THRESHOLD;
-    if (stickLeft && !this.padPrevStickLeft) this.press('left');
-    if (stickRight && !this.padPrevStickRight) this.press('right');
-    this.padPrevStickLeft = stickLeft;
-    this.padPrevStickRight = stickRight;
+    const stickY = pad.axes[1] ?? 0;
+    this.navDir(0, down(PAD.DPAD_UP) || stickY < -STICK_MENU_THRESHOLD, dt);
+    this.navDir(1, down(PAD.DPAD_DOWN) || stickY > STICK_MENU_THRESHOLD, dt);
+    this.navDir(2, down(PAD.DPAD_LEFT) || stickX < -STICK_MENU_THRESHOLD, dt);
+    this.navDir(3, down(PAD.DPAD_RIGHT) || stickX > STICK_MENU_THRESHOLD, dt);
+  }
+
+  private navDir(i: number, held: boolean, dt: number): void {
+    if (!held) {
+      this.navDown[i] = 0;
+      return;
+    }
+    if (this.navDown[i] === 0) {
+      this.navDown[i] = 1;
+      this.navTime[i] = 0;
+      this.navNext[i] = NAV_REPEAT_DELAY;
+      this.padPress(NAV_DIRS[i]);
+      return;
+    }
+    this.navTime[i] += dt;
+    if (this.navTime[i] >= this.navNext[i]) {
+      this.navNext[i] += NAV_REPEAT_EVERY;
+      this.padPress(NAV_DIRS[i]);
+    }
+  }
+
+  private padPress(action: MenuAction): void {
+    this.padNavAt = now();
+    this.press(action);
   }
 
   private padEdge(index: number, isDown: boolean, action: MenuAction): void {
     const prev = this.padPrevButtons[index] === 1;
-    if (isDown && !prev) this.press(action);
+    if (isDown && !prev) this.padPress(action);
     this.padPrevButtons[index] = isDown ? 1 : 0;
   }
 
@@ -388,4 +430,8 @@ export class InputManager implements IInputManager {
     }
     return null;
   }
+}
+
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }

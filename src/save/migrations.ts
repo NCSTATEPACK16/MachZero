@@ -27,6 +27,13 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
     }
     return out;
   },
+  // v2 → 3: every race so far ran Rookie rivals whatever the profile said (tiers were not wired in), so
+  // existing profiles keep that difficulty now that the picker is live. Profiles gain an empty item bag.
+  2: (save) => ({
+    ...save,
+    version: 3,
+    profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, aiTier: 'rookie', items: { emp: 0 } } : p)) : [],
+  }),
 };
 
 /** Version of a raw save (missing or invalid → 0, treated as unreadable by the caller). */

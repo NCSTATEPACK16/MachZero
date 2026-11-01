@@ -137,6 +137,8 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     status: 'grid',
     boostUnlocked: false,
     thrustScale: 1,
+    empSlow: 0,
+    empLock: 0,
   };
 }
 
