@@ -73,7 +73,7 @@ Two **independent** dials:
 - The Tour can be played at any AI tier; cleared tiers show as trophies on the world map.
 
 ### 4.2 Grand Prix
-- Unlocks once World Tour world 5 is cleared at any tier.
+- Unlocks once World Tour world 5 is cleared at any tier. (It ships earlier, unlocked, before World Tour exists; see IMPLEMENTATION §GP.)
 - All five tracks back to back, with points per race **10‑8‑6‑5‑4‑3‑2‑1**.
 - The cup trophy goes to 1st overall, for each tier (Rookie, Pilot, Ace, Legend).
 - A mid-cup retire costs that race's points, not the cup.
@@ -100,6 +100,17 @@ Two **independent** dials:
 - **Grand Prix cup bonus:** 3000 × tier multiplier for 1st overall.
 - **Time Trial medals:** 300 / 600 / 1000 credits (once each).
 - **Design rule:** stock parts can win every Rookie race and are competitive on Pilot. Upgrades matter at Ace and Legend. A child playing Rookie never has to grind.
+
+### 4.4a Items (powerups)
+- Bought with credits in Garage → Items before a race (and between Grand Prix races); there are no pickups on the track.
+- Every item shares one set of slots: 2 at the start, a 3rd at 3 wins, a 4th at 10. Unused items carry over to the next race.
+- **The items:**
+  - **EMP** (400): hits the racer directly ahead; 30% slower for 2.5 s and no boost for 5 s.
+  - **Shield** (300): blocks one EMP or mine, for up to 8 s.
+  - **Drop Mine** (350): a mine left behind you for 20 s.
+- **Controls:** d-pad left/right (or C) picks the item, Ⓨ (or F) uses it.
+- **CPU items:** none on Rookie. On Pilot, 1 per CPU. On Ace and Legend, 2 each. A CPU EMP aimed at you shows a 0.5 s warning, and a CPU can't EMP the same racer twice within 10 s.
+- Details: IMPLEMENTATION §P (decided 2026-11-01).
 
 ### 4.5 Profiles and saves
 - Several named profiles per device (families share tablets). Each has a name, a badge avatar, assists, credits, garage and records.
