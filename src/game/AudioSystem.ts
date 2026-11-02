@@ -1,3 +1,4 @@
+import { Vector3 } from 'three';
 import { CONFIG } from '../core/config';
 import type { FrameContext, IAudioSystem, ShipId } from '../core/contracts';
 import type { GameBus } from '../core/events';
@@ -9,6 +10,8 @@ const MASTER_LEVEL = 0.8;
 const MAX_ONE_SHOTS = 28;
 const UPDATE_INTERVAL = 1 / 40;
 const NOISE_SECONDS = 2;
+/** Metres inside which an armed mine ahead of the player beeps. */
+const MINE_BEEP_RANGE = 70;
 
 type Osc = OscillatorType;
 
@@ -54,6 +57,8 @@ export class AudioSystem implements IAudioSystem {
   private accum = 0;
   private scrape = 0;
   private alarmClock = 1;
+  private beepClock = 0;
+  private readonly ahead = new Vector3();
   private readonly lastImpact = new Map<ShipId, number>();
   private readonly offs: Array<() => void> = [];
   private listening = false;
@@ -85,6 +90,7 @@ export class AudioSystem implements IAudioSystem {
       bus.on('ship:shipHit', (e) => this.onShipHit(e.a, e.b, e.intensity)),
       bus.on('ship:dash', (e) => this.onDash(e.shipId)),
       bus.on('item:emp', (e) => this.onEmp(e.from, e.target)),
+      bus.on('hazard:mine', (e) => this.onMine(e.shipId)),
       bus.on('item:fail', (e) => {
         if (this.isPlayer(e.shipId)) this.tone(220, 0.12, 'square', 0.08, { freqEnd: 160 });
       }),
@@ -378,6 +384,8 @@ export class AudioSystem implements IAudioSystem {
     this.scrapeGain?.gain.setTargetAtTime(this.scrape * 0.32, t, 0.03);
     this.scrapeFilter?.frequency.setTargetAtTime(900 + this.scrape * 3200, t, 0.04);
 
+    this.mineBeep(ctx, dt);
+
     // Low-energy alarm
     if (driving && p.energy < (CONFIG.LOW_ENERGY_THRESHOLD / 100) * p.def.stats.energyMax && p.energy > 0) {
       this.alarmClock += dt;
@@ -469,6 +477,38 @@ export class AudioSystem implements IAudioSystem {
     if (gt <= 0.02) return;
     this.noise(0.45, 0.4 * gt, { filter: 'bandpass', f0: 5000, f1: 900, q: 2.5, attack: 0.005, delay: 0.08 });
     this.tone(880, 0.6, 'square', 0.1 * gt, { freqEnd: 70, delay: 0.08 });
+  }
+
+  /** Mine: a sharp crack and a short boom. */
+  private onMine(id: ShipId): void {
+    const g = this.nearness(id);
+    if (g <= 0.02) return;
+    this.noise(0.6, 0.75 * g, { filter: 'lowpass', f0: 6000, f1: 150, q: 0.8, attack: 0.003 });
+    this.tone(180, 0.55, 'sine', 0.6 * g, { freqEnd: 35 });
+    this.tone(1400, 0.08, 'square', 0.12 * g, { freqEnd: 300 });
+  }
+
+  /** Proximity beep: the nearest armed mine ahead of the player beeps faster as it closes in. */
+  private mineBeep(ctx: FrameContext, dt: number): void {
+    const mines = ctx.mines;
+    const p = ctx.player;
+    if (!mines || ctx.race.state !== 'racing' || p.status !== 'racing') return;
+    let nearest = Infinity;
+    for (const m of mines) {
+      if (!m.armed) continue;
+      const d = m.position.distanceTo(p.position);
+      if (d < nearest && this.ahead.subVectors(m.position, p.position).dot(p.velocity) > 0) nearest = d;
+    }
+    if (nearest > MINE_BEEP_RANGE) {
+      this.beepClock = 0;
+      return;
+    }
+    this.beepClock += dt;
+    const interval = 0.08 + 0.42 * (nearest / MINE_BEEP_RANGE);
+    if (this.beepClock >= interval) {
+      this.beepClock = 0;
+      this.tone(1760, 0.05, 'square', 0.05, { attack: 0.002 });
+    }
   }
 
   private onDestroyed(id: ShipId): void {

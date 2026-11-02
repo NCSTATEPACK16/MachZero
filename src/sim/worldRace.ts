@@ -26,6 +26,9 @@ export interface WorldRaceResult {
   destroyed: ShipId[];
   /** Stone-gate hits per ship. */
   gateHits: Map<ShipId, number>;
+  /** Mines set off, and debris hits, per ship. */
+  mineHits: Map<ShipId, number>;
+  debrisHits: Map<ShipId, number>;
   /** Times each ship drove onto a split path. */
   shortcuts: Map<ShipId, number>;
   /** Finishing order with total times (null = did not finish). */
@@ -59,6 +62,10 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
   const shortcuts = new Map<ShipId, number>();
   const lastPath = new Map<ShipId, string | null>();
   bus.on('hazard:gate', ({ shipId }) => gateHits.set(shipId, (gateHits.get(shipId) ?? 0) + 1));
+  const mineHits = new Map<ShipId, number>();
+  const debrisHits = new Map<ShipId, number>();
+  bus.on('hazard:mine', ({ shipId }) => mineHits.set(shipId, (mineHits.get(shipId) ?? 0) + 1));
+  bus.on('hazard:debris', ({ shipId }) => debrisHits.set(shipId, (debrisHits.get(shipId) ?? 0) + 1));
   let playerLaps = 0;
   bus.on('ship:respawn', ({ shipId }) => respawns.set(shipId, (respawns.get(shipId) ?? 0) + 1));
   bus.on('ship:jump', ({ shipId }) => jumps.set(shipId, (jumps.get(shipId) ?? 0) + 1));
@@ -97,7 +104,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
   const table = snap.standings
     .map((r) => {
       const ship = ships.find((s) => s.def.id === r.id)!;
-      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} gates=${gateHits.get(r.id) ?? 0} shortcuts=${shortcuts.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
+      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} gates=${gateHits.get(r.id) ?? 0} mines=${mineHits.get(r.id) ?? 0} debris=${debrisHits.get(r.id) ?? 0} shortcuts=${shortcuts.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
     })
     .join('\n');
   physics.dispose();
@@ -111,6 +118,8 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
     ice,
     destroyed,
     gateHits,
+    mineHits,
+    debrisHits,
     shortcuts,
     standings: snap.standings.map((r) => ({ id: r.id, totalTime: r.totalTime ?? null })),
     playerLaps,

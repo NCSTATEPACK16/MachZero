@@ -633,6 +633,115 @@ def build_jade_ruins(out_dir):
 
 
 # ---------------------------------------------------------------------------
+# Orbital Ring
+# ---------------------------------------------------------------------------
+
+def hoop(pb, radius, depth, thick, segments, role, color, y0=0.0):
+    """A ring of rectangular section standing in the X-Z plane (axis along Y), centred on the origin."""
+    verts = []
+    faces = []
+    for i in range(segments):
+        a = i / segments * math.tau
+        c, s_ = math.cos(a), math.sin(a)
+        for (r, y) in ((radius, y0 - depth / 2), (radius + thick, y0 - depth / 2), (radius + thick, y0 + depth / 2), (radius, y0 + depth / 2)):
+            verts.append((r * c, y, r * s_))
+    for i in range(segments):
+        j = (i + 1) % segments
+        for k in range(4):
+            k2 = (k + 1) % 4
+            faces.append((i * 4 + k, j * 4 + k, j * 4 + k2, i * 4 + k2))
+    pb.add(verts, faces, role, color)
+
+
+def build_rib(name, radius):
+    """Station rib: a chrome hoop the track runs through, a neon strip round its inner face, four clamp blocks."""
+    pb = PropBuilder(name)
+    hoop(pb, radius, 3.0, 2.4, 32, "chrome", (1, 1, 1))
+    hoop(pb, radius - 0.15, 0.7, 0.15, 32, "neon", (1, 1, 1))
+    for k in range(4):
+        a = k / 4 * math.tau + math.tau / 8
+        cx, cz = (radius + 1.2) * math.cos(a), (radius + 1.2) * math.sin(a)
+        box(pb, cx - 2.0, cx + 2.0, -2.2, 2.2, cz - 2.0, cz + 2.0, "dark", (0.05, 0.06, 0.09))
+    return pb.done()
+
+
+def build_truss(name, length, width):
+    """Lattice beam along X: four longerons, square frames every 10 m and a neon node light on each frame."""
+    pb = PropBuilder(name)
+    h = width / 2
+    t = 0.35
+    for (y, z) in ((-h, -h), (h, -h), (h, h), (-h, h)):
+        box(pb, -length / 2, length / 2, y - t, y + t, z - t, z + t, "chrome", (1, 1, 1))
+    n = int(length // 10)
+    for i in range(n + 1):
+        x = -length / 2 + i * length / n
+        box(pb, x - t, x + t, -h, h, -h - t, -h + t, "chrome", (1, 1, 1))
+        box(pb, x - t, x + t, -h, h, h - t, h + t, "chrome", (1, 1, 1))
+        box(pb, x - t, x + t, -h - t, -h + t, -h, h, "chrome", (1, 1, 1))
+        box(pb, x - t, x + t, h - t, h + t, -h, h, "chrome", (1, 1, 1))
+        if i % 2 == 0:
+            box(pb, x - 0.6, x + 0.6, -0.6, 0.6, h + t, h + t + 1.0, "neon", (1, 1, 1))
+    return pb.done()
+
+
+def build_solar(name, seed, span, chord):
+    """Solar array: a boom with two wings of dark-blue cells in a chrome frame."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    box(pb, -span - 2, span + 2, -0.5, 0.5, -0.5, 0.5, "chrome", (1, 1, 1))
+    box(pb, -2.5, 2.5, -2.5, 2.5, -2.5, 2.5, "dark", (0.05, 0.06, 0.09))
+    cols, rows = 6, 3
+    for side in (-1, 1):
+        x0 = side * 3.0
+        x1 = side * (3.0 + span)
+        lo, hi = min(x0, x1), max(x0, x1)
+        for c in range(cols):
+            for r in range(rows):
+                cx0 = lo + (hi - lo) * c / cols + 0.15
+                cx1 = lo + (hi - lo) * (c + 1) / cols - 0.15
+                cy0 = -chord / 2 + chord * r / rows + 0.15
+                cy1 = -chord / 2 + chord * (r + 1) / rows - 0.15
+                k = rng.uniform(0.85, 1.15)
+                box(pb, cx0, cx1, cy0, cy1, -0.08, 0.08, "dark", (0.03 * k, 0.07 * k, 0.24 * k))
+    return pb.done()
+
+
+def build_module(name, radius, length):
+    """Habitat module: a chrome drum with dark end caps, a neon window band and a docking collar (along Z)."""
+    pb = PropBuilder(name)
+    n = 12
+    frustum(pb, ring(0, 0, radius * 0.55, n), ring(0, 0, radius, n), 0, 2.0, "dark", (0.05, 0.06, 0.09), cap_bottom=True, cap_top=False)
+    frustum(pb, ring(0, 0, radius, n), ring(0, 0, radius, n), 2.0, length * 0.45, "chrome", (1, 1, 1), cap_top=False)
+    frustum(pb, ring(0, 0, radius * 1.01, n), ring(0, 0, radius * 1.01, n), length * 0.45, length * 0.55, "neon", (1, 1, 1), cap_top=False)
+    frustum(pb, ring(0, 0, radius, n), ring(0, 0, radius, n), length * 0.55, length - 2.0, "chrome", (1, 1, 1), cap_top=False)
+    frustum(pb, ring(0, 0, radius, n), ring(0, 0, radius * 0.55, n), length - 2.0, length, "dark", (0.05, 0.06, 0.09))
+    frustum(pb, ring(0, 0, radius * 0.4, 8), ring(0, 0, radius * 0.4, 8), length, length + 2.5, "chrome", (1, 1, 1))
+    return pb.done()
+
+
+def build_dish(name, radius):
+    """Comms dish on a short mast, with a neon beacon at the feed."""
+    pb = PropBuilder(name)
+    box(pb, -0.6, 0.6, -0.6, 0.6, 0, 10, "chrome", (1, 1, 1))
+    frustum(pb, ring(0, 0, 1.0, 14), ring(0, 0, radius, 14), 10, 10 + radius * 0.35, "chrome", (1, 1, 1), cap_bottom=True, cap_top=False)
+    box(pb, -0.15, 0.15, -0.15, 0.15, 10, 10 + radius * 0.8, "dark", (0.05, 0.06, 0.09))
+    box(pb, -0.5, 0.5, -0.5, 0.5, 10 + radius * 0.8, 10 + radius * 0.8 + 1.0, "neon", (1, 1, 1))
+    return pb.done()
+
+
+def build_orbital_ring(out_dir):
+    C.reset_scene()
+    objs = [
+        build_rib("rib_0", 27),
+        build_truss("truss_0", 120, 6),
+        build_solar("solar_0", 401, 34, 12),
+        build_module("module_0", 7, 34),
+        build_dish("dish_0", 9),
+    ]
+    export(out_dir, "orbital-ring", objs)
+
+
+# ---------------------------------------------------------------------------
 
 
 def export(out_dir, world, objs):
@@ -645,7 +754,7 @@ def export(out_dir, world, objs):
     print(f"[props] {world}: {sum(tris.values())} tris {tris} -> {path}")
 
 
-WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay, "cryo-station": build_cryo_station, "jade-ruins": build_jade_ruins}
+WORLDS = {"sunset-mesa": build_sunset_mesa, "neon-bay": build_neon_bay, "cryo-station": build_cryo_station, "jade-ruins": build_jade_ruins, "orbital-ring": build_orbital_ring}
 
 
 def main():

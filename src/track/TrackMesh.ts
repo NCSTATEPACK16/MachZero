@@ -82,6 +82,8 @@ export interface VisualInput {
   query: TrackQuery;
   /** Corkscrew extents in metres along the lap. */
   corkscrews: { dStart: number; dEnd: number }[];
+  /** Loop-the-loop extents in metres (accent neon, no pylons). */
+  loops?: { dStart: number; dEnd: number }[];
   pit: { dStart: number; dEnd: number };
   dashPlates: DashPlate[];
   /** Jump gaps: no deck, slab or rails between dStart (lip) and dEnd (landing edge). */
@@ -548,6 +550,7 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   const accent = linear(palette.accent);
   const accents = [
     ...corkscrews,
+    ...(input.loops ?? []),
     ...gaps.map((g) => ({ dStart: g.dStart - RAMP_MARK_LENGTH, dEnd: g.dEnd + 30 })),
   ];
   const leftTheme: NeonTheme = { base: linear(palette.left), amber: accent, lime: linear(palette.pit) };
@@ -750,7 +753,8 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
   );
 
   // ---- Pylons (instanced) and corkscrew light rings (instanced) ----
-  group.add(buildPylons(frames, [...corkscrews, ...pipes, ...gaps.map((g) => ({ dStart: g.dStart - 10, dEnd: g.dEnd + 10 }))]));
+  const loopSkips = (input.loops ?? []).map((l) => ({ dStart: l.dStart - 30, dEnd: l.dEnd + 30 }));
+  group.add(buildPylons(frames, [...corkscrews, ...pipes, ...loopSkips, ...gaps.map((g) => ({ dStart: g.dStart - 10, dEnd: g.dEnd + 10 }))]));
   for (const cork of corkscrews) group.add(buildCorkscrewRings(query, length, cork, palette.accent));
 
   let drawCalls = 0;

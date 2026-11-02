@@ -28,6 +28,10 @@ export interface GameEvents {
   'ship:jump': { shipId: ShipId; intensity: number };
   /** A ship hit a stone gate (Jade Ruins): `gate` is its index in the track's gates. */
   'hazard:gate': { shipId: ShipId; gate: number; point: THREE.Vector3 };
+  /** A ship set off a mine (Orbital Ring, or a dropped mine with `owner`): `mine` is its index in PhysicsSystem.mines. */
+  'hazard:mine': { shipId: ShipId; mine: number; owner: ShipId | null; point: THREE.Vector3 };
+  /** A ship hit a piece of drifting debris (Orbital Ring): `debris` is its index in PhysicsSystem.debris. */
+  'hazard:debris': { shipId: ShipId; debris: number; point: THREE.Vector3 };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */
   'ship:land': { shipId: ShipId; intensity: number };
   /** An EMP fired by `from` hit `target` (the racer directly ahead). */

@@ -139,7 +139,7 @@ export class RaceSession {
   /** Per-frame presentation (the App renders afterwards). */
   frame(dt: number, alpha: number, time: number): void {
     if (this.disposed || !this.view) return;
-    const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
+    const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ...(this.physics.mines.length > 0 ? { mines: this.physics.mines } : {}), ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
     this.view.graphics.update(ctx);
     this.hud?.setItems(this.setup.items ? this.setup.items.count() : null);
     this.hud?.update(ctx.race, dt);

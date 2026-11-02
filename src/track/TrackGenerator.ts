@@ -15,6 +15,8 @@ import { curlSamples, type PipeSpan } from './features/pipe';
 import { BuiltBranch } from './features/branch';
 import { buildGates } from './features/gate';
 import { buildGateVisual } from './features/gateVisual';
+import { buildDebris } from './features/debris';
+import { buildDebrisVisual } from './features/debrisVisual';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -27,6 +29,8 @@ const DASH_COUNT_RANGE: [number, number] = [3, 4];
 /** A ship whose last valid position is this far before a jump lip is respawned on the landing side. */
 const JUMP_RESPAWN_BEFORE = 200;
 const JUMP_RESPAWN_AFTER = 30;
+/** A ship lost inside a loop comes back this far past its exit. */
+const LOOP_RESPAWN_AFTER = 20;
 
 /** v1's neon colours (the Bonus Track and the default for every theme that doesn't override them). */
 export const DEFAULT_TRACK_PALETTE: TrackPalette = {
@@ -185,7 +189,9 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
   const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
   const pipeSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'pipe' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
   const curl = curlSamples(resampled.count, resampled.ds, pipeSpans);
-  const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl);
+  const loopFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'loop' }> => f.type === 'loop');
+  const loops = loopFeatures.map((f) => ({ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length) }));
+  const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl, loops);
   const samples = toTrackSamples(frames);
   const query = new TrackQuery(frames, CONFIG.TRACK_HALF_WIDTH);
   const curvatureAt = (d: number): number => query.sampleAt(d / length).curvature;
@@ -253,6 +259,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     frames,
     query,
     corkscrews: corkDists,
+    loops: loopFeatures.map((f) => ({ dStart: f.dStart, dEnd: f.dEnd })),
     pipes: pipeSpans,
     ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
     telegraphScale: build.telegraphScale ?? 1,
@@ -270,6 +277,16 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const gateVisual = gateDefs.length > 0 ? buildGateVisual(gateDefs, palette.accent, build.telegraphScale ?? 1) : null;
   if (gateVisual) group.add(gateVisual.group);
+  // Debris drifts on the same clock.
+  const debrisDefs = features.some((f) => f.type === 'debris')
+    ? buildDebris({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const debrisVisual = debrisDefs.length > 0 ? buildDebrisVisual(debrisDefs) : null;
+  if (debrisVisual) group.add(debrisVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update].filter((f): f is (t: number) => void => !!f);
+  const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
+    for (const f of hazardAnimators) f(t);
+  };
 
   const pipes = pipeSpans.map((p) => ({
     uStart: wrap01(p.dStart / length),
@@ -301,6 +318,9 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
       const rel = (((d - from) % length) + length) % length;
       if (rel <= j.dLanding - from) return wrap01((j.dLanding + JUMP_RESPAWN_AFTER) / length);
     }
+    for (const l of loopFeatures) {
+      if (inLoopRange(wrap01(u), wrap01(l.dStart / length), wrap01(l.dEnd / length))) return wrap01((l.dEnd + LOOP_RESPAWN_AFTER) / length);
+    }
     return u;
   };
 
@@ -323,12 +343,13 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     startGrid,
     collision,
     visual: group,
-    ...(gateVisual ? { animateHazards: gateVisual.update } : {}),
+    ...(animateHazards ? { animateHazards } : {}),
     corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
     features,
     jumps,
     branches,
     pipes,
+    loops,
     airGravityScale: layout.airGravityScale,
     surfaceKindAt,
     gripAt,

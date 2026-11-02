@@ -122,7 +122,7 @@ describe('SaveStore', () => {
     expect(p('sunset-mesa')).toBe('sunset-mesa');
     expect(p('cryo-station')).toBe('cryo-station');
     expect(p('jade-ruins')).toBe('jade-ruins');
-    expect(p('orbital-ring')).toBe('neon-bay'); // not built yet
+    expect(p('orbital-ring')).toBe('orbital-ring');
     expect(p('atlantis')).toBe('neon-bay');
     expect(p(undefined)).toBe('neon-bay');
   });

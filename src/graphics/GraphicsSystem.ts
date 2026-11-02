@@ -6,6 +6,7 @@ import { clamp } from '../core/math';
 import { ChaseCamera } from './ChaseCamera';
 import { DebugOverlay } from './DebugOverlay';
 import { Effects } from './Effects';
+import { MineVisual } from './MineVisual';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { createTheme, type WorldTheme } from './themes';
 import { PostFX } from './PostFX';
@@ -101,6 +102,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   private readonly sunLight: THREE.DirectionalLight;
   private fogBase = 0.0006;
   private readonly fx: Effects;
+  private readonly mineVisual = new MineVisual();
   private readonly speedLines: SpeedLines;
   private readonly chase: ChaseCamera;
   private readonly debug: DebugOverlay | null;
@@ -189,6 +191,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.fx = new Effects();
     this.fx.setCamera(this.camera);
     this.scene.add(this.fx.group);
+    this.scene.add(this.mineVisual.group);
 
     this.speedLines = new SpeedLines();
     this.scene.add(this.speedLines.object);
@@ -261,6 +264,18 @@ export class GraphicsSystem implements IGraphicsSystem {
           this.chase.addImpact(0.25);
           this.post.kickAberration(1);
         }
+      }),
+      bus.on('hazard:mine', (e) => {
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.4);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.45);
+          this.post.kickAberration(1);
+        }
+      }),
+      bus.on('hazard:debris', (e) => {
+        this.fx.shipHit(e.point, 0.8);
+        if (e.shipId === this.playerId) this.chase.addImpact(0.3);
       }),
       bus.on('ship:destroyed', (e) => {
         const model = this.models.get(e.shipId);
@@ -470,6 +485,7 @@ export class GraphicsSystem implements IGraphicsSystem {
 
     for (const m of this.modelList) m.updateVisuals(dt, time);
     ctx.track.animateHazards?.(ctx.hazardTime);
+    this.mineVisual.update(ctx.mines, player.position, time, dt);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
     this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
     this.theme.update(this.camera, time);

@@ -407,6 +407,27 @@ export class Effects {
     this.spawnRing(model.pos, model.visQuat, 12, 0.8, 0.5, 1.2, 2.6, 0.6);
   }
 
+  /** A mine going off: a white-hot flash, red embers and sparks, and a flat shock ring along the road. */
+  mineBlast(pos: THREE.Vector3, up: THREE.Vector3 | null): void {
+    this.spawnPoint(pos.x, pos.y, pos.z, 0, 0, 0, 0.18, 9, 15, 3.2, 2.6, 2.4, 2.2, 1, 0.6, 0.9, 0);
+    for (let i = 0; i < 16; i++) {
+      this.v1.set(rs(), rs(), rs()).normalize();
+      const sp = 4 + rnd() * 10;
+      this.spawnPoint(
+        pos.x, pos.y, pos.z, this.v1.x * sp, this.v1.y * sp, this.v1.z * sp,
+        0.4 + rnd() * 0.4, 1.6 + rnd(), 5 + rnd() * 3, 4, 1.4, 0.3, 0.3, 0.05, 0.02, 1, 1.4,
+      );
+    }
+    for (let i = 0; i < 46; i++) {
+      this.v1.set(rs(), rs(), rs()).normalize();
+      const sp = 12 + rnd() * 34;
+      this.spawnSpark(pos.x, pos.y, pos.z, this.v1.x * sp, this.v1.y * sp, this.v1.z * sp, 0.4 + rnd() * 0.5, 3.2, 1.6, 0.4, 0.3, 6, 0.04);
+    }
+    // Flat ring in the deck plane.
+    this.q1.setFromUnitVectors(this.v2.set(0, 0, 1), up ?? this.v3.set(0, 1, 0));
+    this.spawnRing(pos, this.q1, 16, 0.5, 3.4, 1.0, 0.5, 0.9);
+  }
+
   /** Fireball, embers, debris and shock rings at a destroyed ship. */
   explosion(pos: THREE.Vector3, shipVel: THREE.Vector3 | null): void {
     const ix = shipVel ? shipVel.x * 0.5 : 0;

@@ -3,7 +3,8 @@
  *
  * Pipeline: closed Catmull-Rom curve -> arc-length uniform resample ->
  * tangents / curvature -> rotation-minimising frames (double reflection) with the
- * closure twist spread linearly around the loop -> roll (banking + corkscrew).
+ * closure twist spread linearly around the loop -> roll (banking + corkscrew). Inside a loop-the-loop the frame
+ * is built about the loop's axis instead (see features/loop.ts) and the transport restarts from it.
  *
  * Everything here works on flat Float64Arrays (3 doubles per sample) so it stays fast
  * and allocation-free in the hot loops. Nothing touches the DOM.
@@ -11,7 +12,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../core/config';
 import type { TrackSample } from '../core/contracts';
-import { TAU, clamp, smootherstep } from '../core/math';
+import { TAU, clamp, inLoopRange, smootherstep } from '../core/math';
+import { loopWeight, type LoopRange } from './features/loop';
 
 /** Arc-length parameterised polyline sampled from the spline. */
 export interface ResampledCurve {
@@ -226,8 +228,16 @@ function rotateAbout(vx: number, vy: number, vz: number, ax: number, ay: number,
  * The transported vector after a full loop generally differs from the start by a rotation
  * about the tangent (holonomy); that closure twist is distributed linearly so the loop closes.
  */
-function rotationMinimisingUp(pos: Float64Array, tan: Float64Array, count: number): Float64Array {
+function rotationMinimisingUp(pos: Float64Array, tan: Float64Array, count: number, loops: readonly LoopRange[] = []): Float64Array {
   const up = new Float64Array(count * 3);
+  // Loop axes: the deck's right at each loop entry (a loop sits on a level straight, so it is horizontal).
+  const axes = loops.map((l) => {
+    const i3 = (Math.round(l.uStart * count) % count) * 3;
+    const ax = -tan[i3 + 2];
+    const az = tan[i3];
+    const len = Math.hypot(ax, az) || 1;
+    return [ax / len, 0, az / len];
+  });
   // Initial normal: world up projected into the plane normal to the first tangent.
   {
     const tx = tan[0];
@@ -276,6 +286,22 @@ function rotationMinimisingUp(pos: Float64Array, tan: Float64Array, count: numbe
       rx = rLx;
       ry = rLy;
       rz = rLz;
+    }
+    for (let l = 0; l < loops.length; l++) {
+      if (!inLoopRange(j / count, loops[l].uStart, loops[l].uEnd)) continue;
+      // Inside a loop: right = the loop axis less its along-track part, up = right × tangent.
+      const [ax, ay, az] = axes[l];
+      const d = ax * tan[j3] + ay * tan[j3 + 1] + az * tan[j3 + 2];
+      let qx = ax - d * tan[j3];
+      let qy = ay - d * tan[j3 + 1];
+      let qz = az - d * tan[j3 + 2];
+      const ql = Math.sqrt(qx * qx + qy * qy + qz * qz) || 1;
+      qx /= ql;
+      qy /= ql;
+      qz /= ql;
+      rx = qy * tan[j3 + 2] - qz * tan[j3 + 1];
+      ry = qz * tan[j3] - qx * tan[j3 + 2];
+      rz = qx * tan[j3 + 1] - qy * tan[j3];
     }
     if (j !== 0) {
       up[j3] = rx;
@@ -329,11 +355,12 @@ export function buildFrames(
   corkscrews: CorkscrewRange | readonly CorkscrewRange[],
   bankOpts: BankOptions = DEFAULT_BANK,
   curl: Float64Array = new Float64Array(curve.count),
+  loops: readonly LoopRange[] = [],
 ): FrameSet {
   const rolls: readonly CorkscrewRange[] = Array.isArray(corkscrews) ? corkscrews : [corkscrews as CorkscrewRange];
   const { count, length, ds, pos } = curve;
   const { tan, dTds } = diff;
-  const rmfUp = rotationMinimisingUp(pos, tan, count);
+  const rmfUp = rotationMinimisingUp(pos, tan, count, loops);
 
   // Banking from curvature measured in the unbanked (RMF) frame. That same RMF-frame bend is what is
   // exported as `curvature`: it is the turn a ship must steer through, independent of bank/corkscrew
@@ -350,10 +377,15 @@ export function buildFrames(
     curvature[i] = k;
     rawBank[i] = clamp(k * bankOpts.bankFactor, -bankOpts.maxBank, bankOpts.maxBank);
   }
+  // A loop's sideways shift is not a bend to bank for: keep it out of the smoothing too.
+  const loopSpans = loops.map((l) => ({ dStart: l.uStart * length, dEnd: l.uStart * length + ((((l.uEnd - l.uStart) % 1) + 1) % 1) * length }));
+  for (const span of loopSpans) for (let i = 0; i < count; i++) if (loopWeight(i * ds, span, length, 0) >= 1) rawBank[i] = 0;
   // Wide Gaussian (~45 m sigma) so bank transitions are gradual; periodic so it wraps correctly.
   const bank = smoothPeriodic(rawBank, 45 / ds);
   // A pipe is not banked: the tube would rotate about its floor. Fade the bank out as the deck curls.
   for (let i = 0; i < count; i++) bank[i] *= 1 - curl[i];
+  // Nor is a loop: it turns over about its own axis.
+  for (const span of loopSpans) for (let i = 0; i < count; i++) bank[i] *= 1 - loopWeight(i * ds, span, length, 60);
 
   const up = new Float64Array(count * 3);
   const right = new Float64Array(count * 3);

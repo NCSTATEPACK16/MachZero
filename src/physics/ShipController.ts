@@ -5,7 +5,9 @@ import { COLLISION, CONFIG } from '../core/config';
 import type { ControlInput, GridSlot, ShipState, ShipStats, TrackData } from '../core/contracts';
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
+import type { HazardPolicy } from '../core/hazards';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
+import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 
 /**
@@ -118,9 +120,10 @@ export class ShipController {
 
   /** Set by the PhysicsSystem from collision events. */
   railContact = false;
-  /** Stone gates (indices) this ship's hull is touching, and those first touched this step. */
-  readonly gateContacts = new Set<number>();
-  readonly gateHitsStarted = new Set<number>();
+  /** Moving obstacles (stone gates, debris: PhysicsSystem obstacle ids) the hull is touching, and those first touched this step. */
+  readonly obstacleContacts = new Set<number>();
+  readonly obstacleHitsStarted = new Set<number>();
+  private readonly halfExtents: { x: number; y: number; z: number };
 
   // Orientation frame (unit, mutually orthogonal: right = fwd × up).
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -209,6 +212,8 @@ export class ShipController {
     this.state = state;
     this.body = body;
     this.collider = collider;
+    const h = collider.halfExtents() ?? { x: CONFIG.SHIP_WIDTH / 2, y: CONFIG.SHIP_HEIGHT / 2, z: CONFIG.SHIP_LENGTH / 2 };
+    this.halfExtents = { x: h.x, y: h.y, z: h.z };
     this.sampleHalfWidth = track.halfWidth;
     this.lastValidU = state.trackU;
     this.frameFromQuaternion(state.quaternion);
@@ -287,6 +292,10 @@ export class ShipController {
       // instead of converting it into a sideways fling off the track.
       this.alignRot.setFromUnitVectors(this.prevUp, up);
       s.velocity.applyQuaternion(this.alignRot);
+      // The heading turns with them. Re-projecting it onto the new plane instead differs from the rotation by a
+      // second-order yaw when the surface pitches and twists at once (a loop-the-loop), which built up into a
+      // heading error of several degrees per loop at racing speed.
+      this.fwd.applyQuaternion(this.alignRot);
     } else {
       this.alignUp(sampleUp, CONFIG.UP_ALIGN_RATE * TUNING.AIR_ALIGN_FACTOR, dt);
     }
@@ -312,6 +321,19 @@ export class ShipController {
       // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
       // (see PipeCompensation), the pipe counterpart of the twist compensation above.
       const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
+      if (k !== 0) {
+        const angle = k * s.velocity.dot(this.fwd) * dt;
+        this.yaw(angle);
+        this.alignRot.setFromAxisAngle(up, angle);
+        s.velocity.applyQuaternion(this.alignRot);
+        this.right.crossVectors(this.fwd, up);
+      }
+    }
+
+    if (grounded && this.hasProjection && this.track.loops.length > 0 && s.path === null) {
+      // Loop magnetism: the deck twists and slides sideways through a loop-the-loop; the surface carries the ship
+      // along its constant-lateral line (see LoopCompensation).
+      const k = loopLineCurvature(this.track, s.trackU, s.lateral);
       if (k !== 0) {
         const angle = k * s.velocity.dot(this.fwd) * dt;
         this.yaw(angle);
@@ -546,6 +568,20 @@ export class ShipController {
     this.updateSpeeds();
   }
 
+  /**
+   * A mine went off against the hull: a knock across the road (`side`, unit, away from the mine) and up the road's
+   * `up`, plus MINE_DAMAGE energy under a damaging hazard policy, or else the policy's slow-down and no energy.
+   */
+  applyMineHit(side: THREE.Vector3, up: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (hazards.damage) this.drainEnergy(CONFIG.MINE_DAMAGE * this.stats.damageTakenScale);
+    else s.velocity.multiplyScalar(hazards.hitSpeedScale);
+    s.velocity.addScaledVector(side, CONFIG.MINE_KNOCK_SIDE).addScaledVector(up, CONFIG.MINE_KNOCK_UP);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
+  }
+
   /** Apply damage from a ship-ship collision. */
   applyShipDamage(closingSpeed: number): void {
     if (!isActiveStatus(this.state.status)) return;
@@ -555,6 +591,11 @@ export class ShipController {
   /** Preserved pre-solver velocity for impact computations. */
   get preSolveVelocity(): THREE.Vector3 {
     return this.preVel;
+  }
+
+  /** Hull box half-sizes (across, up, along). */
+  get hullHalf(): { x: number; y: number; z: number } {
+    return this.halfExtents;
   }
 
   get isColliderEnabled(): boolean {
@@ -604,7 +645,7 @@ export class ShipController {
     this.colliderEnabled = true;
     this.collider.setEnabled(true);
     this.railContact = false;
-    this.gateContacts.clear();
+    this.obstacleContacts.clear();
 
     s.position.copy(slot.position);
     s.quaternion.copy(slot.quaternion);
@@ -669,7 +710,7 @@ export class ShipController {
       this.colliderEnabled = false;
       this.collider.setEnabled(false);
       this.railContact = false;
-      this.gateContacts.clear();
+      this.obstacleContacts.clear();
     } else if (!retired && !this.colliderEnabled) {
       this.colliderEnabled = true;
       this.collider.setEnabled(true);
@@ -936,7 +977,7 @@ export class ShipController {
     this.jumping = false;
     this.preVel.copy(s.velocity);
     this.railContact = false;
-    this.gateContacts.clear();
+    this.obstacleContacts.clear();
     this.invalidTime = 0;
 
     this.body.setTranslation(s.position, true);

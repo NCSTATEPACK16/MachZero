@@ -5,6 +5,8 @@
  */
 import type { TrackData } from '../core/contracts';
 import type { TrackReport } from './TrackValidate';
+import { buildDebris } from './features/debris';
+import { buildMines } from './features/mine';
 
 const W = 1000;
 const PLAN_H = 760;
@@ -94,6 +96,9 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     else if (f.type === 'pipe') label((f.dStart + f.dEnd) / 2, `PIPE ${(f.dEnd - f.dStart).toFixed(0)} m`, '#7fe8ff');
     else if (f.type === 'ice') label((f.dStart + f.dEnd) / 2, 'ICE', '#cff4ff');
     else if (f.type === 'branch') label(f.dFork, `FORK → ${f.id.toUpperCase()}`, '#2bffa8');
+    else if (f.type === 'loop') label((f.dStart + f.dEnd) / 2, 'LOOP', '#ffb319');
+    else if (f.type === 'mines') label((f.dStart + f.dEnd) / 2, `MINES ×${f.count}`, '#ff3344');
+    else if (f.type === 'debris') label((f.dStart + f.dEnd) / 2, `DEBRIS ×${f.count}`, '#c9a14a');
     else if (f.type === 'gate' && !f.branch) label(f.d, `GATE ${f.span.toUpperCase()}`, '#b04dff');
     else if (f.type === 'gate') {
       const br = track.branches.find((x) => x.id === f.branch);
@@ -106,6 +111,14 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     }
   }
   marks.push(...open);
+  // Mines and debris at the centre of their drift.
+  for (const m of buildMines(track)) {
+    const s = at(m.d);
+    marks.push(`<circle cx="${px(s.position.x + s.right.x * m.lateral)}" cy="${pz(s.position.z + s.right.z * m.lateral)}" r="2.5" fill="#ff3344"/>`);
+  }
+  for (const b of buildDebris(track)) {
+    marks.push(`<circle cx="${px(b.center.x + b.right.x * b.lateral)}" cy="${pz(b.center.z + b.right.z * b.lateral)}" r="3" fill="#c9a14a"/>`);
+  }
   // Pipes: a translucent cyan sleeve over the deck; ice patches: pale strips on their lateral band.
   for (const f of track.features) {
     if (f.type !== 'pipe' && f.type !== 'ice') continue;
