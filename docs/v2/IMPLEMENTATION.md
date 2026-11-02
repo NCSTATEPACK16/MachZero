@@ -445,7 +445,7 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
-## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards — ✅ M4a (#13) and M4b (#14) DONE; M4c (Orbital Ring) next
+## M4 — Cryo Station, Jade Ruins, Orbital Ring + hazards — ✅ DONE: M4a (#13), M4b (#14), M4c (#20)
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
