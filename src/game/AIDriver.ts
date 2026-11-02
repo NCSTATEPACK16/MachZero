@@ -15,6 +15,8 @@ import { clamp, damp, inLoopRange, loopDelta, wrap01, wrapAngle } from '../core/
 import { Rng } from '../core/rng';
 import { TrackRoute } from '../track/TrackRoute';
 import { type BuiltGate, buildGates, gateBand, gateBlocksDuring } from '../track/features/gate';
+import { buildMines, MINE_RADIUS, minePose, type TrackMine } from '../track/features/mine';
+import { type BuiltDebris, buildDebris, debrisHalfAcross, debrisLateral } from '../track/features/debris';
 
 /**
  * Chance of taking a split path's shortcut on each approach, by tier (SPEC: Rookie never, Pilot ≈ 30%, Ace ≈ 60%,
@@ -33,6 +35,16 @@ const GATE_LOOKAHEAD = 240;
 const GATE_WINDOW = 0.4;
 const GATE_MARGIN = 3;
 const GATE_MIN_SPEED = 20;
+/** Mines and debris: seconds ahead the driver plans for (at least HAZARD_LOOKAHEAD_MIN metres); hazards reached
+ *  within HAZARD_NEAR seconds block where the timeline puts them over ±HAZARD_WINDOW s of arrival, further ones their
+ *  whole drift (so the line commits early to one side instead of weaving between drifting gaps); and the clearance
+ *  (m) kept between hull and hazard, wider for Rookies. */
+const HAZARD_LOOKAHEAD_TIME = 2.6;
+const HAZARD_LOOKAHEAD_MIN = 120;
+const HAZARD_NEAR = 0.6;
+const HAZARD_WINDOW = 0.25;
+const HAZARD_MARGIN = 1.2;
+const HAZARD_MARGIN_ROOKIE = 2.5;
 
 export interface AIDriverOptions {
   /** Physics seconds since the race reset (the stone gates' timeline); default: the driver's own clock. */
@@ -163,6 +175,11 @@ export class AIDriver implements IAIDriver {
   /** Route metres of last step's aim point (to carry tLat across a change of road). */
   private prevTargetR = Number.NaN;
   private readonly gates: BuiltGate[];
+  private readonly mines: TrackMine[];
+  private readonly debris: BuiltDebris[];
+  private readonly hazardMargin: number;
+  private readonly bands: [number, number][] = [];
+  private readonly minePos = { d: 0, lateral: 0 };
   private readonly hazardClock: () => number;
 
   private readonly out: ControlInput = neutralControls();
@@ -234,6 +251,9 @@ export class AIDriver implements IAIDriver {
     this.shortcuts = track.branches.map((b) => new TrackRoute(track, b));
     this.route = this.mainRoute;
     this.gates = buildGates(track);
+    this.mines = buildMines(track);
+    this.debris = buildDebris(track);
+    this.hazardMargin = (ship.def.tier ?? 'rookie') === 'rookie' ? HAZARD_MARGIN_ROOKIE : HAZARD_MARGIN;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
@@ -424,6 +444,9 @@ export class AIDriver implements IAIDriver {
       else if (hi >= halfWidth - 0.01 && desired > lo - GATE_MARGIN) desired = lo - GATE_MARGIN;
     });
 
+    // --- mines and debris: steer round those in the way on arrival ---
+    if (ship.path === null) desired = this.avoidHazards(u, speed, desired, maxLat);
+
     // --- pit ---
     this.updatePit(u, ship);
     let pitSlow = false;
@@ -543,6 +566,51 @@ export class AIDriver implements IAIDriver {
       return hi;
     }
     return desired;
+  }
+
+  /**
+   * Move `desired` clear of the mines and debris the ship will reach in the next HAZARD_LOOKAHEAD_TIME seconds,
+   * at where each will be on arrival (hazard clock), to the nearest free lateral within ±maxLat.
+   */
+  private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
+    if (this.mines.length === 0 && this.debris.length === 0) return desired;
+    const here = wrap01(u) * this.length;
+    const v = Math.max(speed, 30);
+    const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
+    const now = this.hazardClock();
+    const hull = CONFIG.SHIP_WIDTH / 2 + this.hazardMargin;
+    const bands = this.bands;
+    bands.length = 0;
+    const ahead = (d: number): number => {
+      const x = (((d - here) % this.length) + this.length) % this.length;
+      return x > this.length - 6 ? x - this.length : x;
+    };
+    const block = (dist: number, centre: number, drift: number, lateralAt: (t: number) => number, half: number): void => {
+      const ta = Math.max(0, dist) / v;
+      let lo = centre - drift;
+      let hi = centre + drift;
+      if (ta < HAZARD_NEAR) {
+        lo = Infinity;
+        hi = -Infinity;
+        for (let t = now + ta - HAZARD_WINDOW; t <= now + ta + HAZARD_WINDOW + 1e-6; t += 0.05) {
+          const lat = lateralAt(t);
+          lo = Math.min(lo, lat);
+          hi = Math.max(hi, lat);
+        }
+      }
+      bands.push([lo - half - hull, hi + half + hull]);
+    };
+    for (const m of this.mines) {
+      const dist = ahead(m.d);
+      if (dist < -4 || dist > reach) continue;
+      block(dist, m.lateral, m.driftSide, (t) => minePose(m, t, this.minePos).lateral, MINE_RADIUS);
+    }
+    for (const b of this.debris) {
+      const dist = ahead(b.d);
+      if (dist < -b.length || dist > reach) continue;
+      block(dist, b.lateral, b.drift, (t) => debrisLateral(b, t), debrisHalfAcross(b.width, b.length));
+    }
+    return clearOfBands(desired, bands, maxLat);
   }
 
   private inCentreSection(u: number): boolean {
@@ -723,4 +791,23 @@ export class AIDriver implements IAIDriver {
       this.pitWasInside = false;
     }
   }
+}
+
+/** The lateral nearest `x` within ±limit that lies outside every band (x itself when free; x when nothing is free). */
+export function clearOfBands(x: number, bands: [number, number][], limit: number): number {
+  const inside = (y: number): boolean => bands.some(([lo, hi]) => y > lo && y < hi);
+  if (!inside(x)) return x;
+  let best = x;
+  let bestDist = Infinity;
+  const edges = [-limit, limit];
+  for (const [lo, hi] of bands) edges.push(lo, hi);
+  for (const e of edges) {
+    if (e < -limit || e > limit || inside(e)) continue;
+    const dist = Math.abs(e - x);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = e;
+    }
+  }
+  return best;
 }

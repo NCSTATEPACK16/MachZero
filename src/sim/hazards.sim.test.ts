@@ -121,3 +121,149 @@ describe('Jade Ruins stone gates', () => {
     expect([...b.shortcuts]).toEqual([...a.shortcuts]);
   });
 });
+
+/**
+ * Orbital Ring's magnetic mines and debris. A ship that flies into a mine sets it off: a knock sideways and up, and
+ * MINE_DAMAGE energy under the normal policy, or no energy and the Rookie slow-down; the mine comes back 6 s later.
+ * Debris is solid: a ship that drives into it bounces off (`hazard:debris`). Every field leaves a clear lane, and
+ * the mines and debris run on physics time since the reset, so a race replays to the same standings and hits.
+ */
+describe('Orbital Ring mines and debris', () => {
+  const orbital: TrackData = trackFromSource({ kind: 'authored', def: TRACK_DEFS['orbital-ring'] });
+  const OL = orbital.length;
+  const fields = orbital.features.filter((f) => f.type === 'mines' || f.type === 'debris');
+
+  function orbitalSlot(u: number, lateral: number): GridSlot {
+    const s = orbital.sampleAt(u);
+    const position = s.position.clone().addScaledVector(s.right, lateral).addScaledVector(s.up, CONFIG.HOVER_HEIGHT);
+    const m = new THREE.Matrix4().makeBasis(s.right, s.up, s.forward.clone().negate());
+    return { u, lateral, position, quaternion: new THREE.Quaternion().setFromRotationMatrix(m) };
+  }
+
+  interface HazardRun {
+    mineHits: number;
+    debrisHits: number;
+    energyLost: number;
+    speedBefore: number;
+    speedAfter: number;
+    /** Sideways speed (m/s, relative to the road) just after the first mine hit. */
+    knock: number;
+    mineArmedAfter: boolean[];
+    passedD: number;
+  }
+
+  /**
+   * Drive from `from` metres to `to` at `speed`, steering for `line(d, physics)` (a lateral). Stops at `to` or after
+   * `maxSeconds`. Records mine and debris hits.
+   */
+  async function drive(
+    from: number,
+    to: number,
+    speed: number,
+    line: (d: number, physics: PhysicsSystem) => number,
+    hazards: Readonly<HazardPolicy>,
+    opts: { maxSeconds?: number; afterHit?: number } = {},
+  ): Promise<HazardRun> {
+    const bus = new EventBus<GameEvents>();
+    const physics = await PhysicsSystem.create(orbital, bus, { hazards });
+    const ship = physics.addShip(SHIP_ROSTER[0], orbital.startGrid[0]);
+    physics.resetTime();
+    physics.resetShip(0, orbitalSlot(wrap01(from / OL), line(from, physics)));
+    ship.status = 'racing';
+    ship.velocity.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion)).multiplyScalar(speed);
+    const run: HazardRun = { mineHits: 0, debrisHits: 0, energyLost: 0, speedBefore: 0, speedAfter: 0, knock: 0, mineArmedAfter: [], passedD: 0 };
+    let hitStep = -1;
+    bus.on('hazard:mine', () => run.mineHits++);
+    bus.on('hazard:debris', () => run.debrisHits++);
+    const controls = new Map<ShipId, ControlInput>();
+    const e0 = ship.energy;
+    let prevLat = ship.lateral;
+    const steps = Math.round((opts.maxSeconds ?? 6) * 120);
+    for (let i = 0; i < steps; i++) {
+      const d = ship.trackU * OL;
+      const latVel = (ship.lateral - prevLat) / CONFIG.FIXED_DT;
+      prevLat = ship.lateral;
+      const over = ship.forwardSpeed - speed;
+      controls.set(0, { throttle: clamp(0.5 - over / 4, 0, 1), brake: 0, steer: clamp(0.15 * (line(d, physics) - ship.lateral) - 0.06 * latVel, -1, 1), airbrakeLeft: 0, airbrakeRight: 0, boost: false });
+      const before = ship.forwardSpeed;
+      const hitsBefore = run.mineHits;
+      physics.step(CONFIG.FIXED_DT, controls);
+      if (run.mineHits > hitsBefore && hitStep < 0) {
+        hitStep = i;
+        run.speedBefore = before;
+        run.speedAfter = ship.forwardSpeed;
+      }
+      // The knock moves the hull on the step after the hit.
+      if (hitStep >= 0 && i === hitStep + 1) run.knock = Math.abs((ship.lateral - prevLat) / CONFIG.FIXED_DT);
+      if (hitStep >= 0 && i - hitStep === Math.round((opts.afterHit ?? 0) * 120)) run.mineArmedAfter = physics.mines.map((m) => m.armed);
+      run.passedD = wrap01(ship.trackU - from / OL) * OL;
+      if (run.passedD > to - from && run.passedD < OL / 2) break;
+    }
+    run.energyLost = e0 - ship.energy;
+    physics.dispose();
+    return run;
+  }
+
+  /** Steer at a track mine (it drifts, so re-aim every step) until it goes off, then for the field's clear lane. */
+  const atMine = (index: number, lane: number) => (_d: number, physics: PhysicsSystem): number => {
+    const m = physics.mines[index];
+    return m.armed ? m.lateral : lane;
+  };
+
+  it('has two mine fields of 4–5 mines and one debris field', () => {
+    const mines = orbital.features.filter((f) => f.type === 'mines');
+    const debris = orbital.features.filter((f) => f.type === 'debris');
+    expect(mines.length).toBe(2);
+    for (const f of mines) if (f.type === 'mines') expect(f.count === 4 || f.count === 5).toBe(true);
+    expect(debris.length).toBe(1);
+  });
+
+  it('a mine hit knocks the ship and costs MINE_DAMAGE energy (normal); the mine is back 6 s later', async () => {
+    const f = fields.find((x) => x.type === 'mines')!;
+    const lane = f.lane ?? 0;
+    const r = await drive(f.dStart - 80, f.dEnd + 20, 60, atMine(0, lane), HAZARDS_NORMAL, { afterHit: 0.5 });
+    console.log(`mine normal: hits=${r.mineHits} energyLost=${r.energyLost.toFixed(1)} knock=${r.knock.toFixed(1)} v ${r.speedBefore.toFixed(0)}→${r.speedAfter.toFixed(0)}`);
+    expect(r.mineHits).toBe(1);
+    expect(r.energyLost).toBeCloseTo(CONFIG.MINE_DAMAGE * SHIP_ROSTER[0].stats.damageTakenScale, 1);
+    expect(r.knock).toBeGreaterThan(4);
+    expect(r.mineArmedAfter[0]).toBe(false);
+    // Keep driving (past the field) until 6 s after the hit.
+    const later = await drive(f.dStart - 80, f.dEnd + 600, 60, atMine(0, lane), HAZARDS_NORMAL, { maxSeconds: 12, afterHit: CONFIG.MINE_RESPAWN + 0.1 });
+    expect(later.mineArmedAfter[0]).toBe(true);
+  });
+
+  it('under the Rookie policy a mine costs no energy and slows the ship by the hit scale', async () => {
+    const f = fields.find((x) => x.type === 'mines')!;
+    const r = await drive(f.dStart - 80, f.dEnd + 20, 60, atMine(0, f.lane ?? 0), HAZARDS_ROOKIE);
+    console.log(`mine rookie: hits=${r.mineHits} energyLost=${r.energyLost.toFixed(1)} v ${r.speedBefore.toFixed(0)}→${r.speedAfter.toFixed(0)}`);
+    expect(r.mineHits).toBe(1);
+    expect(r.energyLost).toBe(0);
+    expect(r.speedAfter).toBeLessThanOrEqual(r.speedBefore * HAZARDS_ROOKIE.hitSpeedScale + 0.5);
+  });
+
+  it.each([70, 140])('the clear lane through every field is clear at %i m/s', async (speed) => {
+    for (const f of fields) {
+      if (f.type !== 'mines' && f.type !== 'debris') continue;
+      const r = await drive(f.dStart - 60, f.dEnd + 20, speed, () => f.lane ?? 0, HAZARDS_NORMAL);
+      expect(r.mineHits + r.debrisHits, `${f.type} at ${f.dStart.toFixed(0)} m`).toBe(0);
+      expect(r.energyLost).toBe(0);
+    }
+  });
+
+  it('debris is solid: a ship driving into it bounces off', async () => {
+    const f = fields.find((x) => x.type === 'debris')!;
+    const r = await drive(f.dStart - 60, f.dEnd + 20, 50, (_d, physics) => physics.debrisLateral(0), HAZARDS_NORMAL);
+    console.log(`debris: hits=${r.debrisHits} energyLost=${r.energyLost.toFixed(1)}`);
+    expect(r.debrisHits).toBeGreaterThan(0);
+    expect(r.energyLost).toBeGreaterThan(0);
+  });
+
+  it('replays the same race to the same standings and hazard hits (mines and debris on physics time)', async () => {
+    const a = await runWorldRace('orbital-ring', 'legend');
+    const b = await runWorldRace('orbital-ring', 'legend');
+    console.log(`orbital-ring legend (determinism)\n${a.table}`);
+    expect(a.finished).toBe(true);
+    expect(b.standings).toEqual(a.standings);
+    expect([...b.mineHits]).toEqual([...a.mineHits]);
+  });
+});

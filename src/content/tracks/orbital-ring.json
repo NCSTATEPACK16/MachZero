@@ -18,8 +18,8 @@
     },
     {
       "type": "mines",
-      "dStart": 815.58,
-      "dEnd": 1005.58,
+      "dStart": 875.58,
+      "dEnd": 1055.58,
       "count": 5,
       "lane": 5,
       "drift": 2.5

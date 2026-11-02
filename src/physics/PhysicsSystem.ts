@@ -19,6 +19,8 @@ import { clamp01 } from '../core/math';
 import { ShipController, TUNING } from './ShipController';
 import { CLASS_SCALE, chassisById } from '../content/ships';
 import { type BuiltGate, buildGates, gateClosure, gatePose } from '../track/features/gate';
+import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../track/features/debris';
+import { MineField, type MineState } from './MineField';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -34,13 +36,22 @@ interface ContactAccumulator {
   depth: number;
 }
 
-/** Seconds during which renewed contact with the same gate is the same hit (event and Rookie slow-down once). */
-const GATE_HIT_COOLDOWN = 1;
+/** Seconds during which renewed contact with the same obstacle is the same hit (event and Rookie slow-down once). */
+const OBSTACLE_HIT_COOLDOWN = 1;
 /** Seconds during which renewed ship-to-ship contact of the same pair is the same impact (damage and event). */
 const SHIP_HIT_INTERVAL = 0.2;
 
 function pairKey(a: ShipId, b: ShipId): number {
   return a < b ? a * 1024 + b : b * 1024 + a;
+}
+
+/** A moving solid hazard: a stone gate (Jade Ruins) or a piece of debris (Orbital Ring). */
+interface Obstacle {
+  kind: 'gate' | 'debris';
+  /** Index in `gates` or `debris`. */
+  index: number;
+  body: RigidBody;
+  collider: Collider;
 }
 
 /**
@@ -71,15 +82,20 @@ export class PhysicsSystem implements IPhysicsSystem {
   private raceClock = 0;
   private disposed = false;
 
-  /** Stone gates: kinematic slabs in the rail group, told apart from the rails by collider handle. */
+  /**
+   * Stone gates and debris: kinematic boxes in the rail group, posed each step from the hazard clock and told apart
+   * from the rails by collider handle (obstacle id = index in `obstacles`).
+   */
   readonly gates: readonly BuiltGate[];
-  private readonly gateBodies: RigidBody[] = [];
-  private readonly gateColliders: Collider[] = [];
-  private readonly gateByHandle = new Map<number, number>();
-  private readonly gatePos = new THREE.Vector3();
-  private readonly gateQuat = new THREE.Quaternion();
-  /** Physics time of each ship's last counted hit per gate (key ship·64 + gate): contact flickers are one hit. */
-  private readonly gateHitTime = new Map<number, number>();
+  readonly debris: readonly BuiltDebris[];
+  private readonly obstacles: Obstacle[] = [];
+  private readonly obstacleByHandle = new Map<number, number>();
+  private readonly posePos = new THREE.Vector3();
+  private readonly poseQuat = new THREE.Quaternion();
+  /** Physics time of each ship's last counted hit per obstacle (key ship·1024 + obstacle): contact flickers are one hit. */
+  private readonly obstacleHitTime = new Map<number, number>();
+  /** Mines (Orbital Ring): trigger spheres on the hazard clock. */
+  private readonly mineField: MineField;
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -122,23 +138,11 @@ export class PhysicsSystem implements IPhysicsSystem {
     );
 
     this.gates = buildGates(track);
-    for (const g of this.gates) {
-      const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
-      const collider = world.createCollider(
-        RAPIER.ColliderDesc.cuboid(g.width / 2, g.height / 2, g.thickness / 2)
-          .setCollisionGroups(COLLISION.RAIL)
-          .setFriction(0)
-          .setRestitution(0)
-          .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
-          .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-        body,
-      );
-      this.gateBodies.push(body);
-      this.gateColliders.push(collider);
-      this.gateByHandle.set(collider.handle, g.index);
-    }
-    this.poseGates(true);
+    for (const g of this.gates) this.addObstacle('gate', g.index, g.width, g.height, g.thickness);
+    this.debris = buildDebris(track);
+    for (const b of this.debris) this.addObstacle('debris', b.index, b.width, b.height, b.length);
+    this.poseObstacles(true);
+    this.mineField = new MineField(track);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -228,29 +232,73 @@ export class PhysicsSystem implements IPhysicsSystem {
     return state;
   }
 
-  /** Physics seconds since the last race reset (the stone gates' timeline). */
+  /** Physics seconds since the last race reset (the timeline of the gates, mines and debris). */
   get hazardTime(): number {
     return this.raceClock;
   }
 
-  /** Restart the hazard timeline (on every race reset), so each race replays the same gate sequence. */
-  resetTime(): void {
-    this.raceClock = 0;
-    this.poseGates(true);
+  /** The mines this step (positions, armed): graphics and the AI read them. */
+  get mines(): readonly MineState[] {
+    return this.mineField.mines;
   }
 
-  /** Move each gate slab to its pose at the race clock (teleport, or as the next kinematic target). */
-  private poseGates(teleport: boolean): void {
-    for (let i = 0; i < this.gates.length; i++) {
-      gatePose(this.gates[i], gateClosure(this.gates[i], this.raceClock), this.gatePos, this.gateQuat);
-      const body = this.gateBodies[i];
+  /** Lateral of debris piece i's centre now. */
+  debrisLateral(i: number): number {
+    return debrisLateral(this.debris[i], this.raceClock);
+  }
+
+  /** Restart the hazard timeline (on every race reset), so each race replays the same hazard sequence. */
+  resetTime(): void {
+    this.raceClock = 0;
+    this.poseObstacles(true);
+    this.mineField.reset(0);
+  }
+
+  private addObstacle(kind: Obstacle['kind'], index: number, width: number, height: number, length: number): void {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(width / 2, height / 2, length / 2)
+        .setCollisionGroups(COLLISION.RAIL)
+        .setFriction(0)
+        .setRestitution(0)
+        .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+      body,
+    );
+    this.obstacleByHandle.set(collider.handle, this.obstacles.length);
+    this.obstacles.push({ kind, index, body, collider });
+  }
+
+  /** Move each gate slab and debris piece to its pose at the race clock (teleport, or as the next kinematic target). */
+  private poseObstacles(teleport: boolean): void {
+    for (const o of this.obstacles) {
+      if (o.kind === 'gate') {
+        const g = this.gates[o.index];
+        gatePose(g, gateClosure(g, this.raceClock), this.posePos, this.poseQuat);
+      } else debrisPose(this.debris[o.index], this.raceClock, this.posePos, this.poseQuat);
       if (teleport) {
-        body.setTranslation(this.gatePos, true);
-        body.setRotation(this.gateQuat, true);
+        o.body.setTranslation(this.posePos, true);
+        o.body.setRotation(this.poseQuat, true);
       } else {
-        body.setNextKinematicTranslation(this.gatePos);
-        body.setNextKinematicRotation(this.gateQuat);
+        o.body.setNextKinematicTranslation(this.posePos);
+        o.body.setNextKinematicRotation(this.poseQuat);
       }
+    }
+  }
+
+  /** Set off any armed mine a racing hull touches. */
+  private checkMines(): void {
+    const field = this.mineField;
+    if (field.mines.length === 0) return;
+    field.update(this.raceClock);
+    for (const c of this.controllerList) {
+      const s = c.state;
+      if ((s.status !== 'racing' && s.status !== 'finished') || !c.isColliderEnabled) continue;
+      const hit = field.test({ id: s.def.id, position: s.position, quaternion: s.quaternion, half: c.hullHalf }, this.raceClock);
+      if (!hit) continue;
+      c.applyMineHit(hit.side, hit.up, this.hazards);
+      this.bus.emit('hazard:mine', { shipId: s.def.id, mine: hit.mine.index, owner: hit.mine.owner, point: hit.mine.position.clone() });
     }
   }
 
@@ -259,7 +307,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.time += dt;
     this.raceClock += dt;
     if (this.world.timestep !== dt) this.world.timestep = dt;
-    if (this.gates.length > 0) this.poseGates(false);
+    if (this.obstacles.length > 0) this.poseObstacles(false);
 
     const list = this.controllerList;
 
@@ -279,10 +327,11 @@ export class PhysicsSystem implements IPhysicsSystem {
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (c.railContact) this.resolveRailContact(c, dt);
-      if (c.gateContacts.size > 0) for (const g of c.gateContacts) this.resolveGateContact(c, g, dt);
-      c.gateHitsStarted.clear();
+      if (c.obstacleContacts.size > 0) for (const o of c.obstacleContacts) this.resolveObstacleContact(c, o, dt);
+      c.obstacleHitsStarted.clear();
     }
     for (const pair of this.activePairs.values()) this.resolveShipContact(pair[0], pair[1]);
+    this.checkMines();
 
     // 4. Projection, zones, energy, safety respawn.
     for (let i = 0; i < list.length; i++) list[i].finishStep(dt);
@@ -327,16 +376,16 @@ export class PhysicsSystem implements IPhysicsSystem {
     const railHandle = this.railCollider.handle;
     const c1 = this.byCollider.get(h1);
     const c2 = this.byCollider.get(h2);
-    const g1 = this.gateByHandle.get(h1);
-    const g2 = this.gateByHandle.get(h2);
-    if (g1 !== undefined || g2 !== undefined) {
-      const c = g1 !== undefined ? c2 : c1;
-      const g = (g1 ?? g2)!;
+    const o1 = this.obstacleByHandle.get(h1);
+    const o2 = this.obstacleByHandle.get(h2);
+    if (o1 !== undefined || o2 !== undefined) {
+      const c = o1 !== undefined ? c2 : c1;
+      const o = (o1 ?? o2)!;
       if (!c) return;
       if (started) {
-        c.gateContacts.add(g);
-        c.gateHitsStarted.add(g);
-      } else c.gateContacts.delete(g);
+        c.obstacleContacts.add(o);
+        c.obstacleHitsStarted.add(o);
+      } else c.obstacleContacts.delete(o);
     } else if (h1 === railHandle) {
       if (c2) c2.railContact = started;
     } else if (h2 === railHandle) {
@@ -421,13 +470,14 @@ export class PhysicsSystem implements IPhysicsSystem {
   }
 
   /**
-   * A stone gate: a rail-like bounce. Under a damaging hazard policy the hit drains energy like a rail; otherwise
-   * it costs no energy and slows the ship (velocity × hitSpeedScale) once per hit.
+   * A stone gate or debris: a rail-like bounce. Under a damaging hazard policy the hit drains energy like a rail;
+   * otherwise it costs no energy and slows the ship (velocity × hitSpeedScale) once per hit.
    */
-  private resolveGateContact(c: ShipController, g: number, dt: number): void {
+  private resolveObstacleContact(c: ShipController, id: number, dt: number): void {
     if (c.state.status === 'retired' || !c.isColliderEnabled) return;
+    const o = this.obstacles[id];
     this.resetAccumulator(c.state.position, c.state.quaternion, c.state.position);
-    this.world.contactPair(c.collider, this.gateColliders[g], this.accumulateManifold);
+    this.world.contactPair(c.collider, o.collider, this.accumulateManifold);
     const acc = this.acc;
     if (acc.count === 0) return;
     const n = this.normalOut.set(acc.nx, acc.ny, acc.nz);
@@ -436,11 +486,13 @@ export class PhysicsSystem implements IPhysicsSystem {
     const p = this.pointScratch_(acc);
     const damage = this.hazards.damage;
     c.applyWallContact(n, p, dt, this.time, damage);
-    const key = c.state.def.id * 64 + g;
-    if (c.gateHitsStarted.has(g) && this.time - (this.gateHitTime.get(key) ?? -Infinity) >= GATE_HIT_COOLDOWN) {
-      this.gateHitTime.set(key, this.time);
+    const key = c.state.def.id * 1024 + id;
+    if (c.obstacleHitsStarted.has(id) && this.time - (this.obstacleHitTime.get(key) ?? -Infinity) >= OBSTACLE_HIT_COOLDOWN) {
+      this.obstacleHitTime.set(key, this.time);
       if (!damage) c.scaleVelocity(this.hazards.hitSpeedScale);
-      this.bus.emit('hazard:gate', { shipId: c.state.def.id, gate: g, point: new THREE.Vector3(p.x, p.y, p.z) });
+      const point = new THREE.Vector3(p.x, p.y, p.z);
+      if (o.kind === 'gate') this.bus.emit('hazard:gate', { shipId: c.state.def.id, gate: o.index, point });
+      else this.bus.emit('hazard:debris', { shipId: c.state.def.id, debris: o.index, point });
     }
   }
 

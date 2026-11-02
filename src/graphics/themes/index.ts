@@ -4,6 +4,7 @@ import { NeonBayTheme } from './neonBay';
 import { SunsetMesaTheme } from './sunsetMesa';
 import { CryoStationTheme } from './cryoStation';
 import { JadeRuinsTheme } from './jadeRuins';
+import { OrbitalRingTheme } from './orbitalRing';
 import type { ThemeFactory, WorldTheme } from './WorldTheme';
 
 const THEMES: Record<string, ThemeFactory> = {
@@ -11,6 +12,7 @@ const THEMES: Record<string, ThemeFactory> = {
   'sunset-mesa': (fog) => new SunsetMesaTheme(fog),
   'cryo-station': (fog) => new CryoStationTheme(fog),
   'jade-ruins': (fog) => new JadeRuinsTheme(fog),
+  'orbital-ring': (fog) => new OrbitalRingTheme(fog),
 };
 
 export function createTheme(worldId: string, fog: FogUniforms): WorldTheme {

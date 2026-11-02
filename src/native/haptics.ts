@@ -42,6 +42,8 @@ export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: ()
     bus.on('ship:shipHit', ({ a, b, intensity }) => (a === playerId || b === playerId) && intensity > 0.2 && tap(intensity > 0.7 ? 'medium' : 'light')),
     bus.on('ship:land', ({ shipId, intensity }) => shipId === playerId && intensity > 0.3 && tap('light')),
     bus.on('hazard:gate', ({ shipId }) => shipId === playerId && tap('heavy')),
+    bus.on('hazard:debris', ({ shipId }) => shipId === playerId && tap('heavy')),
+    bus.on('hazard:mine', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('ship:destroyed', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('item:emp', ({ from, target }) => (from === playerId || target === playerId) && tap('medium', true)),
   ];

@@ -76,6 +76,11 @@ export const CONFIG = {
   EMP_SLOW: 0.7,
   EMP_SLOW_TIME: 2.5,
   EMP_LOCK_TIME: 5,
+  // --- mines (Orbital Ring; the Drop Mine item): energy under normal hazard rules, knock (m/s), re-arm (s) ---
+  MINE_DAMAGE: 8,
+  MINE_KNOCK_SIDE: 10,
+  MINE_KNOCK_UP: 6,
+  MINE_RESPAWN: 6,
   DASH_IMPULSE: 45, // m/s added along forward
   RAIL_RESTITUTION: 0.35,
 

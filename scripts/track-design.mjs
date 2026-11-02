@@ -174,7 +174,7 @@ const TRACKS = {
     segments: [
       { s: 360, y: 44, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
       { r: 220, a: 90, y: 46 },
-      { s: 400, y: 48, adjust: true, f: [{ type: 'mines', from: 110, to: 300, count: 5, drift: 2.5, lane: 5 }] },
+      { s: 400, y: 48, adjust: true, f: [{ type: 'mines', from: 170, to: 350, count: 5, drift: 2.5, lane: 5 }] },
       { r: 200, a: 90, y: 50 },
       { s: 620, y: 50, adjust: true, f: [{ type: 'jump', lip: 140, gap: 70, kick: 2 }, { type: 'mines', from: 600, to: 760, count: 4, drift: 2.5, lane: -5 }] },
       { r: 180, a: 45, y: 48 },

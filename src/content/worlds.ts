@@ -74,9 +74,9 @@ export const WORLDS: readonly WorldDef[] = [
     tagline: 'A station ring above the Earth',
     gimmick: 'LOOP + LOW-G',
     trackId: 'orbital-ring',
-    palette: { left: 0xf4f7ff, right: 0x2b8cff, accent: 0xff3344, pit: 0x7dff3a },
+    palette: { left: 0x9fb4e0, right: 0x2b8cff, accent: 0xff3344, pit: 0x7dff3a },
     ui: { from: '#f4f7ff', to: '#2b8cff' },
-    built: false,
+    built: true,
   },
 ];
 

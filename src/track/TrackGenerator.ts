@@ -15,6 +15,8 @@ import { curlSamples, type PipeSpan } from './features/pipe';
 import { BuiltBranch } from './features/branch';
 import { buildGates } from './features/gate';
 import { buildGateVisual } from './features/gateVisual';
+import { buildDebris } from './features/debris';
+import { buildDebrisVisual } from './features/debrisVisual';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -275,6 +277,16 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const gateVisual = gateDefs.length > 0 ? buildGateVisual(gateDefs, palette.accent, build.telegraphScale ?? 1) : null;
   if (gateVisual) group.add(gateVisual.group);
+  // Debris drifts on the same clock.
+  const debrisDefs = features.some((f) => f.type === 'debris')
+    ? buildDebris({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const debrisVisual = debrisDefs.length > 0 ? buildDebrisVisual(debrisDefs) : null;
+  if (debrisVisual) group.add(debrisVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update].filter((f): f is (t: number) => void => !!f);
+  const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
+    for (const f of hazardAnimators) f(t);
+  };
 
   const pipes = pipeSpans.map((p) => ({
     uStart: wrap01(p.dStart / length),
@@ -331,7 +343,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     startGrid,
     collision,
     visual: group,
-    ...(gateVisual ? { animateHazards: gateVisual.update } : {}),
+    ...(animateHazards ? { animateHazards } : {}),
     corkscrew: first ? { uStart: first.uStart, uEnd: first.uEnd } : null,
     features,
     jumps,

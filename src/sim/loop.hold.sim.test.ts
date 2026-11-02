@@ -13,6 +13,7 @@ import { EventBus, type GameEvents } from '../core/events';
 import { TRACK_DEFS } from '../content/tracks';
 import { PhysicsSystem } from '../physics';
 import { trackFromSource } from '../track';
+import { ChaseCamera } from '../graphics/ChaseCamera';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -39,6 +40,9 @@ function deckNormal(u: number, lateral: number, out: THREE.Vector3): THREE.Vecto
 
 interface Run {
   insideSteps: number;
+  /** Lowest chase-camera height above the deck inside the loop, and the lowest midpoint of its sight line to the ship. */
+  camHeight: number;
+  sightHeight: number;
   respawns: number;
   airborne: number;
   worstHeightErr: number;
@@ -61,7 +65,10 @@ async function runLoop(speed: number, lateral: number, opts: { handsOff?: boolea
   physics.resetShip(0, slotAt(wrap01(loop.uStart - 60 / track.length), lateral));
   ship.status = 'racing';
   ship.velocity.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion)).multiplyScalar(speed);
-  const run: Run = { insideSteps: 0, respawns: 0, airborne: 0, worstHeightErr: 0, minAlign: 1, minUpY: 1, worstLineErr: 0, lateralExit: NaN, lateralOut: NaN, speedOut: 0 };
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 5000);
+  const chase = new ChaseCamera(camera);
+  const sight = new THREE.Vector3();
+  const run: Run = { insideSteps: 0, camHeight: Infinity, sightHeight: Infinity, respawns: 0, airborne: 0, worstHeightErr: 0, minAlign: 1, minUpY: 1, worstLineErr: 0, lateralExit: NaN, lateralOut: NaN, speedOut: 0 };
   bus.on('ship:respawn', () => run.respawns++);
 
   const controls = new Map<ShipId, ControlInput>();
@@ -82,7 +89,11 @@ async function runLoop(speed: number, lateral: number, opts: { handsOff?: boolea
     const over = ship.forwardSpeed - speed;
     controls.set(0, { throttle: clamp(0.5 - over / 4, 0, 1), brake: clamp((over - 3) / 10, 0, 1), steer, airbrakeLeft: 0, airbrakeRight: 0, boost: false });
     physics.step(CONFIG.FIXED_DT, controls);
+    chase.update(CONFIG.FIXED_DT, i * CONFIG.FIXED_DT, 'racing', 0, { pos: ship.position, quat: ship.quaternion, ship }, track);
     if (!inLoopRange(ship.trackU, loop.uStart, loop.uEnd)) continue;
+    run.camHeight = Math.min(run.camHeight, track.project(camera.position, ship.trackU).height);
+    sight.lerpVectors(camera.position, ship.position, 0.5);
+    run.sightHeight = Math.min(run.sightHeight, track.project(sight, ship.trackU).height);
 
     run.insideSteps++;
     run.worstHeightErr = Math.max(run.worstHeightErr, Math.abs(ship.heightAboveTrack - CONFIG.HOVER_HEIGHT));
@@ -104,12 +115,15 @@ async function runLoop(speed: number, lateral: number, opts: { handsOff?: boolea
 function report(name: string, r: Run): void {
   console.log(
     `loop ${name}: inside=${r.insideSteps} heightErr=${r.worstHeightErr.toFixed(2)} align=${r.minAlign.toFixed(3)} upY=${r.minUpY.toFixed(2)} ` +
-      `lineErr=${r.worstLineErr.toFixed(2)} latExit=${r.lateralExit.toFixed(2)} latOut=${r.lateralOut.toFixed(2)} airborne=${r.airborne} respawns=${r.respawns} vOut=${r.speedOut.toFixed(0)}`,
+      `cam=${r.camHeight.toFixed(2)} sight=${r.sightHeight.toFixed(2)} lineErr=${r.worstLineErr.toFixed(2)} latExit=${r.lateralExit.toFixed(2)} latOut=${r.lateralOut.toFixed(2)} airborne=${r.airborne} respawns=${r.respawns} vOut=${r.speedOut.toFixed(0)}`,
   );
 }
 
 function expectHeld(r: Run): void {
   expect(r.insideSteps).toBeGreaterThan(40);
+  // The chase camera stays on the ship's side of the deck, with a clear view of it, right round the loop.
+  expect(r.camHeight).toBeGreaterThan(1);
+  expect(r.sightHeight).toBeGreaterThan(0.5);
   expect(r.respawns).toBe(0);
   expect(r.airborne).toBe(0);
   expect(r.worstHeightErr).toBeLessThan(0.6);

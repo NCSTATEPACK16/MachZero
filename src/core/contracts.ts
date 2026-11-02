@@ -293,7 +293,7 @@ export interface TrackData {
   collision: TrackCollisionData;
   /** Surface, rails, neon strips, dash plates, pit, start gate, pylons. */
   visual: THREE.Group;
-  /** Pose moving hazards (stone gates) in `visual` for physics time t since the race reset; absent without any. */
+  /** Pose moving hazards (stone gates, debris) in `visual` for physics time t since the race reset; absent without any. */
   animateHazards?: (t: number) => void;
   /** The (first) corkscrew, or null when the track has none. */
   corkscrew: { uStart: number; uEnd: number } | null;
@@ -477,6 +477,19 @@ export interface RaceSnapshot {
 // Per-frame context for render-side systems
 // ---------------------------------------------------------------------------
 
+/** A mine as the render side and the AI see it (PhysicsSystem.mines, updated every physics step). */
+export interface MineView {
+  index: number;
+  /** Who dropped it (Drop Mine item), or null for a track mine. */
+  owner: ShipId | null;
+  /** Main-loop u and lateral of its centre. */
+  u: number;
+  lateral: number;
+  /** World centre. */
+  position: THREE.Vector3;
+  armed: boolean;
+}
+
 export interface FrameContext {
   /** Real frame delta in seconds (clamped). */
   dt: number;
@@ -484,8 +497,10 @@ export interface FrameContext {
   alpha: number;
   /** Seconds since boot. */
   time: number;
-  /** Physics seconds since the race reset (the stone gates' timeline). */
+  /** Physics seconds since the race reset (the timeline of the gates, mines and debris). */
   hazardTime: number;
+  /** Mines on the track (Orbital Ring; dropped mines): absent on tracks without any. */
+  mines?: readonly MineView[];
   ships: ShipState[];
   player: ShipState;
   track: TrackData;
