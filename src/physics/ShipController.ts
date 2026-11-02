@@ -6,6 +6,7 @@ import type { ControlInput, GridSlot, ShipState, ShipStats, TrackData } from '..
 import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
+import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 
 /**
@@ -287,6 +288,10 @@ export class ShipController {
       // instead of converting it into a sideways fling off the track.
       this.alignRot.setFromUnitVectors(this.prevUp, up);
       s.velocity.applyQuaternion(this.alignRot);
+      // The heading turns with them. Re-projecting it onto the new plane instead differs from the rotation by a
+      // second-order yaw when the surface pitches and twists at once (a loop-the-loop), which built up into a
+      // heading error of several degrees per loop at racing speed.
+      this.fwd.applyQuaternion(this.alignRot);
     } else {
       this.alignUp(sampleUp, CONFIG.UP_ALIGN_RATE * TUNING.AIR_ALIGN_FACTOR, dt);
     }
@@ -312,6 +317,19 @@ export class ShipController {
       // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
       // (see PipeCompensation), the pipe counterpart of the twist compensation above.
       const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
+      if (k !== 0) {
+        const angle = k * s.velocity.dot(this.fwd) * dt;
+        this.yaw(angle);
+        this.alignRot.setFromAxisAngle(up, angle);
+        s.velocity.applyQuaternion(this.alignRot);
+        this.right.crossVectors(this.fwd, up);
+      }
+    }
+
+    if (grounded && this.hasProjection && this.track.loops.length > 0 && s.path === null) {
+      // Loop magnetism: the deck twists and slides sideways through a loop-the-loop; the surface carries the ship
+      // along its constant-lateral line (see LoopCompensation).
+      const k = loopLineCurvature(this.track, s.trackU, s.lateral);
       if (k !== 0) {
         const angle = k * s.velocity.dot(this.fwd) * dt;
         this.yaw(angle);

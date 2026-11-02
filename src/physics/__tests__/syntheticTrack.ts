@@ -120,6 +120,7 @@ export function makeSyntheticTrack(opts: SyntheticTrackOptions = {}): TrackData 
     jumps: [],
     airGravityScale: 1,
     pipes: [],
+    loops: [],
     branches: [],
     surfaceKindAt: () => 'road',
     gripAt: () => 1,

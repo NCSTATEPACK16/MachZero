@@ -36,6 +36,8 @@ interface ContactAccumulator {
 
 /** Seconds during which renewed contact with the same gate is the same hit (event and Rookie slow-down once). */
 const GATE_HIT_COOLDOWN = 1;
+/** Seconds during which renewed ship-to-ship contact of the same pair is the same impact (damage and event). */
+const SHIP_HIT_INTERVAL = 0.2;
 
 function pairKey(a: ShipId, b: ShipId): number {
   return a < b ? a * 1024 + b : b * 1024 + a;
@@ -466,18 +468,19 @@ export class PhysicsSystem implements IPhysicsSystem {
     const closing = (va.x - vb.x) * n.x + (va.y - vb.y) * n.y + (va.z - vb.z) * n.z;
     if (closing <= TUNING.IMPACT_MIN_SPEED) return;
 
-    const sa = a.state.status;
-    const sb = b.state.status;
-    const bothRacing = (sa === 'racing' || sa === 'finished') && (sb === 'racing' || sb === 'finished');
-    if (bothRacing) {
-      a.applyShipDamage(closing);
-      b.applyShipDamage(closing);
-    }
-
+    // One impact per pair per SHIP_HIT_INTERVAL: two hulls pressed together (side by side after a shared landing)
+    // still show a small closing speed every step, and counting each step as a hit ground a ship to nothing.
     const key = pairKey(a.state.def.id, b.state.def.id);
     const last = this.pairEventTime.get(key) ?? -Infinity;
-    if (this.time - last >= 0.2) {
+    if (this.time - last >= SHIP_HIT_INTERVAL) {
       this.pairEventTime.set(key, this.time);
+      const sa = a.state.status;
+      const sb = b.state.status;
+      const bothRacing = (sa === 'racing' || sa === 'finished') && (sb === 'racing' || sb === 'finished');
+      if (bothRacing) {
+        a.applyShipDamage(closing);
+        b.applyShipDamage(closing);
+      }
       this.bus.emit('ship:shipHit', {
         a: a.state.def.id,
         b: b.state.def.id,

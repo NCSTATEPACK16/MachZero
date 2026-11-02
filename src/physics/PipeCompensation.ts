@@ -16,19 +16,10 @@ import * as THREE from 'three';
 import type { TrackData } from '../core/contracts';
 import { clamp, inLoopRange, wrap01 } from '../core/math';
 import { curlPoint, type CurledPoint } from '../track/features/pipe';
-
-interface Table {
-  /** First sample index of the table (track sample spacing). */
-  i0: number;
-  rows: number;
-  /** Laterals −W..W in 1 m steps. */
-  cols: number;
-  /** rows × cols, 1/m, positive = the line curves left. */
-  k: Float32Array;
-}
+import { geodesic, lookupLineTables, type LineTable } from './lineTables';
 
 interface PipeTables {
-  tables: Table[];
+  tables: LineTable[];
   n: number;
   halfWidth: number;
 }
@@ -39,24 +30,7 @@ const cache = new WeakMap<TrackData, PipeTables>();
 export function pipeLineCurvature(track: TrackData, u: number, lateral: number): number {
   if (track.pipes.length === 0) return 0;
   const t = tablesFor(track);
-  const uw = wrap01(u);
-  for (const tab of t.tables) {
-    const f = uw * t.n - tab.i0;
-    const ff = ((f % t.n) + t.n) % t.n;
-    if (ff > tab.rows - 1) continue;
-    const r0 = Math.floor(ff);
-    const r1 = Math.min(r0 + 1, tab.rows - 1);
-    const tr = ff - r0;
-    const c = clamp(lateral + t.halfWidth, 0, tab.cols - 1);
-    const c0 = Math.floor(c);
-    const c1 = Math.min(c0 + 1, tab.cols - 1);
-    const tc = c - c0;
-    const k = tab.k;
-    const a = k[r0 * tab.cols + c0] * (1 - tc) + k[r0 * tab.cols + c1] * tc;
-    const b = k[r1 * tab.cols + c0] * (1 - tc) + k[r1 * tab.cols + c1] * tc;
-    return a * (1 - tr) + b * tr;
-  }
-  return 0;
+  return lookupLineTables(t.tables, t.n, t.halfWidth, u, lateral);
 }
 
 function tablesFor(track: TrackData): PipeTables {
@@ -65,7 +39,7 @@ function tablesFor(track: TrackData): PipeTables {
   const n = track.samples.length;
   const W = track.halfWidth;
   const cols = Math.round(2 * W) + 1;
-  const tables: Table[] = [];
+  const tables: LineTable[] = [];
   const p = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   const q = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   const nCurl = new THREE.Vector3();
@@ -114,18 +88,4 @@ function curlFromPoint(pt: THREE.Vector3, s: { position: THREE.Vector3; right: T
   // The deck point at lateral lat is (sin φ, 1 − cos φ)/κ with φ = κ·lat, so tan(φ/2) = y / x.
   const phi = 2 * Math.atan2(y, x * Math.sign(lat)) * Math.sign(lat);
   return clamp((phi / lat) * (W / Math.PI), 0, 1);
-}
-
-/** Geodesic curvature at pts[1] of the polyline pts (surface normal nrm); positive = curving left. */
-function geodesic(pts: THREE.Vector3[], nrm: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3): number {
-  a.subVectors(pts[1], pts[0]);
-  b.subVectors(pts[2], pts[1]);
-  const la = a.length();
-  const lb = b.length();
-  if (la < 1e-9 || lb < 1e-9) return 0;
-  a.divideScalar(la);
-  b.divideScalar(lb);
-  // left = up × forward (right = forward × up)
-  side.crossVectors(nrm, a).normalize();
-  return b.sub(a).dot(side) / ((la + lb) / 2);
 }

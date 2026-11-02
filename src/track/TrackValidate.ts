@@ -6,15 +6,17 @@
  *   - features on straights, clear of each other and of the start and pit;
  *   - lap length in the band that gives a 30–45 s lap at Pilot pace;
  *   - split paths: fork and merge overlaps on main straights, branch radius and elevation, and the branch clear
- *     of the main road once the two have separated.
+ *     of the main road once the two have separated;
+ *   - loops: side offset that keeps the entry and exit decks apart, level and unbanked at both ends.
  */
 import { CONFIG } from '../core/config';
 import type { TrackData, TrackFeature } from '../core/contracts';
 import { RAMP_LENGTH, LANDING_BLEND } from './features/jump';
 import { branchSeparation } from './features/branch';
+import { LOOP_MIN_SIDE } from './features/loop';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop';
   message: string;
 }
 
@@ -31,7 +33,8 @@ export interface TrackReport {
 
 export const VALIDATION = {
   MIN_RADIUS: CONFIG.TRACK_MIN_RADIUS,
-  MIN_RADIUS_LOOP: 45,
+  /** Inside a loop-the-loop (30 m tall: its radius is ≤ 15 m, tighter over the top). */
+  MIN_RADIUS_LOOP: 8,
   /** Sections whose decks pass within this plan distance must be separated vertically by MIN_CLEARANCE. */
   OVERLAP_PLAN: 2 * (CONFIG.TRACK_HALF_WIDTH + CONFIG.RAIL_THICKNESS) + 6,
   MIN_CLEARANCE: 12,
@@ -188,6 +191,35 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
     if (f.type !== 'dash') continue;
     for (const s of spans) {
       if (circularOverlap([f.dStart, f.dEnd], s.span, L)) issues.push({ code: 'feature-overlap', message: `dash plate at ${f.dStart.toFixed(0)} m sits on the ${s.f.type}` });
+    }
+  }
+
+  // ---- loops ----
+  for (const f of track.features) {
+    if (f.type !== 'loop') continue;
+    if (Math.abs(f.sideOffset) < LOOP_MIN_SIDE) issues.push({ code: 'loop', message: `loop at ${f.dStart.toFixed(0)} m: side offset ${f.sideOffset} m < ${LOOP_MIN_SIDE} m (entry and exit decks would touch)` });
+    // The legs pass each other at the same height: wherever they are close in the loop's plane, their decks
+    // (rails included) must be a loop's minimum side offset apart along its axis.
+    const i0 = Math.round(f.dStart / ds);
+    const i1 = Math.round(f.dEnd / ds);
+    const axis = track.samples[((i0 % n) + n) % n].right;
+    let crossed = false;
+    for (let i = i0; i <= i1 && !crossed; i++) {
+      const p = track.samples[((i % n) + n) % n].position;
+      for (let j = i + Math.ceil(25 / ds); j <= i1; j++) {
+        const d = track.samples[((j % n) + n) % n].position.clone().sub(p);
+        const along = d.dot(axis);
+        if (d.addScaledVector(axis, -along).length() < 4 && Math.abs(along) < LOOP_MIN_SIDE) {
+          issues.push({ code: 'loop', message: `loop at ${f.dStart.toFixed(0)} m crosses itself (${Math.abs(along).toFixed(1)} m apart at ${(i * ds).toFixed(0)} m)` });
+          crossed = true;
+          break;
+        }
+      }
+    }
+    const a = track.sampleAt((((f.dStart - 20) % L) + L) % L / L);
+    const b = track.sampleAt((((f.dEnd + 20) % L) + L) % L / L);
+    if (a.up.y < 0.999 || b.up.y < 0.999 || Math.abs(a.position.y - b.position.y) > 0.5) {
+      issues.push({ code: 'loop', message: `loop at ${f.dStart.toFixed(0)} m must start and end on the level, unbanked` });
     }
   }
 

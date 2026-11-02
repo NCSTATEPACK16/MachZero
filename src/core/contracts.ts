@@ -221,7 +221,13 @@ export type TrackFeature =
       /** Which part of the road the slab closes: the left or right half, or the full width (a shortcut gate). */
       span: 'left' | 'right' | 'full';
     }
-  | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number };
+  /**
+   * Magnetic mines drifting on Lissajous paths (Orbital Ring), staggered along [dStart, dEnd] either side of a clear
+   * lane centred at lateral `lane` (m); `drift` is the sideways amplitude (m).
+   */
+  | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number; lane?: number }
+  /** Solid wreckage drifting slowly across the road (Orbital Ring), clear of a lane centred at lateral `lane` (m). */
+  | { type: 'debris'; dStart: number; dEnd: number; count: number; lane?: number };
 
 /** content/tracks/<id>.json */
 export interface TrackDefinition {
@@ -300,6 +306,8 @@ export interface TrackData {
    * fully closed (uClosedStart..uClosedEnd).
    */
   pipes: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
+  /** Loop-the-loops in u (empty on most tracks). */
+  loops: { uStart: number; uEnd: number }[];
   /** Gravity multiplier while airborne. */
   airGravityScale: number;
   /** What a ship at (u, lateral) is driving on (on a branch: pass its id; u is then ignored for main features). */
@@ -308,7 +316,8 @@ export interface TrackData {
   gripAt(u: number, lateral: number, path?: string | null): number;
   /**
    * Where a ship whose last valid position was u is put back: u itself, except near or inside a jump, where it
-   * is the landing side (respawning before the ramp at low speed would only miss the jump again).
+   * is the landing side (respawning before the ramp at low speed would only miss the jump again), and inside a
+   * loop, where it is just past the loop.
    */
   safeRespawnU(u: number): number;
 }

@@ -88,6 +88,7 @@ export function makeCircleTrack(radius = 400, direction: 1 | -1 = 1, options: { 
     jumps: [],
     airGravityScale: 1,
     pipes: [],
+    loops: [],
     branches: [],
     surfaceKindAt: () => 'road',
     gripAt: () => 1,

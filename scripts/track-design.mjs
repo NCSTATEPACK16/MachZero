@@ -1,9 +1,11 @@
 // Authoring tool for MachZero's hand-designed tracks: each world's circuit is written below as a sequence of
 // turtle segments (straights and constant-radius arcs, each with an end elevation), which this script turns
 // into the closed Catmull-Rom control points of src/content/tracks/<id>.json, plus the features placed on
-// those segments (corkscrew, jumps, pipes, ice, stone gates, dash plates, pit) in metres along the lap. A pipe or
-// ice patch may run on past its segment (`len` instead of `to`). A split path (`branches`) is its own segment
-// list from a `fork` to a `merge` marker on flat main straights; see designBranch().
+// those segments (corkscrew, jumps, pipes, ice, stone gates, mines, debris, dash plates, pit) in metres along the
+// lap. A pipe or ice patch may run on past its segment (`len` instead of `to`). A split path (`branches`) is its own
+// segment list from a `fork` to a `merge` marker on flat main straights; see designBranch(). A `loop` segment is a
+// loop-the-loop on the level: dense control points along the analytic loop of src/track/features/loop.ts, ending
+// `advance` metres on and `side` metres to the side (positive = right) of where it started.
 //
 //   node scripts/track-design.mjs            # write every track
 //   node scripts/track-design.mjs neon-bay   # one track
@@ -22,7 +24,30 @@ const OUT = join(root, 'src/content/tracks');
 const STEP = 18; // max metres between emitted control points
 const ARC_STEP_DEG = 8;
 
-/** @typedef {{ s?: number, r?: number, a?: number, y?: number, adjust?: boolean, f?: object[] }} Segment */
+/** @typedef {{ s?: number, r?: number, a?: number, y?: number, loop?: { side: number, advance?: number, height?: number }, adjust?: boolean, f?: object[] }} Segment */
+
+// Loop shape: keep in step with loopLocal() in src/track/features/loop.ts.
+const LOOP_ADVANCE = 40;
+const LOOP_SIDE_EASE = 0.15;
+const LOOP_HEIGHT = 30;
+const LOOP_POINTS = 80;
+const smoother = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * t * (t * (t * 6 - 15) + 10));
+function loopLocal(t, { advance = LOOP_ADVANCE, height = LOOP_HEIGHT, side }) {
+  const s = smoother(t);
+  const R = height / 2;
+  const th = 2 * Math.PI * s;
+  return [advance * t + R * Math.sin(th), R * (1 - Math.cos(th)), side * smoother((t - LOOP_SIDE_EASE) / (1 - 2 * LOOP_SIDE_EASE))];
+}
+function loopArc(shape) {
+  let len = 0;
+  let prev = loopLocal(0, shape);
+  for (let i = 1; i <= 4000; i++) {
+    const p = loopLocal(i / 4000, shape);
+    len += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]);
+    prev = p;
+  }
+  return len;
+}
 
 const TRACKS = {
   // World 1. Synthwave harbour at night: a wide clockwise lap around the bay with a fast esplanade, the
@@ -137,6 +162,35 @@ const TRACKS = {
       },
     ],
   },
+  // World 5. A space station ring high above the Earth: a clockwise lap with a 30 m loop-the-loop on the station's
+  // spine, two long low-gravity jumps over gaps in the ring, two magnetic mine fields and a field of drifting
+  // debris from a broken satellite. Every hazard field leaves a clear lane (`lane`, metres across the road).
+  // Low gravity carries a boosted ship ~350 m past a lip, so nothing else sits in a jump's long run-out.
+  'orbital-ring': {
+    worldId: 'orbital-ring',
+    name: 'ORBITAL RING',
+    elevation: [26, 84],
+    airGravityScale: 0.35,
+    segments: [
+      { s: 360, y: 44, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
+      { r: 220, a: 90, y: 46 },
+      { s: 400, y: 48, adjust: true, f: [{ type: 'mines', from: 110, to: 300, count: 5, drift: 2.5, lane: 5 }] },
+      { r: 200, a: 90, y: 50 },
+      { s: 620, y: 50, adjust: true, f: [{ type: 'jump', lip: 140, gap: 70, kick: 2 }, { type: 'mines', from: 600, to: 760, count: 4, drift: 2.5, lane: -5 }] },
+      { r: 180, a: 45, y: 48 },
+      { r: 180, a: -45, y: 46 },
+      { s: 150, y: 46, f: [{ type: 'dash', at: 70, lateral: 0 }] },
+      { loop: { side: 38 }, y: 46 },
+      { s: 170, y: 46 },
+      { r: 160, a: 90, y: 44 },
+      { s: 300, y: 42, f: [{ type: 'debris', from: 70, to: 230, count: 6, lane: -4 }] },
+      { r: 200, a: 90, y: 42 },
+      { s: 660, y: 44, f: [{ type: 'jump', lip: 120, gap: 80, kick: 2 }] },
+      { r: 260, a: -25, y: 44 },
+      { r: 260, a: 25, y: 44 },
+      { s: 160, y: 44, f: [{ type: 'dash', at: 40, lateral: 3 }] },
+    ],
+  },
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -159,8 +213,21 @@ function walk(segments, lengths, emit, start = null) {
     const y0 = y;
     const y1 = seg.y ?? y;
     const d0 = d;
-    poses.push({ x, z, h, y0, y1, d0, L: seg.s !== undefined ? lengths[i] : seg.r * Math.abs((seg.a * Math.PI) / 180), straight: seg.s !== undefined });
-    if (seg.s !== undefined) {
+    const segLength = seg.s !== undefined ? lengths[i] : seg.loop ? loopArc(seg.loop) : seg.r * Math.abs((seg.a * Math.PI) / 180);
+    poses.push({ x, z, h, y0, y1, d0, L: segLength, straight: seg.s !== undefined });
+    if (seg.loop) {
+      if (y1 !== y0) throw new Error(`a loop must be level (segment ${i} climbs ${y0}→${y1})`);
+      // forward (cos h, sin h), right = forward × up = (−sin h, cos h)
+      for (let k = 0; k < LOOP_POINTS; k++) {
+        const [a, b, c] = loopLocal(k / LOOP_POINTS, seg.loop);
+        if (emit) push(x + Math.cos(h) * a - Math.sin(h) * c, y0 + b, z + Math.sin(h) * a + Math.cos(h) * c);
+      }
+      const [a, , c] = loopLocal(1, seg.loop);
+      x += Math.cos(h) * a - Math.sin(h) * c;
+      z += Math.sin(h) * a + Math.cos(h) * c;
+      d += segLength;
+      if (emit) feats.push({ type: 'loop', dStart: +d0.toFixed(2), dEnd: +d.toFixed(2), sideOffset: seg.loop.side });
+    } else if (seg.s !== undefined) {
       const L = lengths[i];
       const n = Math.max(1, Math.ceil(L / STEP));
       for (let k = 0; k < n; k++) {
@@ -208,6 +275,9 @@ function walk(segments, lengths, emit, start = null) {
           const j = { type: 'jump', dTakeoff: +(d0 + f.lip).toFixed(2), dLanding: +(d0 + f.lip + f.gap).toFixed(2), kick: f.kick };
           if (f.designSpeed) j.designSpeed = f.designSpeed;
           feats.push(j);
+        } else if (f.type === 'mines' || f.type === 'debris') {
+          const m = { type: f.type, dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, lane: f.lane };
+          feats.push(f.type === 'mines' ? { ...m, drift: f.drift } : m);
         } else if (f.type === 'gate') {
           feats.push({ type: 'gate', d: +(d0 + f.at).toFixed(2), period: f.period, phase: f.phase, closedFraction: f.closedFraction, span: f.span });
         } else if (f.type === 'fork' || f.type === 'merge' || f.type === 'open') {
