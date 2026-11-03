@@ -699,7 +699,21 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## GP — Grand Prix cups (after §P; one PR; pulled forward from M8)
+## GP — Grand Prix cups — ✅ DONE (PR #24)
+
+**As built (PR #24)** (read before M5 or M8):
+- **Code:** `game/modes/GrandPrix.ts` is pure: `CupState { tier, results }` (per race, per ship id, the finishing position; 0 = retired), `recordRace(cup, standings, retire?)`, `cupStandings` (points, best finish, last-race points, movement), `cupGridOrder` (null for race 1, then the reverse of the table), `cupBonus`, `cupAward`, `addTrophy`, `sanitizeCup`. M8 adds World Tour and Time Trial beside it.
+- **Tiebreak:** points, then best finish, then the last race's finish, then ship id (so the order is total and stable).
+- **Grid:** `buildRaceField({ gridOrder })` (index = slot, value = ship id); a malformed order is ignored and the default path is unchanged. `runWorldRace(…, { gridOrder })` too.
+- **App:** `cupRace` signal marks the race session as a cup race (part of the session key, so a cup race always builds its own session and HUD). `currentWorld` and the tier come from the cup. `bindStats` pays the normal payout, then `bookCupRace` records the result and, after race 5, pays the bonus (one combined `economy:credits` on the results), awards the trophy, clears `Profile.cup` and keeps the final table in `lastCup` for the standings screen.
+- **No restarts:** `HudActions.cup` hides RESTART on the pause screen (MENU becomes **RETIRE**) and turns the results' RACE AGAIN into **CUP STANDINGS**. Keyboard R and Ⓑ on the pause panel do nothing in a cup; Ⓐ or Ⓑ on the results go to the standings. RETIRE books the race with the player at 0 points and the rivals scored in their running order.
+- **Screens:** `ui/screens/GrandPrix.tsx` (worlds, trophies, START / CONTINUE / QUIT CUP) and `CupStandings.tsx` (table with movement, NEXT RACE, GARAGE, QUIT CUP with a confirmation; the final table after race 5). Routes `gp` and `cup`; the Garage takes `back: 'cup'`. Main menu: CONTINUE CUP (first and focused) while a cup is in progress, GRAND PRIX after WORLDS otherwise. Trophies show on the pilot card.
+- **Flag:** shipped ON (behind `worlds`, like the world select), not behind `modes`, which stays off for M8.
+- **Save v5:** `Profile.cup` and `Profile.trophies` (migration 4 → 5 adds `null` and `[]`).
+- **Known gap:** closing the app *mid-race* and reopening resumes the cup at that race (the cup is saved between races only). Accepted: counting it as a retire would punish a crash or a phone call.
+- **Debug:** `__machzero.simulate(seconds)` steps the race with nobody driving (the player's AI drives), for the e2e.
+- **Tests:** `game/modes/__tests__/GrandPrix.test.ts` (9), `sim/grandPrix.sim.test.ts` (five real races, reload mid-cup), the migration in `SaveStore.test.ts`, the grid order in `ShipStatsResolver.test.ts`, and `e2e/grandprix.spec.ts` (pad only: start, race 1, standings, reload, CONTINUE CUP, race 2 on the reverse grid).
+
 
 **Build notes (where things are, 2026-11-02):**
 - **Grid:** `content/pilots.ts` `buildRaceField(opts)` already takes `playerGridIndex` (Rookie defaults to the back). The reverse-standings grid needs an explicit order for *every* ship: add `gridOrder?: ShipId[]` and keep the default path unchanged so the existing sims don't move.
