@@ -1,9 +1,13 @@
-# Next-session brief: build MachZero 2.0 (next: H Housekeeping, then §P Powerups, then §GP Grand Prix)
+# Next-session brief: build MachZero 2.0 (next: M5 AI tiers, pilots, drafting)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-02: M0–M4 merged, all five worlds built; next is H, then §P, then §GP)
+## Where things stand (2026-11-03: H, §P and §GP built and in review; next is M5)
+
+- **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5). Each is built and green locally; the user playtests the previews and merges. If any is still open when you start, stack M5 on #24 and write "stacked on #24".
+- Read IMPLEMENTATION's "As built" notes for §H, §P and §GP before M5. Pending on device: the 8BitDo item select (§P) and a pad-only cup (§GP) on iOS.
+
 
 - **The live site** is https://machzero.netlify.app. Every merge to `main` deploys there, and every PR gets a preview at `https://deploy-preview-<N>--machzero.netlify.app`.
 - **The iOS app** (Capacitor 8, `ios/App`, bundle `com.ncstatepack16.machzero`) is on TestFlight. The user tests on an iPhone 18 Pro Max and an iPad Air 11" with an 8BitDo pad in X-input mode.
@@ -26,7 +30,6 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
     - a heading fix, and ship-to-ship damage applied once per 0.2 s.
   
   M4 is ✅ done. Read IMPLEMENTATION's "As built: M4c" before §P.
-- **No open PRs.**
 - **Flags on `main`:** `profiles`, `garage` and `worlds` are on; `tiers`, `music`, `touch` and `modes` are off. Since #18 the tier comes from the profile (Settings → Race) whatever the `tiers` flag says.
 - **Tests:**
   - 352 unit, integration and sim tests in 42 files, about 50 s locally on a loaded machine.
@@ -34,7 +37,11 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
   - Keep every test file under 60 s.
 - **Sizes after M4c:** app 310.7 KB gzip of a 600 KB budget; Rapier 1,615 KB gzip; `public/game` 607.7 KB of 15 MB.
 
-## Next (specs settled; build in this order, one PR each)
+## Next: M5 (spec settled in IMPLEMENTATION §M5; no design session needed)
+
+H, §P and §GP are done (PRs #22–#24). Their original plan follows for reference.
+
+### Done this round (for reference)
 
 1. **H, Housekeeping** (IMPLEMENTATION §H, small): `npm audit fix` without `--force` (vite 8.3.5, vitest 5.0.5, source-map-js 1.2.2), and diagnose and fix the Low-preset haze. Branch `v2/h-housekeeping`.
 2. **§P, Powerups:** Shield, Drop Mine, item select, CPU items. IMPLEMENTATION §P. **Read its "Build notes from M4c as built" first.** Three facts from those notes:
@@ -92,9 +99,9 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: build H Housekeeping, then §P Powerups, then §GP Grand Prix cups (IMPLEMENTATION.md), in order, as far as this
-session allows, each its own PR and shippable on its own. Everything up to #20 (M4c) is merged. Read each section's
-build notes before coding. M5 is next after §GP; M6–M8 need the user first.
+GOAL: build M5 (AI tiers, pilots, drafting; IMPLEMENTATION.md §M5) as one or more PRs, each shippable on its own.
+H, §P and §GP are in PRs #22–#24 (check which are merged). Read their as-built notes before coding. M6–M8 need
+the user first.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play
@@ -139,7 +146,7 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/h-housekeeping from main.
-Then build H, then §P, then §GP. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
+Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/m5-tiers from main, or
+from v2/gp-grand-prix if #24 is still open. Then build M5. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
 number). No attribution lines in commits or PR bodies.
 ```
