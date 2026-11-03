@@ -354,6 +354,8 @@ export function Garage({ app }: { app: App }) {
   const [tab, setTab] = useState<Tab>('ship');
   const [preview, setPreview] = useState<Loadout | null>(null);
   const [buying, setBuying] = useState<{ slot: PartSlot; tier: PartTier } | null>(null);
+  const r = app.route.value;
+  const fromCup = r.name === 'garage' && r.back === 'cup';
   /** The card that opened the buy dialog gets focus back when it closes. */
   const opener = useRef<HTMLElement | null>(null);
   const p = app.activeProfile.value;
@@ -416,8 +418,8 @@ export function Garage({ app }: { app: App }) {
   return (
     <section ref={ref} class="mzu-garage" data-screen="garage" aria-label="Garage" onKeyDown={(e) => ref.current && onUiKeyDown(ref.current, e)}>
       <header class="mzu-garage-head" inert={buying !== null}>
-        <button type="button" class="mzu-back" data-back={buying ? undefined : ''} onClick={() => app.closeGarage()} aria-label="Menu">
-          <span aria-hidden="true">‹</span> MENU
+        <button type="button" class="mzu-back" data-back={buying ? undefined : ''} onClick={() => app.closeGarage()} aria-label={fromCup ? 'Cup standings' : 'Menu'}>
+          <span aria-hidden="true">‹</span> {fromCup ? 'CUP' : 'MENU'}
         </button>
         <div class="mzu-titles">
           <div class="mzu-kicker">{p.name}</div>

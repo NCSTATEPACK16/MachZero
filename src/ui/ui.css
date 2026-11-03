@@ -1479,3 +1479,193 @@ html.mz-pad .mzu-world:focus {
   flex: none;
   white-space: nowrap;
 }
+
+/* ---------- Grand Prix (§GP) ---------- */
+.mzu-gp,
+.mzu-cup {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 1.4em;
+  align-items: start;
+}
+.mzu-gp-tracks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+}
+.mzu-gp-tracks li {
+  display: grid;
+  grid-template-columns: 2em 1fr auto;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.55em 0.9em;
+  border: 1px solid color-mix(in srgb, var(--w-from) 50%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--w-from) 18%, transparent), color-mix(in srgb, var(--w-to) 8%, transparent)),
+    rgba(8, 6, 26, 0.72);
+  transform: skewX(-10deg);
+}
+.mzu-gp-tracks li > * {
+  transform: skewX(10deg);
+}
+.mzu-gp-tracks li.done {
+  opacity: 0.55;
+}
+.mzu-gp-tracks li.next {
+  border-color: var(--lime);
+  box-shadow: 0 0 1em rgba(125, 255, 58, 0.25);
+}
+.mzu-gp-num {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.3em;
+  color: var(--w-from);
+}
+.mzu-gp-name {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+}
+.mzu-gp-state {
+  font-size: 0.7em;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--lime);
+}
+.mzu-gp-side,
+.mzu-cup-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+}
+.mzu-gp-trophies {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.mzu-trophies {
+  display: flex;
+  gap: 0.8em;
+  flex-wrap: wrap;
+}
+.mzu-trophy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  color: rgba(244, 247, 255, 0.18);
+}
+.mzu-trophy svg {
+  width: 2.6em;
+  height: 2.6em;
+}
+.mzu-trophies.small {
+  gap: 0.15em;
+}
+.mzu-trophies.small .mzu-trophy svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+.mzu-trophy.won {
+  color: var(--amber);
+  filter: drop-shadow(0 0 0.4em rgba(255, 179, 25, 0.7));
+}
+.mzu-trophy[data-tier='rookie'].won {
+  color: #d58b52;
+}
+.mzu-trophy[data-tier='pilot'].won {
+  color: #d9e2f2;
+}
+.mzu-trophy[data-tier='legend'].won {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 0.4em rgba(25, 240, 255, 0.8));
+}
+.mzu-trophy-name {
+  font-size: 0.65em;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+.mzu-actions.vertical {
+  flex-direction: column;
+  align-items: stretch;
+}
+.mzu-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+}
+.mzu-confirm-q {
+  width: 100%;
+  font-size: 0.8em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--red);
+}
+.mzu-lead.gold {
+  color: var(--amber);
+  text-shadow: 0 0 0.8em rgba(255, 179, 25, 0.6);
+}
+.mzu-cup-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-glow);
+}
+.mzu-cup-row {
+  display: grid;
+  grid-template-columns: 2.4em 2.6em 1fr 3em 3em;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.38em 0.9em;
+  border-bottom: 1px solid rgba(244, 247, 255, 0.07);
+  font-weight: 700;
+}
+.mzu-cup-row.head {
+  font-size: 0.7em;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--cyan);
+}
+.mzu-cup-row.me {
+  background: linear-gradient(90deg, rgba(255, 43, 214, 0.22), transparent);
+  color: var(--white);
+}
+.mzu-cup-row .pos {
+  font-weight: 900;
+  font-style: italic;
+}
+.mzu-cup-row .name {
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mzu-cup-row .move {
+  font-size: 0.8em;
+  color: rgba(244, 247, 255, 0.4);
+}
+.mzu-cup-row .move.up {
+  color: var(--lime);
+}
+.mzu-cup-row .move.down {
+  color: var(--red);
+}
+.mzu-cup-row .last {
+  color: rgba(244, 247, 255, 0.6);
+  text-align: right;
+}
+.mzu-cup-row .pts {
+  font-weight: 900;
+  text-align: right;
+}
+@media (max-width: 760px), (max-aspect-ratio: 1/1) {
+  .mzu-gp,
+  .mzu-cup {
+    grid-template-columns: 1fr;
+  }
+}

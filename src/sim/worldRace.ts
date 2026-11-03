@@ -3,7 +3,7 @@
  * parallel workers). Returns what the assertions need; no expectations here.
  */
 import { AI_PACE, CONFIG } from '../core/config';
-import type { AITier, ControlInput, ShipId, ShipState, TrackData } from '../core/contracts';
+import type { AITier, ControlInput, RacerStanding, ShipId, ShipState, TrackData } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
@@ -38,6 +38,8 @@ export interface WorldRaceResult {
   shortcuts: Map<ShipId, number>;
   /** Finishing order with total times (null = did not finish). */
   standings: { id: ShipId; totalTime: number | null }[];
+  /** The race's final standings as `race:results` carried them. */
+  results: RacerStanding[];
   playerLaps: number;
   maxLateral: number;
   stepMs: number;
@@ -47,7 +49,7 @@ export interface WorldRaceResult {
 const tracks = new Map<string, TrackData>();
 
 /** `items`: CPU items in play (default true: none on Rookie, by SPEC §4.4a); the player (AI-driven) carries none. */
-export async function runWorldRace(trackId: string, tier: AITier, opts: { hazards?: Readonly<HazardPolicy>; items?: boolean } = {}): Promise<WorldRaceResult> {
+export async function runWorldRace(trackId: string, tier: AITier, opts: { hazards?: Readonly<HazardPolicy>; items?: boolean; gridOrder?: readonly ShipId[] } = {}): Promise<WorldRaceResult> {
   let track = tracks.get(trackId);
   if (!track) {
     track = trackFromSource({ kind: 'authored', def: TRACK_DEFS[trackId] });
@@ -55,7 +57,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
   }
   const bus = new EventBus<GameEvents>();
   const physics = await PhysicsSystem.create(track, bus, { hazards: opts.hazards ?? HAZARDS_NORMAL });
-  const field = buildRaceField({ playerName: 'AUTO', playerLoadout: defaultLoadout(), tier });
+  const field = buildRaceField({ playerName: 'AUTO', playerLoadout: defaultLoadout(), tier, ...(opts.gridOrder ? { gridOrder: opts.gridOrder } : {}) });
   const ships = field.map((d) => physics.addShip(d, track.startGrid[d.gridIndex]));
   const drivers = ships.map((s) => new AIDriver(s, track, s.def.personality ?? 'steady', track.seed * 31 + s.def.id * 7919, ships, { hazardClock: () => physics.hazardTime, liveMines: () => physics.mines }));
   const race = new RaceManager(track, ships, bus);
@@ -141,6 +143,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: { hazard
     debrisHits,
     shortcuts,
     standings: snap.standings.map((r) => ({ id: r.id, totalTime: r.totalTime ?? null })),
+    results: snap.standings.map((r) => ({ ...r })),
     playerLaps,
     maxLateral,
     stepMs: stepMs / Math.max(1, steps),

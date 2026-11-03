@@ -112,6 +112,11 @@
 .mz-btn:active {
   transform: skewX(-12deg) scale(0.98);
 }
+.mz-btn.danger {
+  border-color: var(--red);
+  background: linear-gradient(180deg, rgba(255, 51, 68, 0.24), rgba(138, 77, 255, 0.2));
+  text-shadow: 0 0 0.6em rgba(255, 51, 68, 0.9);
+}
 .mz-btn.big {
   font-size: 1.5em;
   padding: 0.8em 2.4em;

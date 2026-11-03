@@ -2,7 +2,7 @@
  * The 7 rival pilots (SPEC §5.3) and the race-field builder: player loadout + 7 rivals at
  * tier-appropriate parts → 8 ShipDefinitions with resolved stats.
  */
-import type { AIPersonality, AITier, Loadout, PartSlot, PartTier, ShipDefinition, ShipLivery } from '../core/contracts';
+import type { AIPersonality, AITier, Loadout, PartSlot, PartTier, ShipDefinition, ShipId, ShipLivery } from '../core/contracts';
 import { resolveStats } from '../physics/ShipStatsResolver';
 import { chassisById } from './ships';
 
@@ -44,11 +44,14 @@ export interface RaceFieldOptions {
   tier: AITier;
   /** Override the player's grid slot (default: P8 on Rookie, P5 otherwise). */
   playerGridIndex?: number;
+  /** Every ship's grid slot: index = slot (0 = pole), value = ship id (Grand Prix reverse grid). Wins over `playerGridIndex`. */
+  gridOrder?: readonly ShipId[];
 }
 
 /** Player (id 0) + 7 rivals (ids 1..7). Rivals fill the grid slots the player doesn't take, in roster order. */
 export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
-  const playerGrid = opts.playerGridIndex ?? (opts.tier === 'rookie' ? RACE_SIZE - 1 : 4);
+  const order = opts.gridOrder && opts.gridOrder.length === RACE_SIZE && new Set(opts.gridOrder).size === RACE_SIZE ? opts.gridOrder : null;
+  const playerGrid = order ? order.indexOf(0) : (opts.playerGridIndex ?? (opts.tier === 'rookie' ? RACE_SIZE - 1 : 4));
   const player: ShipDefinition = {
     id: 0,
     name: opts.playerName,
@@ -70,7 +73,7 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
       name: p.name,
       isPlayer: false,
       personality: p.personality,
-      gridIndex: freeSlots[i],
+      gridIndex: order ? order.indexOf(i + 1) : freeSlots[i],
       livery: p.livery,
       loadout,
       stats: resolveStats(loadout),

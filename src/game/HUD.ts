@@ -157,7 +157,7 @@ export class HUD implements IHUD {
         ['A D / ← →', 'STEER'],
         ['Q  E', 'AIR-BRAKES'],
         ['SPACE / SHIFT', 'BOOST (LAP 2+)'],
-        ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
+        this.actions.cup ? ['ESC  M', 'PAUSE  MUTE'] : ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
       ]) {
         const row = el('div', 'row', undefined, kb);
         el('kbd', undefined, k, row);
@@ -287,12 +287,16 @@ export class HUD implements IHUD {
     this.pauseEl = pause;
     el('h1', 'mz-heading', 'PAUSED', pause);
     const prow = el('div', 'mz-btnrow', undefined, pause);
+    // A Grand Prix cup race can't be restarted: RETIRE (no points from this race) replaces RESTART and MENU.
+    const cup = this.actions.cup;
     this.button('mz-btn', 'RESUME', () => this.actions.onResume(), prow);
-    this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
+    if (!cup) this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
     if (this.actions.onSettings) this.button('mz-btn', 'SETTINGS', () => this.actions.onSettings?.(), prow);
-    if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
+    if (cup) this.button('mz-btn danger', 'RETIRE', () => cup.onRetire(), prow);
+    else if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
     this.addMute(prow);
-    prompt('mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', `Ⓐ / START RESUME  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, pause);
+    if (cup) prompt('mz-hint', 'ESC RESUME  •  M MUTE  •  RETIRE SCORES NO POINTS', 'Ⓐ / START RESUME  •  ✥ CHOOSE  •  RETIRE SCORES NO POINTS', pause);
+    else prompt('mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', `Ⓐ / START RESUME  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, pause);
 
     this.resultsEl = el('section', 'mz-screen mz-results', undefined, c);
 
@@ -589,6 +593,13 @@ export class HUD implements IHUD {
     }
 
     const row = el('div', 'mz-btnrow', undefined, root);
+    const cup = this.actions.cup;
+    if (cup) {
+      this.button('mz-btn big', 'CUP STANDINGS', () => cup.onStandings(), row);
+      this.addMute(row);
+      prompt('mz-hint', 'PRESS ENTER FOR THE CUP STANDINGS', 'Ⓐ CUP STANDINGS', root);
+      return;
+    }
     this.button('mz-btn big', 'RACE AGAIN', () => this.actions.onRestart(), row);
     if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), row);
     this.addMute(row);

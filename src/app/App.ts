@@ -6,7 +6,7 @@
 import { batch, computed, effect, signal } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
-import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier } from '../core/contracts';
+import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, RacerStanding, ShipId } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
@@ -14,6 +14,7 @@ import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
+import { addTrophy, cupAward, cupFinished, cupGridOrder, cupWorld, newCup, recordRace, type CupAward, type CupState } from '../game/modes/GrandPrix';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
@@ -22,7 +23,7 @@ import { WORLDS, worldById, type WorldDef } from '../content/worlds';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { AI_TIERS, MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
@@ -83,6 +84,11 @@ export class App {
   readonly benchmarking = signal(false);
   /** Device whose buttons the prompts show (the last one used; a pad as soon as one connects). */
   readonly inputDevice = signal<InputDevice>('keyboard');
+
+  /** True while the race session is a Grand Prix cup race (built from the profile's cup). */
+  readonly cupRace = signal(false);
+  /** The cup just finished (for the final standings screen), with what it earned. */
+  readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -174,6 +180,14 @@ export class App {
         programs: () => app.graphics.programCount,
         /** Frame stats of the current race (perf checks). */
         perf: () => app.frameStats.summary(),
+        /** Step the race `seconds` with nobody driving: the player's AI drives (cup e2e). */
+        simulate: async (seconds: number) => {
+          for (let t = 0; t < seconds; t += 5) {
+            for (let i = 0; i < 5 / CONFIG.FIXED_DT; i++) app.session?.fixed(CONFIG.FIXED_DT, null);
+            await new Promise((r) => setTimeout(r, 0));
+            if (app.session?.state === 'results') return;
+          }
+        },
         /** Add credits to the active profile (tests). */
         grantCredits: (n: number) => app.updateProfile((p) => (p.credits += n)),
         /** Dispose the current race and build a fresh one (leak checks). */
@@ -214,8 +228,89 @@ export class App {
   }
 
   quitToMenu(): void {
+    if (this.cupRace.value) {
+      this.leaveCupRace();
+      return;
+    }
     this.session?.toTitle();
     this.route.value = { name: 'menu' };
+  }
+
+  // ------------------------------------------------------------ Grand Prix
+
+  /** The active profile's cup in progress, or null. */
+  get cup(): CupState | null {
+    return this.activeProfile.value?.cup ?? null;
+  }
+
+  openGrandPrix(): void {
+    this.route.value = { name: 'gp' };
+  }
+
+  /** A new cup at the profile's CPU difficulty, straight into race 1. */
+  startCup(): void {
+    const p = this.activeProfile.value;
+    if (!p || p.cup) return;
+    this.lastCup.value = null;
+    this.updateProfile((q) => (q.cup = newCup(q.aiTier)));
+    void this.startCupRace();
+  }
+
+  /** The standings between races (CONTINUE CUP lands here). */
+  openCupStandings(): void {
+    this.route.value = { name: 'cup' };
+  }
+
+  async startCupRace(): Promise<void> {
+    if (!this.cup) return;
+    this.cupRace.value = true;
+    await this.startRace();
+  }
+
+  /** End the cup in progress (confirmed in the UI). */
+  quitCup(): void {
+    this.updateProfile((p) => (p.cup = null));
+    this.cupRace.value = false;
+    this.route.value = { name: 'menu' };
+  }
+
+  /**
+   * Leave a cup race: after the results, to the standings; mid-race, as a retire (0 points for this race, the
+   * rivals scored where they run), since a cup can't be restarted.
+   */
+  private leaveCupRace(): void {
+    const s = this.session;
+    if (s && this.cup && s.state !== 'results' && s.state !== 'title') {
+      this.bookCupRace(s.race.snapshot().standings, s.player.def.id);
+      this.toast('Retired: no points from this race.', 'warn');
+    }
+    this.cupRace.value = false;
+    s?.toTitle();
+    this.route.value = { name: 'cup' };
+  }
+
+  /** Book a cup race in the profile; at the end of the cup, pay the bonus and award the trophy. Returns the bonus. */
+  private bookCupRace(standings: readonly RacerStanding[], retire?: ShipId): number {
+    let award: CupAward | null = null;
+    let done: CupState | null = null;
+    this.updateProfile((p) => {
+      if (!p.cup) return;
+      const cup = recordRace(p.cup, standings, retire);
+      if (!cupFinished(cup)) {
+        p.cup = cup;
+        return;
+      }
+      award = cupAward(cup);
+      done = cup;
+      p.cup = null;
+      if (award?.trophy) p.trophies = addTrophy(p.trophies, award.trophy, AI_TIERS);
+      p.credits += award?.bonus ?? 0;
+    });
+    if (!done || !award) return 0;
+    const a: CupAward = award;
+    this.lastCup.value = { cup: done, award: a };
+    if (a.bonus > 0) this.toast(`Cup won! +${a.bonus.toLocaleString('en-US')} credits.`, 'good', 6);
+    return a.bonus;
   }
 
   openSettings(back: 'menu' | 'pause'): void {
@@ -246,17 +341,21 @@ export class App {
 
   /** The world the next race is in, or null for the v1 classic / Bonus Track. */
   get currentWorld(): WorldDef | null {
+    const cup = this.cupRace.value ? this.cup : null;
+    const cupWorldId = cup ? cupWorld(cup) : null;
+    if (cupWorldId) return worldById(cupWorldId) ?? WORLDS[0];
     if (!this.features.worlds || this.flags.seed !== null) return null;
     const w = worldById(this.flags.world ?? this.activeProfile.value?.world ?? WORLDS[0].id);
     return w?.built ? w : WORLDS[0];
   }
 
-  openGarage(): void {
-    this.route.value = { name: 'garage' };
+  openGarage(back: 'menu' | 'cup' = 'menu'): void {
+    this.route.value = { name: 'garage', back };
   }
 
   closeGarage(): void {
-    this.route.value = { name: 'menu' };
+    const r = this.route.value;
+    this.route.value = r.name === 'garage' && r.back === 'cup' ? { name: 'cup' } : { name: 'menu' };
   }
 
   /** Buy (pay, own and fit) a part for the active profile. */
@@ -412,8 +511,11 @@ export class App {
     const r = this.route.value;
     if (r.name === 'race' && s) {
       if (input.consume('pause')) s.togglePause();
-      if (input.consume('restart') && s.state !== 'title') s.restart();
-      if (this.menus && input.consume('back') && (s.state === 'paused' || s.state === 'results')) {
+      const cup = this.cupRace.value;
+      // No restarts in a cup; Ⓑ on the results goes to the standings, and on the pause panel does nothing
+      // (retiring is the panel's RETIRE button only).
+      if (input.consume('restart') && s.state !== 'title' && !cup) s.restart();
+      if (this.menus && input.consume('back') && (s.state === 'results' || (s.state === 'paused' && !cup))) {
         this.quitToMenu();
         return;
       }
@@ -424,6 +526,7 @@ export class App {
       const focused = overlay !== null && document.activeElement instanceof HTMLElement && overlay.contains(document.activeElement) ? document.activeElement : null;
       if (input.consume('confirm')) {
         if (focused) focused.click();
+        else if (cup && s.state === 'results') this.quitToMenu();
         else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
@@ -502,10 +605,12 @@ export class App {
 
   private raceSetup(): RaceSetup {
     const p = this.menus ? this.activeProfile.value : null;
+    const cup = this.cupRace.value ? (p?.cup ?? null) : null;
     const field = buildRaceField({
       playerName: p?.name ?? 'YOU',
       playerLoadout: p?.loadout ?? defaultLoadout(),
-      tier: this.raceTier(p),
+      tier: cup ? cup.tier : this.raceTier(p),
+      ...(cup ? { gridOrder: cupGridOrder(cup) ?? undefined } : {}),
     });
     // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
     const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
@@ -541,7 +646,7 @@ export class App {
   /** The race the menu would start now; reuses the current session when nothing relevant changed. */
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;
@@ -581,6 +686,7 @@ export class App {
       actions.onMenu = () => this.quitToMenu();
       actions.onSettings = () => this.openSettings('pause');
     }
+    if (this.cupRace.value) actions.cup = { onStandings: () => this.quitToMenu(), onRetire: () => this.quitToMenu() };
     return actions;
   }
 
@@ -595,8 +701,10 @@ export class App {
         const p = d.profiles.find((x) => x.id === profileId);
         if (!p) return;
         pay = settleRace(p, me, s.player.def.tier ?? 'rookie');
-        total = p.credits;
       });
+      // A cup race also books the cup (and, after the last race, pays the cup bonus).
+      if (this.cupRace.value && this.session === s) pay += this.bookCupRace(standings);
+      total = this.activeProfile.value?.credits ?? 0;
       if (pay > 0) s.bus.emit('economy:credits', { delta: pay, total });
     });
   }
