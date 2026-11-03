@@ -553,9 +553,17 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
-## H — Housekeeping: dependency audit + Low-preset haze (after M4c; one small PR, before §P)
+## H — Housekeeping: dependency audit + Low-preset haze — ✅ DONE (PR #22)
 
 Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
+
+**As built (PR #22):**
+- `npm audit fix`: 10 advisories (8 moderate, 2 high) → 6 moderate, all under `@capacitor/cli` (accepted). vite 8.3.5, vitest 5.1.0 (newest in range, not 5.0.5), source-map-js 1.2.2.
+- **Haze cause, measured** (Orbital Ring, same autopilot moment, sky luminance): Med 16, Low 66. Bloom scale, the chromatic pass, pixel-ratio cap, render scale and MSAA each moved it; **fog did not**. Two causes:
+  1. UnrealBloom's blur kernels are fixed in texels, so the glow's on-screen spread is inversely proportional to the bloom buffer width. Low's buffer on a phone is ¼ of Med's (1 × 0.75 × 0.5 vs 1.5): every mip two octaves wider.
+  2. Low disabled the chromatic pass, which also draws the vignette.
+- **Fix:** `graphics/bloomSpread.ts` + `ScaledBloomPass` re-weight the 5 mip levels (via `bloomTintColors`) by the octave shift against Med's width on the same screen; shift 0 (Med, High, any buffer at least Med's width) leaves the bloom untouched. The chromatic pass stays on for every preset; `q.chromatic` now only gates the aberration fetches and the heat shimmer. After: Low 8 / Med 16 / High 13.
+- Before/after screenshots: `docs/v2/shots/h/`.
 
 **1. Dependency audit.** On 2026-11-02, `npm ci` reported 10 vulnerabilities (8 moderate, 2 high), all in dev and build tooling. None reach the shipped bundle (three, Rapier, `@capacitor/haptics`).
 - **Fix:** run `npm audit fix` (no `--force`). Its dry run updated 16 packages:
