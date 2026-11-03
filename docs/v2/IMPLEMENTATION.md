@@ -600,7 +600,16 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## P — Powerups: Shield, Drop Mine, item select, CPU items (after M4c; one PR)
+## P — Powerups: Shield, Drop Mine, item select, CPU items — ✅ DONE (PR #23)
+
+**As built (PR #23)** (read before §GP or M5):
+- **Code:** `content/items.ts` (kinds, prices, `itemSlots`, `buyItem(kind)`, `clampBag`, `nextHeldKind`, `CPU_ITEM_COUNT`); `game/ItemSystem.ts` owns everything in play (player selection and use, CPU bags and decisions, shields ticking, CPU EMPs in flight, per-target cooldown). `RaceSession` calls `items.fixed(dt, human)` before `physics.step`, and `items.reset()` on a reset. `RaceSetup.items` is now `PlayerItems { counts(), use(kind) }`.
+- **`ShipState.shield`** (seconds; GAME raises and counts down, PHYSICS zeroes it when it blocks a mine). New events: `item:use { shipId, kind }`, `item:warn { from, target }`, `item:shield { shipId, blocked, point }`; `item:fail` gained `kind`.
+- **Dropped mines:** `MineField` appends a fixed pool of `DROP_MINE_MAX` slots after the track mines (`dropBase`), so `PhysicsSystem.mines` is never empty now (track mines + 6, unarmed when free). `PhysicsSystem.dropMine(owner)` places on the main loop (u − 6 m, same lateral), or behind the hull in the ship's frame on a split path.
+- **AI:** `AIDriverOptions.liveMines` (RaceSession and `sim/worldRace.ts` pass `physics.mines`). Dropped mines are passed **on the side the hull is already on** (the nearest band edge to the *desired* line could cross the mine) with `DROPPED_MARGIN` 2.5 m at every tier: the hull settles ~1.3 m short of its target lateral on a gentle bend (found in `items.sim`; the steering itself is unchanged). Rookies use 0.7× lookahead.
+- **CPU decisions** (every 0.25 s after the first 4 s): EMP at the racer ahead 5–70 m away (25%); Shield with a rival ≤ 12 m behind (30%) or against an incoming EMP (Pilot 50%, Ace 80%, Legend 100%); Drop Mine on a straight with a rival 15–60 m behind (35%).
+- **Sims:** `runWorldRace` runs CPU items by default (`opts.items: false` turns them off) and reports `itemUses` and `droppedMineHits` separately from track `mineHits`. All five worlds stay green at Rookie (no items) and Legend (items used).
+- **Input:** `KeyControl` gained `itemNext` (C); `ControlInput.itemCycle` (±1 per press; d-pad left/right on the pad, not the stick). Save v4.
 
 **Build notes from M4c as built** (read before coding §P):
 - **The mine is already shared:**
