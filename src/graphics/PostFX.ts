@@ -6,10 +6,11 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from '../core/config';
 import { clamp01, damp } from '../core/math';
-import type { QualityProfile } from '../settings/QualityManager';
+import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
 import { SpeedBlurShader } from './shaders/speedBlur';
 import { ChromaticShader } from './shaders/chromatic';
 import { HeatShimmerShader } from './shaders/heatShimmer';
+import { bloomLevelTints, bloomOctaveShift } from './bloomSpread';
 
 /**
  * Renders the scene into a private MSAA HalfFloat target, then resolves it into the
@@ -86,11 +87,19 @@ export class MsaaScenePass extends Pass {
   }
 }
 
-/** UnrealBloom whose input resolution is scaled (1 = its native half resolution, 0.5 = quarter). */
+/**
+ * UnrealBloom whose input resolution is scaled (1 = its native half resolution, 0.5 = quarter). Its glow keeps
+ * the reference spread (Med on this screen) however small the buffer gets: see `bloomSpread.ts`.
+ */
 export class ScaledBloomPass extends UnrealBloomPass {
   private scale = 1;
   private w = 1;
   private h = 1;
+  /** Width in device pixels the bloom's look is tuned at (Med's composer width on this screen). */
+  private referenceWidth = 0;
+  private readonly tints: number[] = [];
+  /** Octaves the buffer is coarser than the reference (exposed for the perf overlay and tests). */
+  shift = 0;
 
   setScale(scale: number): void {
     if (scale === this.scale) return;
@@ -98,10 +107,24 @@ export class ScaledBloomPass extends UnrealBloomPass {
     this.setSize(this.w, this.h);
   }
 
+  setReferenceWidth(width: number): void {
+    this.referenceWidth = width;
+    this.updateTints();
+  }
+
   override setSize(width: number, height: number): void {
     this.w = width;
     this.h = height;
     super.setSize(Math.max(2, Math.round(width * this.scale)), Math.max(2, Math.round(height * this.scale)));
+    this.updateTints();
+  }
+
+  private updateTints(): void {
+    // setSize also runs from the base constructor, before this class's fields exist.
+    if (!this.tints || !this.bloomTintColors) return;
+    this.shift = bloomOctaveShift(this.w * this.scale, this.referenceWidth);
+    bloomLevelTints(this.shift, this.radius, this.tints);
+    for (let i = 0; i < this.bloomTintColors.length; i++) this.bloomTintColors[i].setScalar(this.tints[i] ?? 1);
   }
 }
 
@@ -156,6 +179,7 @@ export class PostFX {
 
   private blur = 0;
   private blurAllowed = true;
+  private aberrationAllowed = true;
   private readonly msaaSupported: boolean;
   /** Comfort: no radial speed blur and no chromatic aberration (the vignette stays). */
   reducedMotion = false;
@@ -195,6 +219,8 @@ export class PostFX {
 
   /** CSS-pixel size; the composer multiplies by the renderer's pixel ratio. */
   setSize(width: number, height: number): void {
+    const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+    this.bloomPass.setReferenceWidth(width * Math.min(dpr, QUALITY_PROFILES.med.pixelRatioCap));
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(width, height);
   }
@@ -208,7 +234,9 @@ export class PostFX {
       this.speedBlurPass.material.defines.TAPS = q.blurTaps;
       this.speedBlurPass.material.needsUpdate = true;
     }
-    this.chromaticPass.enabled = q.chromatic;
+    // The pass also draws the vignette, which every preset keeps (without it Low's corners wash out);
+    // presets without aberration only skip its two extra texture fetches.
+    this.aberrationAllowed = q.chromatic;
     // Heat shimmer costs a full-screen pass: Med and High only (the presets that afford aberration).
     this.shimmerAllowed = q.chromatic;
   }
@@ -247,7 +275,7 @@ export class PostFX {
     this.kick = damp(this.kick, 0, 4.5, dt);
     if (this.kick < 0.001) this.kick = 0;
     const base = 0.0007 * sf + (p.boosting ? 0.0018 : 0);
-    this.chromaticPass.uniforms['uAberration'].value = this.reducedMotion ? 0 : base + this.kick * 0.011;
+    this.chromaticPass.uniforms['uAberration'].value = this.reducedMotion || !this.aberrationAllowed ? 0 : base + this.kick * 0.011;
     this.vignette = damp(this.vignette, 0.42 + 0.24 * sf + this.kick * 0.1, 5, dt);
     this.chromaticPass.uniforms['uVignette'].value = this.vignette;
   }

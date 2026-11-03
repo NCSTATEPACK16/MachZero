@@ -34,6 +34,20 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
     version: 3,
     profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, aiTier: 'rookie', items: { emp: 0 } } : p)) : [],
   }),
+  // v3 → 4: the Shield and Drop Mine join the EMP (IMPLEMENTATION §P): the bag holds a count per kind. The
+  // sanitizer clamps the total to the slot count afterwards.
+  3: (save) => ({
+    ...save,
+    version: 4,
+    profiles: Array.isArray(save.profiles)
+      ? save.profiles.map((p) => {
+          if (typeof p !== 'object' || p === null) return p;
+          const items = (p as Obj).items;
+          const emp = typeof items === 'object' && items !== null ? (items as Obj).emp : 0;
+          return { ...p, items: { emp: typeof emp === 'number' ? emp : 0, shield: 0, mine: 0 } };
+        })
+      : [],
+  }),
 };
 
 /** Version of a raw save (missing or invalid → 0, treated as unreadable by the caller). */

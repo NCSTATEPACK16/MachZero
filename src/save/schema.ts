@@ -6,10 +6,10 @@ import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartT
 import { CHASSIS, chassisById } from '../content/ships';
 import { PART_SLOTS } from '../content/parts';
 import { WORLDS } from '../content/worlds';
-import { type ItemBag, empSlots } from '../content/items';
+import { type ItemBag, clampBag, emptyBag, itemSlots } from '../content/items';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -70,7 +70,7 @@ export interface SaveData {
   settings: SettingsData;
 }
 
-export const KEY_CONTROLS: readonly KeyControl[] = ['throttle', 'brake', 'left', 'right', 'airLeft', 'airRight', 'boost', 'item'];
+export const KEY_CONTROLS: readonly KeyControl[] = ['throttle', 'brake', 'left', 'right', 'airLeft', 'airRight', 'boost', 'item', 'itemNext'];
 
 /** v1 keyboard layout. */
 export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindings> = Object.freeze({
@@ -82,6 +82,7 @@ export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindings> = Object.freeze({
   airRight: ['KeyE'],
   boost: ['Space', 'ShiftLeft', 'ShiftRight'],
   item: ['KeyF'],
+  itemNext: ['KeyC'],
 });
 
 /** Keys that always mean a menu action and can't be bound to driving. */
@@ -153,7 +154,7 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     world: WORLDS[0].id,
     records: {},
     stats: { races: 0, wins: 0 },
-    items: { emp: 0 },
+    items: emptyBag(),
   };
 }
 
@@ -235,7 +236,7 @@ function sanitizeProfile(v: unknown): Profile | null {
     world: typeof v.world === 'string' && WORLDS.some((w) => w.id === v.world && w.built) ? v.world : WORLDS[0].id,
     records,
     stats,
-    items: { emp: Math.floor(num(it.emp, 0, empSlots({ stats }), 0)) },
+    items: clampBag(it, itemSlots({ stats })),
   };
 }
 

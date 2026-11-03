@@ -945,6 +945,34 @@ html.mz-pad .mzu-card-del:focus {
   background: #6fb8ff;
   box-shadow: 0 0 0.6em rgba(111, 184, 255, 0.8);
 }
+.mzu-item-slots {
+  margin: 0.6em 0 0.2em;
+}
+.mzu-item-slots span {
+  width: 2.2em;
+  height: 1.6em;
+  display: grid;
+  place-items: center;
+  font-size: 0.9em;
+  font-style: normal;
+}
+.mzu-item-slots span > * {
+  transform: skewX(12deg);
+}
+.mzu-item-slots span.on {
+  color: #06121f;
+}
+.mzu-emp .mzu-choice-name {
+  min-width: 9.5em;
+}
+.mzu-item-have {
+  opacity: 0.75;
+  font-size: 0.85em;
+}
+.mzu-item-blurb {
+  flex: 1 1 14em;
+  margin: 0;
+}
 .mzu-credits {
   display: flex;
   align-items: center;

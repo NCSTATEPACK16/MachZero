@@ -81,6 +81,14 @@ export const CONFIG = {
   MINE_KNOCK_SIDE: 10,
   MINE_KNOCK_UP: 6,
   MINE_RESPAWN: 6,
+  // --- Drop Mine item: dropped this far (m) behind, armed for LIFE s, harmless to its dropper for GRACE s, at most MAX ---
+  DROP_MINE_BACK: 6,
+  DROP_MINE_LIFE: 20,
+  DROP_MINE_GRACE: 1.5,
+  DROP_MINE_MAX: 6,
+  // --- CPU EMPs: the target sees a warning this long before it lands; one CPU can't EMP the same racer again within ---
+  EMP_WARN_TIME: 0.5,
+  EMP_RETARGET_TIME: 10,
   DASH_IMPULSE: 45, // m/s added along forward
   RAIL_RESTITUTION: 0.35,
 

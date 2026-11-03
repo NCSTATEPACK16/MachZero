@@ -76,6 +76,18 @@ describe('SaveStore', () => {
     expect(out.profiles[0].aiTier).toBe('rookie');
   });
 
+  it('migrates v3: the EMP count becomes a bag of every kind, clamped to the slots (EMPs kept first)', () => {
+    const p = { ...createProfile('ACE', 0, 'classic'), items: { emp: 2 } };
+    const out = migrate({ version: 3, profiles: [p, null], activeProfileId: p.id, settings: defaultSettings() }) as { version: number; profiles: Array<{ items: unknown }> };
+    expect(out.version).toBe(4);
+    expect(out.profiles[0].items).toEqual({ emp: 2, shield: 0, mine: 0 });
+    // A v3 profile with no bag, and an over-full v4 bag, both come out clean.
+    const noBag = migrate({ version: 3, profiles: [{ ...p, items: undefined }], activeProfileId: p.id, settings: defaultSettings() }) as { profiles: Array<{ items: unknown }> };
+    expect(noBag.profiles[0].items).toEqual({ emp: 0, shield: 0, mine: 0 });
+    const full = sanitizeSave({ version: 4, profiles: [{ id: 'a', name: 'A', items: { emp: 1, shield: 5, mine: 2 } }] });
+    expect(full.profiles[0].items).toEqual({ emp: 1, shield: 1, mine: 0 });
+  });
+
   it('corrupt JSON gives safe defaults', () => {
     const mem = new MemStorage();
     mem.map.set(SAVE_KEY, '{"version":2,"profiles":[{"id":');

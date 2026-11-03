@@ -273,6 +273,16 @@ export class GraphicsSystem implements IGraphicsSystem {
           this.post.kickAberration(1);
         }
       }),
+      bus.on('item:shield', (e) => {
+        const model = this.models.get(e.shipId);
+        if (e.blocked === 'mine') this.fx.mineBlast(e.point, null);
+        else if (model) this.fx.empHit(model);
+        model?.shieldBlocked();
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.15);
+          this.post.kickAberration(0.5);
+        }
+      }),
       bus.on('hazard:debris', (e) => {
         this.fx.shipHit(e.point, 0.8);
         if (e.shipId === this.playerId) this.chase.addImpact(0.3);

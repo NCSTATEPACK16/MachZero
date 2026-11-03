@@ -344,6 +344,54 @@ const SHIELD_FRAG = /* glsl */ `
   }
 `;
 
+/** The Shield item's bubble: a glowing hexagon lattice over a fresnel rim; `uCrack` (0..1) is the block flash. */
+const ITEM_SHIELD_VERT = /* glsl */ `
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vP;
+  void main() {
+    vP = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vN = normalize(normalMatrix * normal);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const ITEM_SHIELD_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  uniform float uTime;
+  uniform float uCrack;
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vP;
+  // Distance to the nearest hexagon edge in a hex grid of unit cells.
+  float hexEdge(vec2 p) {
+    const vec2 r = vec2(1.0, 1.7320508);
+    vec2 a = mod(p, r) - r * 0.5;
+    vec2 b = mod(p - r * 0.5, r) - r * 0.5;
+    vec2 g = dot(a, a) < dot(b, b) ? a : b;
+    vec2 q = abs(g);
+    return 0.5 - max(dot(q, normalize(vec2(1.0, 1.7320508))), q.x);
+  }
+  void main() {
+    vec3 d = normalize(vP);
+    vec2 uv = vec2(atan(d.x, d.z) * 2.6, asin(clamp(d.y, -1.0, 1.0)) * 2.6);
+    float edge = hexEdge(uv * 2.2 + vec2(0.0, uTime * 0.35));
+    float lattice = 1.0 - smoothstep(0.0, 0.07 + 0.25 * uCrack, edge);
+    float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+    float hum = 0.8 + 0.2 * sin(uTime * 9.0 + d.y * 6.0);
+    float a = (0.03 + 0.4 * lattice + 0.45 * rim) * hum + uCrack * (0.5 + lattice);
+    gl_FragColor = vec4(mix(uColor, vec3(1.0), uCrack) * 0.9, a * uOpacity);
+  }
+`;
+
+/** Seconds of the Shield item's crack-and-flash when it blocks a hit. */
+const SHIELD_CRACK_TIME = 0.45;
+/** The bubble blinks over the shield's last seconds, so the player sees it running out. */
+const SHIELD_WARN_TIME = 1.5;
+
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const NOZZLE_Y = POD_Y;
 
@@ -385,6 +433,10 @@ export class ShipModel {
   private readonly flameMat: THREE.ShaderMaterial;
   private readonly poolMat: THREE.ShaderMaterial;
   private readonly shieldMat: THREE.ShaderMaterial;
+  /** The Shield item's bubble (ShipState.shield), and its block flash. */
+  private readonly itemShield: THREE.Mesh;
+  private readonly itemShieldMat: THREE.ShaderMaterial;
+  private crackTime = 0;
   private readonly disposables: { dispose(): void }[] = [];
   /** Class size (content/ships CLASS_SCALE), matching the physics collider. */
   private readonly scale: number;
@@ -675,6 +727,22 @@ export class ShipModel {
     this.bankGroup.add(this.shield);
     this.disposables.push(shieldGeo, this.shieldMat);
 
+    // ---------------- Shield item bubble ----------------
+    this.itemShieldMat = new THREE.ShaderMaterial({
+      vertexShader: ITEM_SHIELD_VERT,
+      fragmentShader: ITEM_SHIELD_FRAG,
+      uniforms: { uColor: { value: new THREE.Color(0x7dffd0) }, uOpacity: { value: 0 }, uTime: { value: 0 }, uCrack: { value: 0 } },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    this.itemShield = new THREE.Mesh(shieldGeo, this.itemShieldMat);
+    this.itemShield.scale.set(2.0, 1.05, 3.15);
+    this.itemShield.visible = false;
+    this.bankGroup.add(this.itemShield);
+    this.disposables.push(this.itemShieldMat);
+
     this.nozzleLocal = [
       new THREE.Vector3(-lay.podX, lay.nozzleY, lay.podZ1 + 0.12).multiplyScalar(this.scale),
       new THREE.Vector3(lay.podX, lay.nozzleY, lay.podZ1 + 0.12).multiplyScalar(this.scale),
@@ -729,6 +797,21 @@ export class ShipModel {
     this.root.visible = show;
     if (!show) return;
 
+    // Shield item: steady while up, blinking over its last seconds; a crack and flash when it blocks a hit.
+    if (this.crackTime > 0) this.crackTime = Math.max(0, this.crackTime - dt);
+    const up = s.shield > 0;
+    const crack = this.crackTime / SHIELD_CRACK_TIME;
+    this.itemShield.visible = up || crack > 0;
+    if (this.itemShield.visible) {
+      const u = this.itemShieldMat.uniforms;
+      const blink = up && s.shield < SHIELD_WARN_TIME ? (Math.floor(s.shield * 8) % 2 === 0 ? 1 : 0.35) : 1;
+      u.uOpacity.value = up ? blink : crack * 1.4;
+      u.uCrack.value = up ? 0 : 1 - crack;
+      u.uTime.value = time;
+      const swell = 1 + (up ? 0.03 * Math.sin(time * 9) : 0.25 * (1 - crack));
+      this.itemShield.scale.set(2.0 * swell, 1.05 * swell, 3.15 * swell);
+    }
+
     const throttle = live ? clamp01(controls.throttle) : 0;
     const target = s.boosting ? 2.3 : 0.42 + 0.58 * throttle + (live ? 0.1 : 0);
     this.engine = damp(this.engine, target, 9, dt);
@@ -779,11 +862,18 @@ export class ShipModel {
     this.flickerTime = duration;
   }
 
+  /** The Shield item blocked a hit: crack and flash the bubble as it drops. */
+  shieldBlocked(): void {
+    this.crackTime = SHIELD_CRACK_TIME;
+  }
+
   /** Clear destroyed/flicker state (race restart). */
   reset(): void {
     this.destroyed = false;
     this.flickerTime = 0;
     this.shield.visible = false;
+    this.crackTime = 0;
+    this.itemShield.visible = false;
     this.engine = 0.4;
     this.openL = 0;
     this.openR = 0;

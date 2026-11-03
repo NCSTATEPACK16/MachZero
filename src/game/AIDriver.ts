@@ -5,6 +5,7 @@ import type {
   AITier,
   ControlInput,
   IAIDriver,
+  MineView,
   ShipId,
   ShipState,
   TrackData,
@@ -45,10 +46,18 @@ const HAZARD_NEAR = 0.6;
 const HAZARD_WINDOW = 0.25;
 const HAZARD_MARGIN = 1.2;
 const HAZARD_MARGIN_ROOKIE = 2.5;
+/** Rookies look this much less far ahead for dropped mines (SPEC §4.4a: "a little worse" at avoiding them). */
+const DROPPED_LOOKAHEAD_ROOKIE = 0.7;
+/** Clearance (m) kept from a dropped mine at every tier. Wider than HAZARD_MARGIN: on a gentle bend the hull settles
+ *  up to ~1.3 m short of its target lateral (items.sim), and a still mine gives no drift to make up for that. */
+const DROPPED_MARGIN = 2.5;
 
 export interface AIDriverOptions {
   /** Physics seconds since the race reset (the stone gates' timeline); default: the driver's own clock. */
   hazardClock?: () => number;
+  /** Every mine in physics this step (PhysicsSystem.mines): the driver steers round the dropped ones (owner set),
+   *  which hold still. Track mines come from its own timeline copy, so the sims stay deterministic. */
+  liveMines?: () => readonly MineView[];
 }
 
 export function shortcutOdds(tier: AITier, personality: AIPersonality): number {
@@ -181,6 +190,9 @@ export class AIDriver implements IAIDriver {
   private readonly bands: [number, number][] = [];
   private readonly minePos = { d: 0, lateral: 0 };
   private readonly hazardClock: () => number;
+  private readonly liveMines: (() => readonly MineView[]) | null;
+  /** Fraction of the hazard lookahead used for dropped mines. */
+  private readonly droppedReach: number;
 
   private readonly out: ControlInput = neutralControls();
   private readonly fwd = new Vector3();
@@ -255,6 +267,8 @@ export class AIDriver implements IAIDriver {
     this.debris = buildDebris(track);
     this.hazardMargin = (ship.def.tier ?? 'rookie') === 'rookie' ? HAZARD_MARGIN_ROOKIE : HAZARD_MARGIN;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
+    this.liveMines = opts.liveMines ?? null;
+    this.droppedReach = (ship.def.tier ?? 'rookie') === 'rookie' ? DROPPED_LOOKAHEAD_ROOKIE : 1;
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
     this.phaseA = this.rng.range(0, Math.PI * 2);
@@ -573,7 +587,8 @@ export class AIDriver implements IAIDriver {
    * at where each will be on arrival (hazard clock), to the nearest free lateral within ±maxLat.
    */
   private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
-    if (this.mines.length === 0 && this.debris.length === 0) return desired;
+    const live = this.liveMines?.();
+    if (this.mines.length === 0 && this.debris.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
     const here = wrap01(u) * this.length;
     const v = Math.max(speed, 30);
     const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
@@ -610,7 +625,26 @@ export class AIDriver implements IAIDriver {
       if (dist < -b.length || dist > reach) continue;
       block(dist, b.lateral, b.drift, (t) => debrisLateral(b, t), debrisHalfAcross(b.width, b.length));
     }
-    return clearOfBands(desired, bands, maxLat);
+    let out = clearOfBands(desired, bands, maxLat);
+    if (!live) return out;
+    // Dropped mines hold still, so pass each on the side the hull is already on: the band edge nearest the
+    // desired line can be across the mine's path (a driver left of it would cut across it to reach the right).
+    const dropReach = reach * this.droppedReach;
+    const lat = this.ship.lateral;
+    const dropHull = CONFIG.SHIP_WIDTH / 2 + Math.max(this.hazardMargin, DROPPED_MARGIN);
+    for (const m of live) {
+      if (m.owner === null || !m.armed || m.owner === this.ship.def.id) continue;
+      const dist = ahead(m.u * this.length);
+      if (dist < -4 || dist > dropReach) continue;
+      const lo = m.lateral - MINE_RADIUS - dropHull;
+      const hi = m.lateral + MINE_RADIUS + dropHull;
+      bands.push([lo, hi]);
+      if (out > lo && out < hi) {
+        const near = lat < m.lateral ? lo : hi;
+        out = Math.abs(near) <= maxLat ? near : near === lo ? hi : lo;
+      }
+    }
+    return clearOfBands(out, bands, maxLat);
   }
 
   private inCentreSection(u: number): boolean {

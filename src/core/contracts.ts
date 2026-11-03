@@ -339,14 +339,16 @@ export interface ControlInput {
   airbrakeRight: number;
   /** Edge-triggered boost request (true for one sample per press). */
   boost: boolean;
-  /** Edge-triggered item (EMP) request; player only, read by the race session, not physics. */
+  /** Edge-triggered item use (the selected item); player only, read by the race session, not physics. */
   fire?: boolean;
+  /** Edge-triggered item selection: +1 next, −1 previous, 0/absent none; player only, like `fire`. */
+  itemCycle?: number;
 }
 
 export type MenuAction = 'pause' | 'confirm' | 'back' | 'mute' | 'restart' | 'up' | 'down' | 'left' | 'right';
 
 /** Rebindable keyboard driving controls. */
-export type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost' | 'item';
+export type KeyControl = 'throttle' | 'brake' | 'left' | 'right' | 'airLeft' | 'airRight' | 'boost' | 'item' | 'itemNext';
 /** KeyboardEvent.code values per control (first = primary). */
 export type KeyBindings = Record<KeyControl, string[]>;
 
@@ -428,6 +430,8 @@ export interface ShipState {
   empSlow: number;
   /** EMP hit: seconds left before the ship can boost again (set by GAME, counted down by physics). */
   empLock: number;
+  /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine. */
+  shield: number;
 }
 
 // ---------------------------------------------------------------------------

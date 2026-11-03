@@ -24,7 +24,8 @@ const CONTROL_LABEL: Record<KeyControl, string> = {
   airLeft: 'AIR-BRAKE LEFT',
   airRight: 'AIR-BRAKE RIGHT',
   boost: 'BOOST',
-  item: 'FIRE EMP',
+  item: 'USE ITEM',
+  itemNext: 'NEXT ITEM',
 };
 
 const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
@@ -33,7 +34,8 @@ const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
   ['LT / Ⓑ', 'BRAKE'],
   ['LB  RB', 'AIR-BRAKES'],
   ['Ⓧ', 'BOOST'],
-  ['Ⓨ', 'FIRE EMP'],
+  ['Ⓨ', 'USE ITEM'],
+  ['D-PAD ◀ ▶', 'PICK ITEM'],
   ['START', 'PAUSE'],
 ];
 

@@ -2,6 +2,8 @@ import { CONFIG } from '../core/config';
 import type { HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackData } from '../core/contracts';
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
+import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
+import type { ItemView } from './ItemSystem';
 import { Minimap } from './Minimap';
 import '../ui/tokens.css';
 import './hud.css';
@@ -88,8 +90,12 @@ export class HUD implements IHUD {
   private readonly boostBox: HTMLElement;
   private readonly boostText: Txt;
   private readonly itemsBox: HTMLElement;
+  private readonly itemsName: Txt;
   private readonly itemsVal: Txt;
-  private shownItems: number | null | undefined = undefined;
+  private readonly itemsShield: Txt;
+  private readonly itemsKinds: { node: HTMLElement; txt: Txt }[] = [];
+  private readonly warnBox: HTMLElement;
+  private shownItems: string | null | undefined = undefined;
   private readonly speedBox: HTMLElement;
   private readonly speedArc: SVGPathElement;
   /** A wide faint copy of the arc under it: the glow, without a CSS filter re-rasterised every frame. */
@@ -231,10 +237,21 @@ export class HUD implements IHUD {
 
     const items = panel('mz-items', race);
     this.itemsBox = items.outer;
-    el('span', 'mz-label', '⚡ EMP', items.inner);
-    this.itemsVal = new Txt(el('span', 'mz-num mz-items-val', '0', items.inner));
-    prompt('mz-items-key', 'F', 'Ⓨ', items.inner);
+    const head = el('div', 'mz-items-head', undefined, items.inner);
+    this.itemsName = new Txt(el('span', 'mz-label mz-items-name', '⚡ EMP', head));
+    this.itemsVal = new Txt(el('span', 'mz-num mz-items-val', '0', head));
+    prompt('mz-items-key', 'F', 'Ⓨ', head);
+    this.itemsShield = new Txt(el('span', 'mz-num mz-items-shield', '', head));
+    const kinds = el('div', 'mz-items-kinds', undefined, items.inner);
+    for (const k of ITEM_KINDS) {
+      const node = el('span', 'mz-items-kind', undefined, kinds);
+      node.dataset.k = k;
+      this.itemsKinds.push({ node, txt: new Txt(node) });
+    }
+    prompt('mz-items-key mz-items-pick', 'C', '◀ ▶', kinds);
     this.itemsBox.hidden = true;
+    this.warnBox = el('div', 'mz-emp-warn', '⚠ EMP INCOMING', race);
+    this.warnBox.hidden = true;
 
     this.speedBox = el('div', 'mz-speed', undefined, race);
     const gauge = svg('svg', { viewBox: '0 0 200 200' }, this.speedBox);
@@ -309,19 +326,36 @@ export class HUD implements IHUD {
         else if (e.target === PLAYER_ID) this.toast('EMP HIT', 'bad');
       }),
       bus.on('item:fail', (e) => {
-        if (e.shipId === PLAYER_ID) this.toast(e.reason === 'empty' ? 'NO EMP LEFT' : 'NO TARGET AHEAD', 'warn', true);
+        if (e.shipId === PLAYER_ID) this.toast(e.reason === 'empty' ? `NO ${ITEM_NAMES[e.kind]} LEFT` : 'NO TARGET AHEAD', 'warn', true);
+      }),
+      bus.on('item:use', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast(e.kind === 'shield' ? '🛡 SHIELD UP' : '✷ MINE DROPPED', 'good', true);
+      }),
+      bus.on('item:shield', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : '🛡 MINE BLOCKED', 'good');
       }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
   }
 
-  /** The player's EMP count, or null when the player carries no items (chip hidden). */
-  setItems(n: number | null): void {
-    if (n === this.shownItems) return;
-    this.shownItems = n;
-    this.itemsBox.hidden = n === null;
-    this.itemsVal.set(`×${n ?? 0}`);
-    this.itemsBox.dataset.s = n ? 'ready' : 'empty';
+  /** The player's items (selected kind, counts, shield, incoming EMP), or null when they carry none (chip hidden). */
+  setItems(v: ItemView | null): void {
+    const key = v === null ? null : `${v.selected}|${v.counts.emp},${v.counts.shield},${v.counts.mine}|${v.shield > 0 ? Math.ceil(v.shield) : 0}|${v.incoming > 0 ? 1 : 0}`;
+    if (key === this.shownItems) return;
+    this.shownItems = key;
+    this.itemsBox.hidden = v === null;
+    this.warnBox.hidden = v === null || v.incoming <= 0;
+    if (v === null) return;
+    const n = v.counts[v.selected];
+    this.itemsName.set(`${ITEM_ICONS[v.selected]} ${ITEM_NAMES[v.selected]}`);
+    this.itemsVal.set(`×${n}`);
+    this.itemsShield.set(v.shield > 0 ? `🛡 ${Math.ceil(v.shield)}s` : '');
+    ITEM_KINDS.forEach((k, i) => {
+      const chip = this.itemsKinds[i];
+      chip.txt.set(`${ITEM_ICONS[k]}${v.counts[k]}`);
+      chip.node.dataset.sel = k === v.selected ? '1' : '0';
+    });
+    this.itemsBox.dataset.s = v.shield > 0 ? 'shield' : n > 0 ? 'ready' : 'empty';
   }
 
   /** Unsubscribe and remove the DOM (RaceSession.dispose). */

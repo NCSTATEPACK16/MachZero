@@ -553,7 +553,92 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 
 ---
 
-## P — Powerups: Shield, Drop Mine, item select, CPU items (after M4c; one PR)
+## H — Housekeeping: dependency audit + Low-preset haze — ✅ DONE (PR #22)
+
+Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
+
+**As built (PR #22):**
+- `npm audit fix`: 10 advisories (8 moderate, 2 high) → 6 moderate, all under `@capacitor/cli` (accepted). vite 8.3.5, vitest 5.1.0 (newest in range, not 5.0.5), source-map-js 1.2.2.
+- **Haze cause, measured** (Orbital Ring, same autopilot moment, sky luminance): Med 16, Low 66. Bloom scale, the chromatic pass, pixel-ratio cap, render scale and MSAA each moved it; **fog did not**. Two causes:
+  1. UnrealBloom's blur kernels are fixed in texels, so the glow's on-screen spread is inversely proportional to the bloom buffer width. Low's buffer on a phone is ¼ of Med's (1 × 0.75 × 0.5 vs 1.5): every mip two octaves wider.
+  2. Low disabled the chromatic pass, which also draws the vignette.
+- **Fix:** `graphics/bloomSpread.ts` + `ScaledBloomPass` re-weight the 5 mip levels (via `bloomTintColors`) by the octave shift against Med's width on the same screen; shift 0 (Med, High, any buffer at least Med's width) leaves the bloom untouched. The chromatic pass stays on for every preset; `q.chromatic` now only gates the aberration fetches and the heat shimmer. After: Low 8 / Med 16 / High 13.
+- Before/after screenshots: `docs/v2/shots/h/`.
+
+**1. Dependency audit.** On 2026-11-02, `npm ci` reported 10 vulnerabilities (8 moderate, 2 high), all in dev and build tooling. None reach the shipped bundle (three, Rapier, `@capacitor/haptics`).
+- **Fix:** run `npm audit fix` (no `--force`). Its dry run updated 16 packages:
+  - vite 8.3.1 → 8.3.5 (the two high advisories: dev-server `server.fs` bypasses, cross-origin middleware, launch-editor);
+  - vitest and `@vitest/mocker` 5.0.2 → 5.0.5;
+  - source-map-js 1.2.1 → 1.2.2;
+  - rolldown, postcss and others as transitive bumps.
+  
+  Commit the `package-lock.json` change (and `package.json` only if the ranges move).
+- **Don't fix:** glob, minimatch, rimraf, uuid@7 and xcode, all pulled in by `@capacitor/cli` 8.5.3 and run only by `ios:sync`.
+  - `npm audit fix --force` would downgrade the CLI to 4.8.2 and break iOS sync.
+  - Leave them until Capacitor updates them, and list them as accepted in the PR body.
+- Re-run `npm audit` and paste the before and after summary in the PR.
+- Expect the vitest Windows path-traversal advisory (GHSA-xp26-3454-mjgp) may remain. The dry run's report still listed it, and it doesn't apply on macOS.
+- **Check:** the full gate (typecheck, test, build, size, smoke), plus `npm run ios:sync` succeeds with the new vite.
+
+**2. Low-preset haze.** At `?quality=low`:
+- **Symptom:** every world looks washed out. Orbital Ring's black sky turns lilac with a large white sun glow (phone 375×812), and Jade Ruins is also pale. Med and High look right.
+- **Not yet diagnosed.** Suspects, in the Low profile (`settings/QualityManager.ts`):
+  - `bloomScale` 0.5: `UnrealBloomPass` at half resolution, so each mip blurs twice as wide on screen;
+  - `msaa` 0;
+  - `renderScale` 0.75;
+  - `fog` ×1.6, which `GraphicsSystem.applyFogDensity` multiplies into the theme fog.
+- **Find the cause with evidence:**
+  - Change one Low field at a time to its Med value (a temporary debug override, or edit `PROFILES.low` locally).
+  - Screenshot Orbital Ring and Jade Ruins at the same race moment (`?world=…&autopilot=1&quality=low`, mobile viewport).
+  - Note which field removes the wash.
+- **Fix that field's effect, not the symptom.** For example, if it's bloom: keep the half-resolution bloom (the cost saving) but scale the bloom radius and strength so the on-screen spread matches Med.
+- The fix must not change Med or High (screenshot both before and after).
+- **Done when:**
+  - Low on a phone looks like Med but softer: black space on Orbital Ring, no full-frame wash on any world.
+  - The `?perf=1` frame time at Low doesn't rise by more than 0.3 ms.
+  - The PR body has before and after screenshots of Low for Orbital Ring and Jade Ruins.
+
+---
+
+## P — Powerups: Shield, Drop Mine, item select, CPU items — ✅ DONE (PR #23)
+
+**As built (PR #23)** (read before §GP or M5):
+- **Code:** `content/items.ts` (kinds, prices, `itemSlots`, `buyItem(kind)`, `clampBag`, `nextHeldKind`, `CPU_ITEM_COUNT`); `game/ItemSystem.ts` owns everything in play (player selection and use, CPU bags and decisions, shields ticking, CPU EMPs in flight, per-target cooldown). `RaceSession` calls `items.fixed(dt, human)` before `physics.step`, and `items.reset()` on a reset. `RaceSetup.items` is now `PlayerItems { counts(), use(kind) }`.
+- **`ShipState.shield`** (seconds; GAME raises and counts down, PHYSICS zeroes it when it blocks a mine). New events: `item:use { shipId, kind }`, `item:warn { from, target }`, `item:shield { shipId, blocked, point }`; `item:fail` gained `kind`.
+- **Dropped mines:** `MineField` appends a fixed pool of `DROP_MINE_MAX` slots after the track mines (`dropBase`), so `PhysicsSystem.mines` is never empty now (track mines + 6, unarmed when free). `PhysicsSystem.dropMine(owner)` places on the main loop (u − 6 m, same lateral), or behind the hull in the ship's frame on a split path.
+- **AI:** `AIDriverOptions.liveMines` (RaceSession and `sim/worldRace.ts` pass `physics.mines`). Dropped mines are passed **on the side the hull is already on** (the nearest band edge to the *desired* line could cross the mine) with `DROPPED_MARGIN` 2.5 m at every tier: the hull settles ~1.3 m short of its target lateral on a gentle bend (found in `items.sim`; the steering itself is unchanged). Rookies use 0.7× lookahead.
+- **CPU decisions** (every 0.25 s after the first 4 s): EMP at the racer ahead 5–70 m away (25%); Shield with a rival ≤ 12 m behind (30%) or against an incoming EMP (Pilot 50%, Ace 80%, Legend 100%); Drop Mine on a straight with a rival 15–60 m behind (35%).
+- **Sims:** `runWorldRace` runs CPU items by default (`opts.items: false` turns them off) and reports `itemUses` and `droppedMineHits` separately from track `mineHits`. All five worlds stay green at Rookie (no items) and Legend (items used).
+- **Input:** `KeyControl` gained `itemNext` (C); `ControlInput.itemCycle` (±1 per press; d-pad left/right on the pad, not the stick). Save v4.
+
+**Build notes from M4c as built** (read before coding §P):
+- **The mine is already shared:**
+  - `physics/MineField.ts` does the physics: an exact sphere-vs-hull-box test every step, then `ShipController.applyMineHit(side, up, hazards)`.
+  - `MineView.owner` is ready: `null` for track mines.
+  - `graphics/MineVisual.ts` already draws owned mines with the amber band.
+  - Events and the HUD: `hazard:mine { shipId, mine, owner, point }`. Effects, audio (including the proximity beep) and haptics already react to it.
+  - `FrameContext.mines` carries `physics.mines` to graphics.
+- **What the Drop Mine needs:**
+  - `MineField` grows a dynamic list beside the track mines: `drop(owner, u, lateral, t)`.
+    - Fixed pose (no drift) and no re-arm: the mine is removed when hit or at 20 s.
+    - The owner is skipped for the first 1.5 s.
+    - At most 6; the oldest is removed.
+    - Keep the dynamic mines in a preallocated pool (no per-step allocation; `MineVisual` has `MAX_MINES` = 24, enough for 9 track mines plus 6 dropped).
+  - Dropped-mine hits use the same `applyMineHit` and emit `hazard:mine` with `owner` set.
+  - Spawn about 6 m behind: `u` from the ship's track progress minus 6 m, lateral from `TrackQuery.project`.
+- **AI gap:** `AIDriver` builds its *own* copy of the track mines (`this.mines = buildMines(track)`) and predicts them from the timeline. It never sees dropped mines.
+  - Give `avoidHazards` the live dropped mines (from `PhysicsSystem.mines` entries with `owner !== null`, through whatever `AIDriver.update` already gets per step) as static bands.
+  - Keep the timeline path for track mines, so the sims stay deterministic.
+  - Rookie "a little worse": shorter lookahead for dropped mines (e.g. ×0.7).
+- **EMP code to generalise:**
+  - `RaceSession.fireEmp` (player only today) and `RaceManager.racerAhead`.
+  - `content/items.ts` has `ItemBag { emp }`, `empSlots` and `buyEmp`. Rename these to kind-generic (`itemSlots`, `buyItem(kind)`), and keep the slot unlock wins (3, 10).
+- **Save:** `SAVE_VERSION` is 3. §P makes it 4: the migration turns `items: { emp }` into `{ emp, shield, mine }`.
+  - Follow `save/migrations.ts`.
+  - The sanitizer clamps the *total* to the slot count, keeping EMPs first.
+- **Seeded randomness:** use `core/rng.ts` (mulberry32) for the CPU item draws and decisions, seeded from the race seed plus the ship index. Never use `Math.random` in the fixed step.
+- **Shield and mines:** the shield is checked in `PhysicsSystem.checkMines` before `applyMineHit`, and in the EMP landing.
+  - A block emits a new `item:shield { shipId, blocked: 'emp' | 'mine' }`, so graphics (crack and flash), audio and haptics can react.
 
 **Design decisions (grilling session with the user, 2026-11-01; settled, don't re-open).**
 
@@ -615,6 +700,22 @@ It runs in `npm test` through a vitest wrapper, so CI enforces it.
 ---
 
 ## GP — Grand Prix cups (after §P; one PR; pulled forward from M8)
+
+**Build notes (where things are, 2026-11-02):**
+- **Grid:** `content/pilots.ts` `buildRaceField(opts)` already takes `playerGridIndex` (Rookie defaults to the back). The reverse-standings grid needs an explicit order for *every* ship: add `gridOrder?: ShipId[]` and keep the default path unchanged so the existing sims don't move.
+- **Results:** `race:results { standings }` (`core/events.ts`) is handled in `app/App.ts` twice: the perf log near line 490, and the payout and save near line 585. The cup hooks in there.
+  - `game/modes/GrandPrix.ts` stays pure: the state machine, points, tiebreak, grid order and payouts.
+  - `App` only feeds it standings and saves the result.
+- **Restart paths to block during a cup:**
+  - keyboard R: `input.consume('restart')` in `App.ts` around line 413;
+  - the pause menu's `restartRace` / `onRestart` (`App.ts` around lines 169 and 571);
+  - the HUD key legend `ESC M R` (`game/HUD.ts`).
+- **Screens:** `ui/screens/` holds MainMenu, WorldSelect, Garage, Settings and ProfileSelect.
+  - Add `GrandPrix.tsx` (cup start, trophies) and `CupStandings.tsx`.
+  - Route them through `app/routes.ts`.
+  - Use the pad focus and spatial navigation from PR #18 (`ui/nav.ts`).
+- **Save:** `SAVE_VERSION` is 4 after §P. §GP makes it 5: `Profile.cup` (null or the cup state) and `Profile.trophies`.
+- **Flag:** the Grand Prix entry is a finished, complete feature. Ship it on (don't hide it behind `modes`, which stays off for M8's World Tour and Time Trial), and record that in the as-built notes.
 
 **Design decisions (grilling session with the user, 2026-11-01; settled, don't re-open).** These add to SPEC §4.2:
 - 5 tracks, points 10‑8‑6‑5‑4‑3‑2‑1, tiebreak on best finish.
