@@ -140,6 +140,7 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     thrustScale: 1,
     empSlow: 0,
     empLock: 0,
+    shield: 0,
   };
 }
 
@@ -169,6 +170,11 @@ export function makeBus(): { bus: EventBus<GameEvents>; events: Recorded[] } {
     'race:finish',
     'race:results',
     'ship:destroyed',
+    'item:emp',
+    'item:fail',
+    'item:use',
+    'item:warn',
+    'item:shield',
   ];
   for (const k of keys) bus.on(k, (payload: unknown) => events.push({ type: k, payload }));
   return { bus, events };

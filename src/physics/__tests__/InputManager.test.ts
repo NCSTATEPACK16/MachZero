@@ -157,7 +157,7 @@ describe('InputManager keyboard', () => {
   it('setBindings remaps driving keys', () => {
     const { win, target } = fakeWindow();
     const input = new InputManager(win);
-    input.setBindings({ throttle: ['KeyI'], brake: ['KeyK'], left: ['KeyJ'], right: ['KeyL'], airLeft: ['KeyU'], airRight: ['KeyO'], boost: ['KeyB'], item: ['KeyG'] });
+    input.setBindings({ throttle: ['KeyI'], brake: ['KeyK'], left: ['KeyJ'], right: ['KeyL'], airLeft: ['KeyU'], airRight: ['KeyO'], boost: ['KeyB'], item: ['KeyG'], itemNext: ['KeyH'] });
     key(target, 'keydown', 'KeyW');
     expect(input.sample().throttle).toBe(0);
     key(target, 'keydown', 'KeyI');
@@ -165,6 +165,18 @@ describe('InputManager keyboard', () => {
     const c = input.sample();
     expect(c.throttle).toBe(1);
     expect(c.boost).toBe(true);
+    input.dispose();
+  });
+
+  it('C (itemNext) cycles the item once per press; F uses it', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    key(target, 'keydown', 'KeyC');
+    key(target, 'keydown', 'KeyF');
+    const c = input.sample();
+    expect(c.itemCycle).toBe(1);
+    expect(c.fire).toBe(true);
+    expect(input.sample().itemCycle).toBe(0);
     input.dispose();
   });
 
@@ -299,6 +311,26 @@ describe('InputManager gamepad', () => {
     const c = input.sample();
     expect(c.throttle).toBe(1);
     expect(c.brake).toBe(1);
+    input.dispose();
+  });
+
+  it('d-pad left/right pick the item (once per press, not the stick); Y uses it', () => {
+    const { win } = fakeWindow();
+    const input = new InputManager(win);
+    stubPad({ pressed: [15, 3] });
+    input.update();
+    let c = input.sample();
+    expect(c.itemCycle).toBe(1);
+    expect(c.fire).toBe(true);
+    input.update(); // still held
+    expect(input.sample().itemCycle).toBe(0);
+    stubPad({ pressed: [14] });
+    input.update();
+    expect(input.sample().itemCycle).toBe(-1);
+    stubPad({ axes: [-0.9, 0, 0, 0] });
+    input.update();
+    c = input.sample();
+    expect(c.itemCycle).toBe(0);
     input.dispose();
   });
 

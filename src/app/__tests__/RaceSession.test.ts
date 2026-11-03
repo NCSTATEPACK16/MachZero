@@ -106,10 +106,10 @@ describe('RaceSession lifecycle', () => {
   });
 });
 
-describe('RaceSession EMP', () => {
-  it('fires at the racer directly ahead, spends one, and is not spent without stock', async () => {
-    let stock = 1;
-    const s = await RaceSession.create(setup({ autopilot: false, items: { count: () => stock, use: () => void stock-- } }));
+describe('RaceSession items', () => {
+  it('fires the EMP at the racer directly ahead, spends one, and is not spent without stock', async () => {
+    const bag = { emp: 1, shield: 0, mine: 0 };
+    const s = await RaceSession.create(setup({ autopilot: false, items: { counts: () => bag, use: (k) => void bag[k]-- } }));
     const hits: Array<{ from: number; target: number }> = [];
     const fails: string[] = [];
     s.bus.on('item:emp', (e) => hits.push(e));
@@ -122,7 +122,7 @@ describe('RaceSession EMP', () => {
     expect(ahead).not.toBeNull();
     s.fixed(CONFIG.FIXED_DT, { ...drive, fire: true });
     expect(hits).toEqual([{ from: s.player.def.id, target: ahead!.def.id, targetName: ahead!.def.name }]);
-    expect(stock).toBe(0);
+    expect(bag.emp).toBe(0);
     expect(ahead!.empLock).toBeGreaterThan(CONFIG.EMP_LOCK_TIME - 0.1);
     expect(ahead!.empSlow).toBeGreaterThan(CONFIG.EMP_SLOW_TIME - 0.1);
     s.fixed(CONFIG.FIXED_DT, { ...drive, fire: true });

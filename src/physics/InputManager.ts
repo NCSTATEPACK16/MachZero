@@ -21,6 +21,7 @@ const DEFAULT_CODE_TO_CONTROL: Readonly<Record<string, KeyControl>> = {
   ShiftLeft: 'boost',
   ShiftRight: 'boost',
   KeyF: 'item',
+  KeyC: 'itemNext',
 };
 
 /** KeyboardEvent.code -> menu actions triggered on key-down. */
@@ -156,6 +157,8 @@ export class InputManager implements IInputManager {
   private readonly pending = new Int32Array(MENU_ACTIONS.length);
   private boostLatch = false;
   private fireLatch = false;
+  /** Item selection presses since the last sample: +1 per next, −1 per previous. */
+  private cycleLatch = 0;
   private disposed = false;
 
   private kbSteer = 0;
@@ -201,6 +204,8 @@ export class InputManager implements IInputManager {
     this.boostLatch = false;
     const fire = this.fireLatch;
     this.fireLatch = false;
+    const itemCycle = Math.sign(this.cycleLatch);
+    this.cycleLatch = 0;
 
     const steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
     return {
@@ -211,6 +216,7 @@ export class InputManager implements IInputManager {
       airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight),
       boost,
       fire,
+      itemCycle,
     };
   }
 
@@ -306,6 +312,7 @@ export class InputManager implements IInputManager {
       this.held.add(code);
       if (control === 'boost') this.boostLatch = true;
       if (control === 'item') this.fireLatch = true;
+      if (control === 'itemNext') this.cycleLatch++;
     }
     if (menu !== undefined) {
       for (const action of menu) this.press(action);
@@ -323,6 +330,7 @@ export class InputManager implements IInputManager {
     this.held.clear();
     this.boostLatch = false;
     this.fireLatch = false;
+    this.cycleLatch = 0;
     this.kbSteer = 0;
   };
 
@@ -371,6 +379,13 @@ export class InputManager implements IInputManager {
     const fireHeld = down(PAD.Y);
     if (fireHeld && !this.padFireHeld) this.fireLatch = true;
     this.padFireHeld = fireHeld;
+    // Item select: the d-pad's left and right (no race job otherwise; menus read them as navigation too).
+    const dl = down(PAD.DPAD_LEFT);
+    const dr = down(PAD.DPAD_RIGHT);
+    if (dl && this.padPrevButtons[PAD.DPAD_LEFT] === 0) this.cycleLatch--;
+    if (dr && this.padPrevButtons[PAD.DPAD_RIGHT] === 0) this.cycleLatch++;
+    this.padPrevButtons[PAD.DPAD_LEFT] = dl ? 1 : 0;
+    this.padPrevButtons[PAD.DPAD_RIGHT] = dr ? 1 : 0;
 
     // Menu edges from buttons.
     this.padEdge(PAD.START, down(PAD.START), 'pause');

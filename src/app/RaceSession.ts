@@ -4,11 +4,11 @@
  * any number of races in one page. Node-safe without a view (headless tests).
  */
 import type { ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
-import { CONFIG } from '../core/config';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
+import { ItemSystem, type PlayerItems } from '../game/ItemSystem';
 import { disposeObject3D } from '../graphics/dispose';
 import type { GraphicsSystem } from '../graphics';
 import { PhysicsSystem } from '../physics';
@@ -29,8 +29,8 @@ export interface RaceSetup {
   /** How track hazards treat ships (default normal). */
   hazards?: Readonly<HazardPolicy>;
   records?: RecordStore;
-  /** The player's EMP stock (the active profile's; `use` spends one). None: the player has no items. */
-  items?: { count(): number; use(): void };
+  /** The player's item stock (the active profile's; `use` spends one). None: the player has no items. */
+  items?: PlayerItems;
 }
 
 /** Browser presentation attached to a session. */
@@ -47,6 +47,7 @@ export class RaceSession {
   readonly ships: ShipState[];
   readonly player: ShipState;
   readonly race: RaceManager;
+  readonly items: ItemSystem;
   private readonly drivers = new Map<ShipId, AIDriver>();
   private readonly controls = new Map<ShipId, ControlInput>();
   private view: RaceView | null = null;
@@ -66,10 +67,11 @@ export class RaceSession {
     // Every ship gets a driver; the player's steers only on autopilot or after the finish line.
     for (const ship of this.ships) {
       const personality = ship.def.personality ?? 'steady';
-      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships, { hazardClock: () => physics.hazardTime }));
+      this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships, { hazardClock: () => physics.hazardTime, liveMines: () => physics.mines }));
       this.controls.set(ship.def.id, neutralControls());
     }
     this.race = new RaceManager(track, this.ships, this.bus, setup.records);
+    this.items = new ItemSystem({ ships: this.ships, player, race: this.race, bus, physics, track }, track.seed, setup.items);
   }
 
   static async create(setup: RaceSetup): Promise<RaceSession> {
@@ -112,28 +114,9 @@ export class RaceSession {
       const id = ship.def.id;
       this.controls.set(id, ship === this.player && driven ? human : this.drivers.get(id)!.update(dt));
     }
-    if (driven && human.fire && this.race.state === 'racing' && this.player.status === 'racing') this.fireEmp();
+    this.items.fixed(dt, driven ? human : null);
     this.physics.step(dt, this.controls);
     this.race.fixedUpdate(dt);
-  }
-
-  /** EMP at the racer directly ahead: slowed for a moment, no boost for longer. Not spent without a target. */
-  private fireEmp(): void {
-    const items = this.setup.items;
-    const from = this.player.def.id;
-    if (!items || items.count() <= 0) {
-      this.bus.emit('item:fail', { shipId: from, reason: 'empty' });
-      return;
-    }
-    const target = this.race.racerAhead(from);
-    if (!target) {
-      this.bus.emit('item:fail', { shipId: from, reason: 'noTarget' });
-      return;
-    }
-    items.use();
-    target.empSlow = CONFIG.EMP_SLOW_TIME;
-    target.empLock = CONFIG.EMP_LOCK_TIME;
-    this.bus.emit('item:emp', { from, target: target.def.id, targetName: target.def.name });
   }
 
   /** Per-frame presentation (the App renders afterwards). */
@@ -141,7 +124,7 @@ export class RaceSession {
     if (this.disposed || !this.view) return;
     const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ...(this.physics.mines.length > 0 ? { mines: this.physics.mines } : {}), ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
     this.view.graphics.update(ctx);
-    this.hud?.setItems(this.setup.items ? this.setup.items.count() : null);
+    this.hud?.setItems(this.items.playerView());
     this.hud?.update(ctx.race, dt);
     this.view.audio.update(ctx);
   }
@@ -176,6 +159,7 @@ export class RaceSession {
     this.physics.resetTime();
     for (const ship of this.ships) this.physics.resetShip(ship.def.id, this.track.startGrid[ship.def.gridIndex]);
     this.race.reset();
+    this.items.reset();
   }
 
   dispose(): void {

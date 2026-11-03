@@ -21,6 +21,7 @@ import { CLASS_SCALE, chassisById } from '../content/ships';
 import { type BuiltGate, buildGates, gateClosure, gatePose } from '../track/features/gate';
 import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../track/features/debris';
 import { MineField, type MineState } from './MineField';
+import { MINE_LIFT } from '../track/features/mine';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -222,6 +223,7 @@ export class PhysicsSystem implements IPhysicsSystem {
       thrustScale: 1,
       empSlow: 0,
       empLock: 0,
+      shield: 0,
     };
 
     const controller = new ShipController(this.world, this.track, this.bus, state, body, collider);
@@ -240,6 +242,28 @@ export class PhysicsSystem implements IPhysicsSystem {
   /** The mines this step (positions, armed): graphics and the AI read them. */
   get mines(): readonly MineState[] {
     return this.mineField.mines;
+  }
+
+  /** Dropped mines on the track now (the Drop Mine item). */
+  get droppedMines(): number {
+    return this.mineField.droppedCount;
+  }
+
+  /**
+   * Drop Mine item: leave a mine DROP_MINE_BACK m behind ship `owner`, at its place across the road, armed at once
+   * (its dropper is spared for DROP_MINE_GRACE s). Returns its index in `mines`, or null for an unknown ship.
+   */
+  dropMine(owner: ShipId): number | null {
+    const c = this.controllers.get(owner);
+    if (!c) return null;
+    const s = c.state;
+    const t = this.raceClock;
+    if (s.path === null) return this.mineField.drop(owner, s.trackU - CONFIG.DROP_MINE_BACK / this.track.length, s.lateral, t);
+    // On a split path the main loop's (u, lateral) is elsewhere: place it behind the hull in the ship's frame.
+    const back = this.posePos.set(0, 0, 1).applyQuaternion(s.quaternion);
+    const up = this.pointVec.set(0, 1, 0).applyQuaternion(s.quaternion);
+    const at = back.multiplyScalar(CONFIG.DROP_MINE_BACK).add(s.position).addScaledVector(up, MINE_LIFT - s.heightAboveTrack);
+    return this.mineField.drop(owner, s.trackU, s.lateral, t, at);
   }
 
   /** Lateral of debris piece i's centre now. */
@@ -287,16 +311,20 @@ export class PhysicsSystem implements IPhysicsSystem {
     }
   }
 
-  /** Set off any armed mine a racing hull touches. */
+  /** Set off any armed mine a racing hull touches; a raised shield takes the hit instead (and drops). */
   private checkMines(): void {
     const field = this.mineField;
-    if (field.mines.length === 0) return;
     field.update(this.raceClock);
     for (const c of this.controllerList) {
       const s = c.state;
       if ((s.status !== 'racing' && s.status !== 'finished') || !c.isColliderEnabled) continue;
       const hit = field.test({ id: s.def.id, position: s.position, quaternion: s.quaternion, half: c.hullHalf }, this.raceClock);
       if (!hit) continue;
+      if (s.shield > 0) {
+        s.shield = 0;
+        this.bus.emit('item:shield', { shipId: s.def.id, blocked: 'mine', point: hit.mine.position.clone() });
+        continue;
+      }
       c.applyMineHit(hit.side, hit.up, this.hazards);
       this.bus.emit('hazard:mine', { shipId: s.def.id, mine: hit.mine.index, owner: hit.mine.owner, point: hit.mine.position.clone() });
     }

@@ -46,6 +46,9 @@ export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: ()
     bus.on('hazard:mine', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('ship:destroyed', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('item:emp', ({ from, target }) => (from === playerId || target === playerId) && tap('medium', true)),
+    bus.on('item:shield', ({ shipId }) => shipId === playerId && tap('medium', true)),
+    bus.on('item:use', ({ shipId }) => shipId === playerId && tap('light', true)),
+    bus.on('item:warn', ({ target }) => target === playerId && tap('heavy', true)),
   ];
   return () => {
     for (const off of offs) off();

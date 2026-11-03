@@ -263,9 +263,26 @@ export class RaceManager implements IRaceManager {
 
   /** The nearest racer ahead of `id` in the standings that is still racing (the EMP target), or null. */
   racerAhead(id: ShipId): ShipState | null {
+    return this.neighbour(id, -1);
+  }
+
+  /** The nearest racer still racing behind `id` in the standings, or null. */
+  racerBehind(id: ShipId): ShipState | null {
+    return this.neighbour(id, 1);
+  }
+
+  /** Track metres `a` leads `b` by (negative when behind), from race progress. */
+  gapMetres(a: ShipId, b: ShipId): number {
+    const ra = this.racers.find((x) => x.ship.def.id === a);
+    const rb = this.racers.find((x) => x.ship.def.id === b);
+    return ra && rb ? (ra.progress - rb.progress) * this.track.length : 0;
+  }
+
+  private neighbour(id: ShipId, dir: 1 | -1): ShipState | null {
     this.updateStandings();
     const i = this.sorted.findIndex((s) => s.id === id);
-    for (let j = i - 1; j >= 0; j--) {
+    if (i < 0) return null;
+    for (let j = i + dir; j >= 0 && j < this.sorted.length; j += dir) {
       const st = this.sorted[j];
       if (st.status !== 'racing') continue;
       const r = this.racers.find((x) => x.ship.def.id === st.id);
@@ -281,6 +298,7 @@ export class RaceManager implements IRaceManager {
       r.ship.thrustScale = 1;
       r.ship.empSlow = 0;
       r.ship.empLock = 0;
+      r.ship.shield = 0;
     }
   }
 

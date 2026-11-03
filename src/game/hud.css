@@ -474,18 +474,24 @@
   animation: mz-flash 0.3s steps(2, jump-none) infinite;
 }
 
-/* EMP stock, beside the boost panel */
+/* Items: the selected kind and its count, every kind's count below; beside the boost panel */
 .mz-items {
   bottom: 9.4em;
   left: 22em;
 }
 .mz-items .mz-in {
   display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  flex-direction: column;
+  gap: 0.2em;
   padding: 0.35em 0.9em;
   font-weight: 900;
   font-style: italic;
+}
+.mz-items-head,
+.mz-items-kinds {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
 }
 .mz-items-val {
   font-size: 1.15em;
@@ -493,6 +499,15 @@
 .mz-items-key {
   font-size: 0.75em;
   opacity: 0.7;
+}
+.mz-items-kind {
+  font-size: 0.8em;
+  opacity: 0.55;
+}
+.mz-items-kind[data-sel='1'] {
+  opacity: 1;
+  color: #cfe8ff;
+  text-shadow: 0 0 0.6em rgba(111, 184, 255, 0.8);
 }
 .mz-items[data-s='ready'] {
   border-color: #6fb8ff;
@@ -502,8 +517,39 @@
 .mz-items[data-s='ready'] .mz-items-val {
   color: #cfe8ff;
 }
+.mz-items[data-s='shield'] {
+  border-color: #7dffd0;
+  box-shadow: 0 0 1.2em rgba(125, 255, 208, 0.55);
+}
+.mz-items-shield {
+  margin-left: auto;
+  color: #c8fff0;
+  text-shadow: 0 0 0.6em rgba(125, 255, 208, 0.8);
+}
+.mz-items-shield:empty {
+  display: none;
+}
 .mz-items[data-s='empty'] {
   opacity: 0.5;
+}
+
+/* A CPU's EMP is on its way to the player: 0.5 s to raise a shield */
+.mz-emp-warn {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.3em 1em;
+  font-size: 1.6em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  color: #fff3c4;
+  background: rgba(120, 40, 0, 0.55);
+  border: 2px solid #ffb02e;
+  box-shadow: 0 0 1.4em rgba(255, 176, 46, 0.7);
+  animation: mz-flash 0.12s steps(2, jump-none) infinite;
+  pointer-events: none;
 }
 
 /* speedometer */

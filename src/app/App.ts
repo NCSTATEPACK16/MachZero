@@ -12,7 +12,7 @@ import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
-import { buyEmp, type ItemPurchase } from '../content/items';
+import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
@@ -60,6 +60,8 @@ function nextPaint(): Promise<void> {
     setTimeout(resolve, 100);
   });
 }
+
+const NO_ITEMS = Object.freeze(emptyBag());
 
 export class App {
   readonly flags: UrlFlags = readUrlFlags();
@@ -278,10 +280,10 @@ export class App {
     this.updateProfile((p) => (p.loadout.livery = { ...livery }));
   }
 
-  /** Buy one EMP for the active profile. */
-  buyEmp(): ItemPurchase {
+  /** Buy one item of `kind` for the active profile. */
+  buyItem(kind: ItemKind): ItemPurchase {
     let result: ItemPurchase = 'short';
-    this.updateProfile((p) => (result = buyEmp(p)), () => result === 'bought');
+    this.updateProfile((p) => (result = buyItem(p, kind)), () => result === 'bought');
     return result;
   }
 
@@ -507,9 +509,12 @@ export class App {
     });
     // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
     const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
-    // EMPs come from the live profile; one fired is spent from the save at once (a restart does not refill it).
+    // Items come from the live profile; one used is spent from the save at once (a restart does not refill it).
     const items = p
-      ? { count: () => this.activeProfile.value?.items.emp ?? 0, use: () => this.updateProfile((q) => (q.items.emp = Math.max(0, q.items.emp - 1))) }
+      ? {
+          counts: () => this.activeProfile.value?.items ?? NO_ITEMS,
+          use: (kind: ItemKind) => this.updateProfile((q) => (q.items[kind] = Math.max(0, q.items[kind] - 1))),
+        }
       : undefined;
     const base = { field, autopilot: this.flags.autopilot, hazards, items };
     const world = this.currentWorld;
