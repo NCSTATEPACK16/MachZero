@@ -1,41 +1,66 @@
-# Next-session brief — build MachZero 2.0 (next: M4c Orbital Ring → §P Powerups → §GP Grand Prix)
+# Next-session brief: build MachZero 2.0 (next: H Housekeeping, then §P Powerups, then §GP Grand Prix)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-01: M0–M4b, perf, controller and the iOS app merged; next is M4c → §P → §GP)
+## Where things stand (2026-11-02: M0–M4 merged, all five worlds built; next is H, then §P, then §GP)
 
 - **The live site** is https://machzero.netlify.app. Every merge to `main` deploys there, and every PR gets a preview at `https://deploy-preview-<N>--machzero.netlify.app`.
-- **The iOS app** (Capacitor 8, `ios/App`, bundle `com.ncstatepack16.machzero`) is on TestFlight.
-  - The user tested on an iPhone 18 Pro Max (also an iPad Air 11") with an 8BitDo pad in X-input mode, and was happy with it ("looks great", steady 60 fps).
-  - **Every PR must work on both the web and iOS, and end with the iOS build command** (IMPLEMENTATION §0 rule 9). Guide: `docs/IOS_TESTFLIGHT.md`.
+- **The iOS app** (Capacitor 8, `ios/App`, bundle `com.ncstatepack16.machzero`) is on TestFlight. The user tests on an iPhone 18 Pro Max and an iPad Air 11" with an 8BitDo pad in X-input mode.
+  - **Every PR must work on both the web and iOS, and end with the iOS build command** (IMPLEMENTATION §0 rule 9).
+  - Guide: `docs/IOS_TESTFLIGHT.md`.
+  - **Never commit `ios/App/App.xcodeproj/project.pbxproj`**: it carries the user's local build-number bump.
 - **Merged into `main`:**
   - M0–M3: #2–#9.
   - **M4a Cryo Station (#13), M4b Jade Ruins (#14).**
-  - **#15:** 60 fps work. Shader warm-up, dynamic resolution, the `?perf=1` / Settings perf panel.
-  - **#16:** controller polish. Pad prompts, pause on disconnect, pad-driven pause and results panels, random callsigns.
-  - **#17:** the iOS shell. Controller-first native setup, haptics, icon, splash.
-  - **#18:**
-    - the Mach 0 app icon;
-    - visible pad focus ring and spatial d-pad/stick menu navigation with hold-to-repeat;
-    - Rookie CPUs at 90% pace with no catch-up, and a CPU difficulty picker;
-    - wall and ship damage halved;
-    - **the EMP item**.
-- **Open:** **#19**, the website Mach 0 favicon, touch icon and manifest, plus these spec updates.
-- **Flags on `main`:** `profiles`, `garage` and `worlds` are on; `tiers`, `music`, `touch` and `modes` are off. Note: since #18 the tier comes from the profile whatever the `tiers` flag says.
-- **Tests:** 312 unit and integration tests, including every race sim (about 21 s locally), and 8 Playwright tests (smoke, menus ×3, garage ×2, controller ×2). Keep every test under 60 s.
+  - #15: perf.
+  - #16: controller polish.
+  - #17: the iOS shell.
+  - #18: app icon, pad menus, Rookie pace, damage −50%, **the EMP item**.
+  - #19: web icon, plus the specs for M4c, §P and §GP.
+  - **#20: M4c Orbital Ring**:
+    - the loop-the-loop and low-g jumps;
+    - drifting mines (`physics/MineField.ts`, `graphics/MineVisual.ts`) and a debris field;
+    - AI hazard avoidance;
+    - the Earth/space theme;
+    - a heading fix, and ship-to-ship damage applied once per 0.2 s.
+  
+  M4 is ✅ done. Read IMPLEMENTATION's "As built: M4c" before §P.
+- **No open PRs.**
+- **Flags on `main`:** `profiles`, `garage` and `worlds` are on; `tiers`, `music`, `touch` and `modes` are off. Since #18 the tier comes from the profile (Settings → Race) whatever the `tiers` flag says.
+- **Tests:**
+  - 352 unit, integration and sim tests in 42 files, about 50 s locally on a loaded machine.
+  - 8 Playwright tests (smoke, menus ×3, garage ×2, controller ×2), 8/8 in about 2.8 min.
+  - Keep every test file under 60 s.
+- **Sizes after M4c:** app 310.7 KB gzip of a 600 KB budget; Rapier 1,615 KB gzip; `public/game` 607.7 KB of 15 MB.
 
-## Next (specs settled 2026-11-01; build in this order, one PR each)
+## Next (specs settled; build in this order, one PR each)
 
-1. **M4c, Orbital Ring:** IMPLEMENTATION §M4, "M4c, Orbital Ring: design decisions", plus the 2026-10-04 decisions above it.
-   - Branch `v2/m4c-orbital-ring` from `main`.
-   - Test-first: a loop hold sim like `sim/pipe.hold.sim.test.ts`, the Orbital world sims, and a mine/debris determinism check in `sim/hazards.sim.test.ts`.
-   - Model mines and debris on the stone gates (`track/features/gate.ts`: timeline and pose shared by physics, visuals via `animateHazards`, and the AI via `hazardClock`).
-   - Write the mine so the Drop Mine item can reuse it.
-2. **§P, Powerups:** Shield, Drop Mine, item select, CPU items. IMPLEMENTATION §P.
-3. **§GP, Grand Prix cups:** IMPLEMENTATION §GP. It starts `game/modes/`.
+1. **H, Housekeeping** (IMPLEMENTATION §H, small): `npm audit fix` without `--force` (vite 8.3.5, vitest 5.0.5, source-map-js 1.2.2), and diagnose and fix the Low-preset haze. Branch `v2/h-housekeeping`.
+2. **§P, Powerups:** Shield, Drop Mine, item select, CPU items. IMPLEMENTATION §P. **Read its "Build notes from M4c as built" first.** Three facts from those notes:
+   - The mine physics and visual are already shared.
+   - The AI must be given the live dropped mines, because it builds its own copy of the track mines.
+   - Save v3 becomes v4.
+   
+   Branch `v2/p-powerups`.
+3. **§GP, Grand Prix cups:** IMPLEMENTATION §GP and its build notes. Save v4 becomes v5. It starts `game/modes/`. Branch `v2/gp-grand-prix`.
 
-**Left for future sessions (don't start without the user):** the rest of M5 (per-tier AI tuning, drafting, pilot intro cards, Legend in the picker), M6 audio (#10), M7 touch and comfort (#11), and the rest of M8 (World Tour, Time Trial, ghosts, polish; #12). Also more scenery for the existing worlds. M6, M7 and M8 need a design session first.
+Stack each branch on the previous PR if that PR is still open (write "stacked on #N").
+
+## What else there is (future sessions; don't start without the user)
+
+- **M5, AI tiers, pilots, drafting** (spec settled in IMPLEMENTATION §M5):
+  - Legend in the tier picker; `content/tiers.ts` replacing `AI_PACE`.
+  - Drafting; pilot intro cards; `physics/Assists.ts` as logic.
+  - The 5 tracks × 4 tiers sim matrix.
+  - Ready to build after §GP without a design session.
+- **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
+- **M7, touch and comfort (#11):** touch and tilt controls, comfort settings, assist toggles, and the portrait HUD overlap seen on phones. Needs a design session first.
+- **M8, modes and polish (#12):** World Tour, Time Trial, ghosts, world map, onboarding, the balance pass, and turning every flag on. Needs a design session first.
+- **Smaller ideas worth raising with the user:**
+  - more scenery for the existing worlds;
+  - the optional separate-WASM Rapier task (IMPLEMENTATION §M0), which would cut about 1.6 MB of base64 from the JS;
+  - PR screenshots embedded in PR bodies (none so far).
 
 ## Environment facts (already verified; don't rediscover)
 
@@ -49,7 +74,9 @@ Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opene
 | Blender MCP | Add-on v1.7 / protocol 11, on port 9876. The user must have Blender open with **Start MCP Server** clicked (N panel → MCP tab). The first call after a Blender restart can fail with "broken pipe"; retry once. Treat it as an optional preview tool: canonical assets come from the headless scripts in `blender/` |
 | Playwright | `@playwright/test` installed; Chromium downloaded locally. `npm run smoke` runs every spec in `e2e/` against `vite preview` on port 4173 (SwiftShader). CI runs it in about 2 min. The browser pane's `requestAnimationFrame` stops while the pane is hidden, so drive timing-sensitive UI checks through Playwright |
 | Shared machine | Other projects (a Puppeteer Chrome, other Vite servers, other Claude sessions) often load this Mac's 6 cores. Wall-clock timeouts then fail locally while the assertions pass. Rerun with `npm test -- --maxWorkers=3` and `npm run smoke -- --workers=1`; CI (dedicated runners) is the reference. Don't kill other projects' processes |
-| Bundle | After M2: app JS 254 KB gz, Rapier 1,615 KB gz (base64 WASM), `public/game` 377 KB. See IMPLEMENTATION §M0 for the optional separate-WASM task |
+| Bundle | After M4c: app JS 310.7 KB gz, Rapier 1,615 KB gz (base64 WASM), `public/game` 607.7 KB. See IMPLEMENTATION §M0 for the optional separate-WASM task |
+| npm audit | 10 dev-only advisories as of 2026-11-02. §H fixes the vite, vitest and source-map ones. The `@capacitor/cli` ones (glob, minimatch, rimraf, uuid, xcode) are accepted: **never** run `npm audit fix --force`, which downgrades the CLI to 4.8.2 |
+| Low preset | Washed out on every world (§H item 2); judge visuals at Med or High until it's fixed |
 | Assets | `npm run assets` (Blender + glTF Transform) rebuilds `public/game/`. Commit the GLBs; CI only validates them |
 
 ## Paste this prompt
@@ -65,9 +92,9 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: build M4c Orbital Ring, then §P Powerups, then §GP Grand Prix cups (IMPLEMENTATION.md), in order, as far as this
-session allows, each its own PR and shippable on its own. Everything up to #18 is merged. The rest of M5, and M6–M8,
-are for future sessions and need the user first.
+GOAL: build H Housekeeping, then §P Powerups, then §GP Grand Prix cups (IMPLEMENTATION.md), in order, as far as this
+session allows, each its own PR and shippable on its own. Everything up to #20 (M4c) is merged. Read each section's
+build notes before coding. M5 is next after §GP; M6–M8 need the user first.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play
@@ -112,6 +139,7 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green. Branch M4c from main (rebase
-onto #19 is not needed; it only touches the website icons and docs). Then build M4c, then §P, then §GP.
+Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/h-housekeeping from main.
+Then build H, then §P, then §GP. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
+number). No attribution lines in commits or PR bodies.
 ```
