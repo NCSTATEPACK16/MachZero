@@ -11,7 +11,9 @@ export type Route =
   | { name: 'menu' }
   | { name: 'settings'; back: 'menu' | 'pause' }
   | { name: 'soon'; feature: FeatureName; title: string }
-  | { name: 'garage' }
+  | { name: 'garage'; back?: 'menu' | 'cup' }
+  | { name: 'gp' }
+  | { name: 'cup' }
   | { name: 'worlds' }
   | { name: 'loading' }
   | { name: 'race' };

@@ -579,4 +579,9 @@ export interface HudActions {
   onMenu?(): void;
   /** Present with the menu UI: adds SETTINGS to the pause screen. */
   onSettings?(): void;
+  /**
+   * Present in a Grand Prix cup race: no RESTART anywhere; the pause screen's MENU becomes RETIRE and the
+   * results' RACE AGAIN becomes STANDINGS.
+   */
+  cup?: { onStandings(): void; onRetire(): void };
 }
