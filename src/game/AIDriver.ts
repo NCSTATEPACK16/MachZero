@@ -26,6 +26,8 @@ const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
 const ROUTE_DECIDE = 300;
 /** Metres before a fork over which a driver taking the shortcut moves to its side of the road. */
 const FORK_APPROACH = 160;
+/** …or this many seconds at the ship's speed, if longer (a drafting Legend at 150 m/s needs more than 1 s to cross). */
+const FORK_APPROACH_TIME = 1.6;
 /** Stone gates: metres ahead the driver plans for, the arrival window (s) it wants clear, the margin (m) from a
  *  shut slab's edge, and the slowest it will crawl to time a shut gate. */
 const GATE_LOOKAHEAD = 240;
@@ -178,6 +180,13 @@ const ICE_GRIP_PLAN = 0.5; // lateral budget multiplier the driver assumes for c
 const ICE_LATERAL_RATE = 1.5; // 1/s target-lateral smoothing on ice (hold a straight line)
 const PIPE_MAX_LAT = 9; // m: lines inside a pipe stay well off the top seam
 
+// Loops: the deck carries a hull along its line (physics/LoopCompensation.ts), so the AI holds its lateral there
+// with the loop hold test's gains instead of aiming at a point ahead (which the loop's side shift puts metres to the
+// side), and the loop's curvature is no bend to brake or steer for.
+const LOOP_STEER_KP = 0.15; // steer per metre of lateral error
+const LOOP_STEER_KD = 0.06; // steer per m/s of lateral speed
+const LOOP_PAD = 40; // m before and after a loop driven near the centre
+
 const PIT_APPROACH = 400; // m
 const JUMP_APPROACH = 160; // m before a jump lip where the line straightens toward the centre
 const PIT_FULL_ENERGY = 95;
@@ -235,6 +244,8 @@ export class AIDriver implements IAIDriver {
   private tLat = 0;
   private steer = 0;
   private prevAngle = 0;
+  private prevLat = 0;
+  private hasLat = false;
   private dAngle = 0;
   private hasPrev = false;
 
@@ -287,6 +298,7 @@ export class AIDriver implements IAIDriver {
     this.centreRanges = [
       ...corks.map(([a, b]): [number, number] => [wrap01(a - pad), wrap01(b + pad)]),
       ...track.jumps.map((j): [number, number] => [wrap01((j.dTakeoff - JUMP_APPROACH) / L), wrap01((j.dLanding + 30) / L)]),
+      ...track.loops.map((l): [number, number] => [wrap01(l.uStart - LOOP_PAD / L), wrap01(l.uEnd + LOOP_PAD / L)]),
     ];
 
     this.ice = track.features.flatMap((f) => (f.type === 'ice' ? [f] : []));
@@ -322,6 +334,11 @@ export class AIDriver implements IAIDriver {
 
   private readonly routeRng: Rng;
 
+  /** On the main road with a split path's shortcut chosen: the line belongs to the route (its side of the road). */
+  private get headingForShortcut(): boolean {
+    return this.route.branch !== null && this.ship.path === null;
+  }
+
   /** The route currently planned (for tests and debugging). */
   get plannedPath(): string | null {
     return this.route.branch?.id ?? null;
@@ -340,6 +357,7 @@ export class AIDriver implements IAIDriver {
       out.airbrakeLeft = 0;
       out.airbrakeRight = 0;
       this.hasPrev = false;
+      this.hasLat = false;
       this.steer = 0;
       return out;
     }
@@ -414,7 +432,7 @@ export class AIDriver implements IAIDriver {
     }
     let desired = lineLat + bias;
     // Taking a shortcut: over the last metres before its fork, move to its side of the road.
-    if (route.branch && route.pathAt(targetR) === null && route.length - targetR < FORK_APPROACH) desired = route.offset;
+    if (route.branch && route.pathAt(targetR) === null && route.length - targetR < Math.max(FORK_APPROACH, speed * FORK_APPROACH_TIME)) desired = route.offset;
     // Inside a pipe the line stays off the top seam (it opens again at the exit).
     const inPipe = (ship.path === null && this.inPipe(u)) || (targetMainU !== null && this.inPipe(targetMainU));
     if (inPipe) desired = clamp(desired, -PIPE_MAX_LAT, PIPE_MAX_LAT);
@@ -538,7 +556,11 @@ export class AIDriver implements IAIDriver {
     }
     this.prevAngle = angle;
 
-    const wanted = clamp(STEER_KP * angle + STEER_KD * this.dAngle, -1, 1);
+    let wanted = clamp(STEER_KP * angle + STEER_KD * this.dAngle, -1, 1);
+    const latVel = this.hasLat ? (ship.lateral - this.prevLat) / dt : 0;
+    this.prevLat = ship.lateral;
+    this.hasLat = true;
+    if (ship.path === null && this.inLoop(u)) wanted = clamp(LOOP_STEER_KP * (this.tLat - ship.lateral) - LOOP_STEER_KD * latVel, -1, 1);
     const maxStep = STEER_SLEW * dt;
     this.steer += clamp(wanted - this.steer, -maxStep, maxStep);
     out.steer = this.steer;
@@ -706,7 +728,7 @@ export class AIDriver implements IAIDriver {
    *  a full-aggression tier (Legend) rams with any personality when far ahead on energy. Rookies never ram. */
   private wantsRam(target: ShipState): boolean {
     const a = this.tier.aggression;
-    if (a <= 0) return false;
+    if (a <= 0 || this.headingForShortcut) return false;
     const lead = this.ship.energy - target.energy;
     if (this.personality === 'aggressive') return lead > RAM_MARGIN / a;
     return a >= 1 && lead > RAM_MARGIN_ANY;
@@ -718,7 +740,7 @@ export class AIDriver implements IAIDriver {
    */
   private draftOrDefend(u: number, desired: number, maxLat: number, kMaxLine: number, inCork: boolean): number {
     const t = this.tier;
-    if (inCork || kMaxLine > DRAFT_SEEK_CURV || this.pitMode || this.ship.path !== null) return desired;
+    if (inCork || kMaxLine > DRAFT_SEEK_CURV || this.pitMode || this.ship.path !== null || this.headingForShortcut) return desired;
     const lat = this.ship.lateral;
     let ahead: number | null = null;
     let aheadDm = Infinity;
@@ -746,9 +768,18 @@ export class AIDriver implements IAIDriver {
     return desired;
   }
 
-  /** Signed curvature `d` metres ahead of route metres R. */
+  /** Signed curvature `d` metres ahead of route metres R (none inside a loop: the deck carries the line). */
   private curvatureAt(R: number, d: number): number {
+    if (this.track.loops.length > 0) {
+      const mu = this.route.mainUAt(R + d);
+      if (mu !== null && this.inLoop(mu)) return 0;
+    }
     return this.route.curvatureAt(R + d);
+  }
+
+  private inLoop(u: number): boolean {
+    for (const l of this.track.loops) if (inLoopRange(u, l.uStart, l.uEnd)) return true;
+    return false;
   }
 
   /**
