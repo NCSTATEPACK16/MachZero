@@ -10,6 +10,7 @@ import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
 import { ItemSystem, type PlayerItems } from '../game/ItemSystem';
 import { disposeObject3D } from '../graphics/dispose';
+import { rosterOf } from '../game/pilotPortrait';
 import type { GraphicsSystem } from '../graphics';
 import { PhysicsSystem } from '../physics';
 import { trackFromSource, type TrackLayoutSource, type TrackPalette } from '../track';
@@ -103,7 +104,12 @@ export class RaceSession {
     view.graphics.setTrack(this.track);
     for (const ship of this.ships) view.graphics.addShip(ship);
     view.audio.attach(this.bus);
-    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle });
+    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field) });
+  }
+
+  /** The grid intro card before the countdown (shown while the race waits on the title state). */
+  setIntro(on: boolean): void {
+    this.hud?.setIntro(on);
   }
 
   /** One fixed step. `human` is the player's input, or null when nobody is driving (menus, autopilot). */

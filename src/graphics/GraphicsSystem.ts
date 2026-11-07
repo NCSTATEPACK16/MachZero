@@ -497,7 +497,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     ctx.track.animateHazards?.(ctx.hazardTime);
     this.mineVisual.update(ctx.mines, player.position, time, dt);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
-    this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
+    this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting, player.drafting);
     this.theme.update(this.camera, time);
 
     if (pm) {

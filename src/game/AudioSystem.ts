@@ -86,6 +86,9 @@ export class AudioSystem implements IAudioSystem {
     this.offs.push(
       bus.on('race:countdown', (e) => this.onCountdown(e.value)),
       bus.on('ship:boost', (e) => this.onBoost(e.shipId)),
+      bus.on('ship:draft', (e) => {
+        if (e.active && this.nearness(e.shipId) >= 1) this.noise(0.6, 0.22, { filter: 'bandpass', f0: 2600, f1: 600, q: 1.6, attack: 0.12 });
+      }),
       bus.on('ship:railHit', (e) => this.onRailHit(e.shipId, e.intensity)),
       bus.on('ship:shipHit', (e) => this.onShipHit(e.a, e.b, e.intensity)),
       bus.on('ship:dash', (e) => this.onDash(e.shipId)),

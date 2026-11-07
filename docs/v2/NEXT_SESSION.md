@@ -1,12 +1,13 @@
-# Next-session brief: build MachZero 2.0 (next: M5 AI tiers, pilots, drafting; then §V V1 COMET)
+# Next-session brief: build MachZero 2.0 (M5 in review; next: §V V1 COMET at its gate, then V2/V3 after approval)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-07: H, §P, §GP and the §V spec in review; next is M5, then §V V1)
+## Where things stand (2026-11-07: H, §P, §GP and M5 in review; §V V1 COMET is next, stacked on M5)
 
 - **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5) → **#25 §V spec** (docs, prompt sheet, the user's concept images). Each is built and green locally; the user playtests the previews and merges. If any is still open when you start, stack M5 on the newest open one (#25 at the time of writing) and write "stacked on #N".
 - **§V concepts are in:** `assets/reference/ships/<id>/chosen.jpg` for all 6 chassis (one Gemini concept each, resized to ≤ 300 KB; the full-size originals are git-ignored and local only). They are on the brief: three views, no wheels, grounded materials, factory liveries.
+- **M5 (PR #PRNUM, branch `v2/m5-tiers`, stacked on #24; #25 already merged into `v2/gp-grand-prix`):** tiers, drafting, assists, pilot intro card, the 5 × 4 tier matrix. Read IMPLEMENTATION's "As built (PR #PRNUM)" under §M5 before §V or M6. Pending on device: the intro card and DRAFT chip on iPhone/iPad, and a Pilot-tier race to judge pace 0.94.
 - Read IMPLEMENTATION's "As built" notes for §H, §P and §GP before M5. Pending on device: the 8BitDo item select (§P) and a pad-only cup (§GP) on iOS.
 
 

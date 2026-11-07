@@ -5,6 +5,7 @@ import { clamp, damp, formatTime, ordinal } from '../core/math';
 import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
 import type { ItemView } from './ItemSystem';
 import { Minimap } from './Minimap';
+import type { RosterEntry } from './pilotPortrait';
 import '../ui/tokens.css';
 import './hud.css';
 
@@ -95,6 +96,9 @@ export class HUD implements IHUD {
   private readonly itemsShield: Txt;
   private readonly itemsKinds: { node: HTMLElement; txt: Txt }[] = [];
   private readonly warnBox: HTMLElement;
+  private readonly draftBox: HTMLElement;
+  private readonly introEl: HTMLElement;
+  private readonly roster: readonly RosterEntry[];
   private shownItems: string | null | undefined = undefined;
   private readonly speedBox: HTMLElement;
   private readonly speedArc: SVGPathElement;
@@ -135,8 +139,9 @@ export class HUD implements IHUD {
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
-    opts: { showTitle?: boolean } = {},
+    opts: { showTitle?: boolean; roster?: readonly RosterEntry[] } = {},
   ) {
+    this.roster = opts.roster ?? [];
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
     root.appendChild(c);
@@ -252,6 +257,12 @@ export class HUD implements IHUD {
     this.itemsBox.hidden = true;
     this.warnBox = el('div', 'mz-emp-warn', '⚠ EMP INCOMING', race);
     this.warnBox.hidden = true;
+    // Slipstream: an icon-first chip while the player drafts (physics/Drafting.ts).
+    this.draftBox = el('div', 'mz-draft', undefined, race);
+    this.draftBox.setAttribute('role', 'status');
+    el('span', 'mz-draft-icon', '≋', this.draftBox);
+    el('span', 'mz-draft-text', 'DRAFT', this.draftBox);
+    this.draftBox.hidden = true;
 
     this.speedBox = el('div', 'mz-speed', undefined, race);
     const gauge = svg('svg', { viewBox: '0 0 200 200' }, this.speedBox);
@@ -300,6 +311,10 @@ export class HUD implements IHUD {
 
     this.resultsEl = el('section', 'mz-screen mz-results', undefined, c);
 
+    // ------------------------------------------------------------ pilot intro card (before the countdown)
+    this.introEl = el('section', 'mz-intro', undefined, c);
+    this.buildIntro(track.name);
+
     // ------------------------------------------------------------ events
     this.offs.push(
       bus.on('race:lap', (e) => {
@@ -323,8 +338,12 @@ export class HUD implements IHUD {
       bus.on('race:state', (e) => {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
         if (e.state === 'title' || e.state === 'countdown') this.earned = null;
+        if (e.state === 'title' || e.state === 'results') this.draftBox.hidden = true;
       }),
       bus.on('economy:credits', (e) => (this.earned = e)),
+      bus.on('ship:draft', (e) => {
+        if (e.shipId === PLAYER_ID) this.draftBox.hidden = !e.active;
+      }),
       bus.on('item:emp', (e) => {
         if (e.from === PLAYER_ID) this.toast(`EMP → ${e.targetName}`, 'good');
         else if (e.target === PLAYER_ID) this.toast('EMP HIT', 'bad');
@@ -567,6 +586,10 @@ export class HUD implements IHUD {
     const table = el('div', 'mz-table', undefined, body);
     el('div', 'head', 'FINAL STANDINGS', table);
     for (const s of snap.standings) table.appendChild(this.standingRow(s));
+    // A rival who wins gets the last word.
+    const winner = snap.standings.find((s) => s.position === 1);
+    const quote = winner && winner.id !== PLAYER_ID ? this.roster.find((r) => r.id === winner.id)?.catchphrase : null;
+    if (winner && quote) el('div', 'mz-winner-quote', `“${quote}” — ${winner.name}`, table);
 
     const lapsBox = el('div', 'mz-lapstable', undefined, body);
     el('div', 'head', 'YOUR LAPS', lapsBox);
@@ -620,10 +643,41 @@ export class HUD implements IHUD {
     }
   }
 
+  /** The grid intro card: every racer in grid order with portrait, ship and catchphrase. */
+  private buildIntro(trackName: string): void {
+    const root = this.introEl;
+    el('div', 'mz-intro-kicker', trackName, root);
+    el('h2', 'mz-intro-head', 'THE GRID', root);
+    const grid = el('div', 'mz-intro-grid', undefined, root);
+    for (const r of [...this.roster].sort((a, b) => a.gridIndex - b.gridIndex)) {
+      const row = el('div', r.id === PLAYER_ID ? 'mz-intro-row player' : 'mz-intro-row', undefined, grid);
+      el('span', 'slot', `P${r.gridIndex + 1}`, row);
+      const face = el('span', 'face', undefined, row);
+      face.innerHTML = r.portrait; // constant recipe markup (game/pilotPortrait.ts)
+      const who = el('span', 'who', undefined, row);
+      el('span', 'name', r.name, who);
+      el('span', 'ship', r.ship, who);
+      el('span', 'quote', r.catchphrase ? `“${r.catchphrase}”` : 'YOU', row);
+    }
+    prompt('mz-hint', 'PRESS ANY KEY TO SKIP', 'PRESS ANY BUTTON TO SKIP', root);
+  }
+
+  /** Show or hide the grid intro card (App: before every race, ≈ 3 s, any input skips). */
+  setIntro(on: boolean): void {
+    this.container.classList.toggle('intro', on && this.roster.length > 0);
+  }
+
+  get introShown(): boolean {
+    return this.container.classList.contains('intro');
+  }
+
   private standingRow(s: RacerStanding): HTMLElement {
     const row = el('div', s.id === PLAYER_ID ? 'row player' : 'row');
     el('span', 'pos', String(s.position), row);
-    el('span', undefined, s.name, row);
+    const who = el('span', 'who', undefined, row);
+    const entry = this.roster.find((r) => r.id === s.id);
+    if (entry) el('span', 'face', undefined, who).innerHTML = entry.portrait;
+    el('span', undefined, s.name, who);
     let status: string;
     let time: string;
     if (s.status === 'finished') {

@@ -767,7 +767,18 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## M5 — AI tiers, pilots, drafting
+## M5 — AI tiers, pilots, drafting — ✅ DONE (PR #PRNUM)
+
+**As built (PR #PRNUM)** (read before §V or M6; the plan below is kept for reference):
+- **Tiers:** `content/tiers.ts` (`TIERS`, `TIER_ORDER`, `TIER_OPTIONS`, `tierDef`) replaces `AI_PACE` and `CONFIG.AI_RUBBER_BAND_*`. `AIDriver.tunedProfile(personality, tier)` scales v1's `PROFILES` (lat budget, yaw, brake, overspeed, look-ahead, boost energy and cooldown, pit energy); Legend is v1 unchanged. Each tier also sets `paceScale`, `rubberBand`, `mistakeRate` (Poisson throttle lifts on their own RNG; the erratic personality keeps its own), `lineInset`, `aggression` (block, yield, ram), `draftSeeking`, `shortcutOdds` (replaces `SHORTCUT_ODDS`), `hazardMargin` and `droppedLookahead`.
+- **Deviations from the plan:** Rookie `paceScale` is **0.90**, not 0.75 (the user's iPhone playtest), with no catch-up (band 0.92–1.0). Pilot is **0.94**, not 0.88, so it stays above Rookie; its band is 0.97–1.06. Ace 0.97, Legend 1.0.
+- **Drafting:** `physics/Drafting.ts` (30 m, ±12°, ±4 m, ±3 m vertical, 0.6 s build, 0.4 s fade, ≥ 25 m/s, never airborne). `ShipController`: top speed and boost top × (1 + 0.06·draft), thrust × (1 + 0.15·draft), coast drag × (1 − 0.5·draft). `ShipState.drafting`, `ship:draft` with hysteresis (on 0.3, off 0.15). HUD **≋ DRAFT** chip, cyan speed lines, a soft whoosh.
+- **AI racecraft:** Ace and Legend look for a draft 15–34 m ahead; aggressive tiers block a rival ≤ 12 m behind, Rookie yields. Only on straights, never in centre sections, the pit, split paths or on the way to a chosen shortcut. Shortcut-bound drivers keep inside the shortcut deck at the fork, and the fork approach scales with speed (1.6 s, ≥ 160 m).
+- **Loops (fix found by the matrix):** inside a loop the AI holds its lateral line (`LOOP_STEER_KP/KD`), sees zero curvature and treats the loop as a centre section: `LoopCompensation` carries the hull, and steering at the side-shifted aim point drove Rookie DARTs into the Orbital Ring rail.
+- **Assists:** `physics/Assists.ts` `PlayerAssists` (auto-accelerate, steering weight 0 / 0.3 / 0.6, rail push) as tested logic; no settings UI yet (M7). The sims use it for the Rookie balance race.
+- **Pilots:** each pilot has a `mark`; `game/pilotPortrait.ts` draws a helmet badge in the livery (SVG) and `rosterOf(field)` feeds the HUD. **Grid intro card** before every menu race: 8 rows in grid order with portrait, ship and catchphrase, ≈ 3 s on the **wall clock** (the fixed loop runs behind real time on slow GPUs), any input skips. Results rows show portraits; a rival winner's catchphrase shows under the table.
+- **Picker:** CPU DIFFICULTY (4 tiers + hint) on World Select and in Settings, saved to `Profile.aiTier`. Rookie switches on the Rookie hazard policy. `buildRaceField({ rivalTiers })` builds mixed fields (each rival with its tier's fits).
+- **Sims:** `sim/tierMatrix.ts` adds to every per-world file: Pilot and Ace fields, a mixed field (Legend rivals ahead of Rookie rivals on average: P2.0 vs P7.0 on every track), Rookie-assisted from P8 (P1–P2 everywhere) and Pilot balance. "Mid-pack" is defined as P2–P7 and within 1.5 % of the field's median time: the Pilot field finishes as a ~1 s pack, so the exact place is a lottery. `runWorldRace(…, { untilAllFinish })` uses `RaceManager`'s new `resultsDelay = Infinity` so every ship finishes. Jade Ruins Legend sits at `maxLateral` 15.00 (limit < 16): watch it.
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 

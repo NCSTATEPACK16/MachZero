@@ -37,6 +37,9 @@ export class SpeedLines {
   private readonly cyan = new THREE.Color(1.0, 1.0, 1.0);
   private readonly amber = new THREE.Color(1.9, 1.05, 0.3);
   private boostBlend = 0;
+  /** Slipstream (0..1, ShipState.drafting): more, longer, cyan streaks — the draft's shimmer. Scales with `budget`. */
+  private draftBlend = 0;
+  private readonly draftTint = new THREE.Color(0.35, 1.6, 1.9);
 
   // scratch
   private readonly fwd = new THREE.Vector3();
@@ -93,20 +96,23 @@ export class SpeedLines {
   /** Quality: fraction of the lines used. */
   budget = 1;
 
-  update(dt: number, camera: THREE.PerspectiveCamera, velocity: THREE.Vector3, speed: number, boosting: boolean): void {
+  update(dt: number, camera: THREE.PerspectiveCamera, velocity: THREE.Vector3, speed: number, boosting: boolean, drafting = 0): void {
     const sf = clamp01((speed - 50) / 110);
     this.boostBlend = damp(this.boostBlend, boosting ? 1 : 0, 6, dt);
+    this.draftBlend = damp(this.draftBlend, boosting ? 0 : drafting, 8, dt);
     if (sf <= 0.001 || this.disabled) {
       this.object.visible = false;
       return;
     }
     this.object.visible = true;
 
-    const active = Math.max(1, Math.floor(this.count * this.budget * (0.25 + 0.75 * sf)));
+    const active = Math.max(1, Math.floor(this.count * this.budget * Math.min(1, 0.25 + 0.75 * sf + 0.3 * this.draftBlend)));
     this.geometry.setDrawRange(0, active * 2);
-    const opacity = 0.85 * smoothstep(0, 1, sf) * (1 + 0.25 * this.boostBlend);
+    const opacity = 0.85 * smoothstep(0, 1, sf) * (1 + 0.25 * this.boostBlend + 0.35 * this.draftBlend);
     this.material.uniforms.uOpacity.value = opacity;
-    (this.material.uniforms.uColor.value as THREE.Color).lerpColors(this.cyan, this.amber, this.boostBlend);
+    const col = this.material.uniforms.uColor.value as THREE.Color;
+    col.lerpColors(this.cyan, this.amber, this.boostBlend);
+    if (this.draftBlend > 0.001) col.lerp(this.draftTint, this.draftBlend * 0.8);
 
     camera.getWorldDirection(this.fwd);
     this.up.copy(camera.up);
@@ -119,7 +125,7 @@ export class SpeedLines {
     const cy = camera.position.y;
     const cz = camera.position.z;
     const drift = speed * 0.35 * dt;
-    const len = Math.min(10, speed * 0.05) * (1 + 0.4 * this.boostBlend);
+    const len = Math.min(10, speed * 0.05) * (1 + 0.4 * this.boostBlend + 0.5 * this.draftBlend);
 
     const c = this.center;
     const s = this.seed;
@@ -168,6 +174,7 @@ export class SpeedLines {
     this.center.fill(0);
     for (let i = 0; i < this.count; i++) this.center[i * 3 + 1] = -1e5;
     this.boostBlend = 0;
+    this.draftBlend = 0;
     this.object.visible = false;
   }
 

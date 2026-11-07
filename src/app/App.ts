@@ -46,6 +46,9 @@ export interface Toast {
 
 const NAV_ACTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right', 'confirm', 'back'];
 const DIRECTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right'];
+/** Seconds the grid intro card stays up before the countdown (any input skips it). */
+const INTRO_SECONDS = 3;
+const INTRO_SKIP: readonly MenuAction[] = ['confirm', 'back', 'pause', 'restart', 'up', 'down', 'left', 'right'];
 
 const FALLBACK_TEXT: Record<FallbackReason, string> = {
   unavailable: 'This browser is blocking storage, so progress won’t be kept after you close the page.',
@@ -111,6 +114,9 @@ export class App {
   private readonly dynres: DynamicResolution | null;
   private dynresFeeding = false;
   private simMs = 0;
+  /** performance.now() at which the grid intro card ends (0 = not showing). Wall clock, not sim time: on a slow
+   *  renderer the fixed loop runs behind real time and the card would otherwise stay up for many seconds. */
+  private introUntil = 0;
 
   constructor(private readonly els: AppElements) {
     let pendingFallback: FallbackReason | null = null;
@@ -182,6 +188,7 @@ export class App {
         perf: () => app.frameStats.summary(),
         /** Step the race `seconds` with nobody driving: the player's AI drives (cup e2e). */
         simulate: async (seconds: number) => {
+          app.endIntro();
           for (let t = 0; t < seconds; t += 5) {
             for (let i = 0; i < 5 / CONFIG.FIXED_DT; i++) app.session?.fixed(CONFIG.FIXED_DT, null);
             await new Promise((r) => setTimeout(r, 0));
@@ -223,11 +230,25 @@ export class App {
     await nextPaint();
     await this.loadWorldAssets();
     const s = await this.ensureSession();
-    s.start();
+    if (this.menus) {
+      // The grid intro card first; the countdown starts when it ends (App.fixed).
+      s.setIntro(true);
+      this.introUntil = performance.now() + INTRO_SECONDS * 1000;
+    } else s.start();
     this.route.value = { name: 'race' };
   }
 
+  /** End the grid intro card and start the countdown. */
+  private endIntro(): void {
+    if (this.introUntil <= 0) return;
+    this.introUntil = 0;
+    this.session?.setIntro(false);
+    this.session?.start();
+  }
+
   quitToMenu(): void {
+    this.introUntil = 0;
+    this.session?.setIntro(false);
     if (this.cupRace.value) {
       this.leaveCupRace();
       return;
@@ -509,6 +530,15 @@ export class App {
     if (input.consume('mute')) this.toggleMute();
     const s = this.session;
     const r = this.route.value;
+    if (r.name === 'race' && s && this.introUntil > 0) {
+      let skip = false;
+      for (const a of INTRO_SKIP) if (input.consume(a)) skip = true;
+      const c = input.sample();
+      if (c.throttle > 0.5 || c.brake > 0.5 || c.boost || c.fire || Math.abs(c.steer) > 0.5) skip = true;
+      if (skip || performance.now() >= this.introUntil) this.endIntro();
+      s.fixed(dt, null);
+      return;
+    }
     if (r.name === 'race' && s) {
       if (input.consume('pause')) s.togglePause();
       const cup = this.cupRace.value;
@@ -606,14 +636,15 @@ export class App {
   private raceSetup(): RaceSetup {
     const p = this.menus ? this.activeProfile.value : null;
     const cup = this.cupRace.value ? (p?.cup ?? null) : null;
+    const tier = cup ? cup.tier : this.raceTier(p);
     const field = buildRaceField({
       playerName: p?.name ?? 'YOU',
       playerLoadout: p?.loadout ?? defaultLoadout(),
-      tier: cup ? cup.tier : this.raceTier(p),
+      tier,
       ...(cup ? { gridOrder: cupGridOrder(cup) ?? undefined } : {}),
     });
-    // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
-    const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
+    // Hazards: Rookie races telegraph them harder and they only slow you down (SPEC §6); ?hazards= overrides for QA.
+    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' ? 'rookie' : 'normal'));
     // Items come from the live profile; one used is spent from the save at once (a restart does not refill it).
     const items = p
       ? {

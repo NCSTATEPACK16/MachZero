@@ -113,6 +113,9 @@ export const TIERS: Readonly<Record<AITier, Readonly<TierDef>>> = {
   },
 };
 
+/** Tier picker options in order (World Select, Settings → Race). */
+export const TIER_OPTIONS: ReadonlyArray<{ value: AITier; label: string }> = TIER_ORDER.map((t) => ({ value: t, label: TIERS[t].label }));
+
 export function tierDef(tier: AITier | undefined): Readonly<TierDef> {
   return TIERS[tier ?? 'pilot'];
 }
