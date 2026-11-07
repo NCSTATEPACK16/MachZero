@@ -15,6 +15,7 @@ import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } fr
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
 import { addTrophy, cupAward, cupFinished, cupGridOrder, cupWorld, newCup, recordRace, type CupAward, type CupState } from '../game/modes/GrandPrix';
+import { Rumble } from '../game/Rumble';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
@@ -100,6 +101,8 @@ export class App {
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
   private readonly input = new InputManager(window);
+  /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
+  private readonly rumble = new Rumble((strong, weak, ms) => this.input.rumble(strong, weak, ms));
   private readonly assets = new AssetLoader();
   private readonly loop: GameLoop;
   private session: RaceSession | null = null;
@@ -421,6 +424,11 @@ export class App {
     this.graphics.nudgePreview(radians);
   }
 
+  /** Garage orbit from the mouse: turn and tilt (rad), zoom (log steps, + = closer). */
+  orbitShipPreview(yaw: number, pitch: number, zoom: number): void {
+    this.graphics.orbitPreview(yaw, pitch, zoom);
+  }
+
   showProfiles(): void {
     this.route.value = { name: 'profiles' };
   }
@@ -563,6 +571,11 @@ export class App {
       s.fixed(dt, input.sample());
       return;
     }
+    // Garage: the right stick orbits the turntable and the shoulders zoom (§V.3).
+    if (r.name === 'garage') {
+      const o = input.orbitInput();
+      if (o.x !== 0 || o.y !== 0 || o.zoom !== 0) this.graphics.orbitPreview(o.x * 2.4 * dt, o.y * 1.2 * dt, o.zoom * 1.5 * dt);
+    }
     // Menu screens: route gamepad / unfocused-keyboard actions to the UI; Escape acts as back.
     for (const a of NAV_ACTIONS) if (input.consume(a)) this.navHandler?.(a);
     if (input.consume('pause')) this.navHandler?.('back');
@@ -690,7 +703,7 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose

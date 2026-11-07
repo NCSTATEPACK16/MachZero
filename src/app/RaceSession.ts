@@ -3,6 +3,7 @@
  * long-lived graphics and audio. Built by `create`, torn down completely by `dispose`, so the App can run
  * any number of races in one page. Node-safe without a view (headless tests).
  */
+import type { Rumble } from '../game/Rumble';
 import type { ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
@@ -42,6 +43,8 @@ export interface RaceView {
   actions: HudActions;
   /** v1 start screen inside the HUD (only without the menu UI). */
   showTitle: boolean;
+  /** Controller rumble for the player's ship (§V.3); optional. */
+  rumble?: Rumble;
 }
 
 export class RaceSession {
@@ -104,6 +107,7 @@ export class RaceSession {
     view.graphics.setTrack(this.track);
     for (const ship of this.ships) view.graphics.addShip(ship);
     view.audio.attach(this.bus);
+    view.rumble?.attach(this.bus, this.player.def.id);
     this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field) });
   }
 
@@ -175,6 +179,7 @@ export class RaceSession {
     this.hud = null;
     if (this.view) {
       this.view.audio.detach();
+      this.view.rumble?.detach();
       this.view.graphics.clearRace();
       this.view = null;
     }

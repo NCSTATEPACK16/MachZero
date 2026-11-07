@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { Loadout, PartSlot } from '../core/contracts';
-import type { ShipAssets } from '../assets/AssetLoader';
+import type { ShipAssets, TrimMaps } from '../assets/AssetLoader';
 
 /** Where v1's procedural effects attach, measured from the GLB sockets (ship-local, unscaled). */
 export interface ShipLayout {
@@ -57,36 +57,90 @@ float mzDecal(vec3 b) {
 }
 `;
 
+/**
+ * Large-scale ambient occlusion baked per vertex into COLOR_0.a (§V.1; 1 where nothing was baked): it darkens the
+ * indirect light fully and the direct light by half, so cavities read without a texture.
+ */
+const AO_VERTEX = /* glsl */ `#include <common>
+#ifndef USE_COLOR
+attribute vec4 color;
+#endif
+varying vec3 vBody;
+varying float vMzAO;`;
+const AO_FRAGMENT = /* glsl */ `#include <aomap_fragment>
+reflectedLight.indirectDiffuse *= vMzAO;
+reflectedLight.indirectSpecular *= mix(1.0, vMzAO, 0.7);
+reflectedLight.directDiffuse *= mix(1.0, vMzAO, 0.5);`;
+
+/** Add the vertex AO (and the body coordinates the decal uses) to a lit material's shader. */
+function withVertexAO(mat: THREE.MeshStandardMaterial, key: string, extra?: (shader: THREE.WebGLProgramParametersWithUniforms) => void): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', AO_VERTEX)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBody = color.rgb;\nvMzAO = color.a;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vMzAO;')
+      .replace('#include <aomap_fragment>', AO_FRAGMENT);
+    extra?.(shader);
+  };
+  mat.customProgramCacheKey = () => key;
+}
+
+/**
+ * Trim-sheet surface detail on a role material. `lite` (rivals on the Low preset) keeps AO and roughness but
+ * drops the normal map and clearcoat, which cost the most per pixel.
+ */
+function applyTrim(mat: THREE.MeshStandardMaterial, trim: TrimMaps | null, lite: boolean, normalStrength = 1): void {
+  if (trim) {
+    mat.aoMap = trim.orm;
+    mat.roughnessMap = trim.orm;
+    mat.metalnessMap = trim.orm;
+    if (!lite) {
+      mat.normalMap = trim.normal;
+      // No tangents in the GLBs: three derives them from UV derivatives, which needs a flipped Y (as GLTFLoader does).
+      mat.normalScale.set(normalStrength, -normalStrength);
+    }
+  }
+  if (lite && mat instanceof THREE.MeshPhysicalMaterial) mat.clearcoat = 0;
+}
+
 function roleOf(m: THREE.Material): string {
   return m.name.replace(/\.\d+$/, '');
 }
 
 const decalIndex = (d: number) => Math.max(0, Math.min(DECAL_COUNT - 1, d | 0));
 
-function makeMaterials(livery: Loadout['livery']) {
-  const primary = new THREE.MeshPhysicalMaterial({ color: livery.primary, metalness: 0.55, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2, envMapIntensity: 1.5 });
+function makeMaterials(livery: Loadout['livery'], trim: TrimMaps | null, lite: boolean) {
+  const primary = new THREE.MeshPhysicalMaterial({ color: livery.primary, metalness: 0.55, roughness: 0.34, clearcoat: 0.6, clearcoatRoughness: 0.2, envMapIntensity: 1.5 });
   // Shared with the compiled shader, so the livery editor can change them without a rebuild.
   const decal = { value: decalIndex(livery.decal) };
   const decalColor = { value: new THREE.Color(livery.secondary) };
-  primary.onBeforeCompile = (shader) => {
+  withVertexAO(primary, 'mz-livery-decal', (shader) => {
     shader.uniforms.uDecal = decal;
     shader.uniforms.uDecalColor = decalColor;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n#ifndef USE_COLOR\nattribute vec4 color;\n#endif\nvarying vec3 vBody;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBody = color.rgb;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${DECAL_GLSL}`)
       .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDecalColor, mzDecal(vBody));');
-  };
-  primary.customProgramCacheKey = () => 'mz-livery-decal';
+  });
   const glowColor = new THREE.Color(livery.glow);
+  const secondary = new THREE.MeshPhysicalMaterial({ color: livery.secondary, metalness: 0.45, roughness: 0.4, clearcoat: 0.3, envMapIntensity: 1.3 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x9aa0b4, metalness: 1, roughness: 0.32, envMapIntensity: 1.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x14161f, metalness: 0.45, roughness: 0.55 });
+  withVertexAO(secondary, 'mz-ao');
+  withVertexAO(metal, 'mz-ao');
+  withVertexAO(dark, 'mz-ao');
+  applyTrim(primary, trim, lite, 0.8);
+  applyTrim(secondary, trim, lite, 0.9);
+  applyTrim(metal, trim, lite, 1);
+  applyTrim(dark, trim, lite, 1.2);
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0x0a1630, metalness: 0.2, roughness: 0.05, clearcoat: lite ? 0 : 1, clearcoatRoughness: 0.03, envMapIntensity: 3, emissive: glowColor, emissiveIntensity: 0.06 });
   return {
     livery_primary: primary,
-    livery_secondary: new THREE.MeshPhysicalMaterial({ color: livery.secondary, metalness: 0.5, roughness: 0.35, clearcoat: 0.3, envMapIntensity: 1.3 }),
+    livery_secondary: secondary,
     glow: new THREE.MeshBasicMaterial({ color: glowColor.clone(), toneMapped: false }),
-    metal: new THREE.MeshStandardMaterial({ color: 0x9aa0b4, metalness: 1, roughness: 0.25, envMapIntensity: 1.6 }),
-    glass: new THREE.MeshPhysicalMaterial({ color: 0x0a1630, metalness: 0.2, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 3, emissive: glowColor, emissiveIntensity: 0.06 }),
-    dark: new THREE.MeshStandardMaterial({ color: 0x0a0b12, metalness: 0.4, roughness: 0.6 }),
+    metal,
+    glass,
+    dark,
     glowColor,
     decal,
     decalColor,
@@ -118,14 +172,19 @@ const PART_SOCKET: Record<PartSlot, string[]> = {
   hull: ['socket_hull'],
 };
 
-export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1): AssembledShip | null {
+export interface AssembleOptions {
+  /** Cheaper materials (rivals on the Low preset, §V.2): no normal map or clearcoat. */
+  lite?: boolean;
+}
+
+export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1, opts: AssembleOptions = {}): AssembledShip | null {
   const gltf = assets.ships.get(loadout.chassisId);
   if (!gltf) return null;
   // A multi-material glTF mesh loads as a Group of per-primitive meshes, so clone the node generically.
   const body = gltf.scene.getObjectByName(`${loadout.chassisId}_LOD${lod}`);
   if (!body) return null;
   const sockets = socketsOf(gltf, loadout.chassisId);
-  const mats = makeMaterials(loadout.livery);
+  const mats = makeMaterials(loadout.livery, assets.trim ?? null, opts.lite === true);
   const root = new THREE.Group();
   root.name = `assembly-${loadout.chassisId}`;
 
@@ -152,8 +211,7 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1): 
 
   // Parts use a decal-free primary (the decal masks are laid out in hull body coordinates).
   const partPrimary = new THREE.MeshPhysicalMaterial().copy(mats.livery_primary);
-  partPrimary.onBeforeCompile = () => undefined;
-  partPrimary.customProgramCacheKey = () => 'mz-livery-plain';
+  withVertexAO(partPrimary, 'mz-ao');
   const inPart = new Set<THREE.Object3D>();
   for (const p of parts) p.traverse((o) => inPart.add(o));
   root.traverse((o) => {

@@ -113,6 +113,8 @@ interface PadLike {
   connected: boolean;
   axes: readonly number[];
   buttons: ReadonlyArray<{ pressed: boolean; value: number }>;
+  /** Missing on browsers without rumble (iOS WKWebView): rumble() then does nothing. */
+  vibrationActuator?: { playEffect?: (type: 'dual-rumble', params?: GamepadEffectParameters) => Promise<unknown> } | null;
 }
 
 /**
@@ -429,6 +431,35 @@ export class InputManager implements IInputManager {
     const prev = this.padPrevButtons[index] === 1;
     if (isDown && !prev) this.padPress(action);
     this.padPrevButtons[index] = isDown ? 1 : 0;
+  }
+
+  /**
+   * Garage orbit from the pad (§V.3): right stick x/y (deadzoned, -1..1) and zoom from the shoulders
+   * (RB in = +1, LB out = -1). All zero without a pad. Menus never read these, so the d-pad and left stick keep
+   * their navigation.
+   */
+  orbitInput(): { x: number; y: number; zoom: number } {
+    const pad = this.firstPad();
+    if (!pad) return { x: 0, y: 0, zoom: 0 };
+    const pressed = (i: number) => pad.buttons[i]?.pressed === true;
+    return {
+      x: applyDeadzone(pad.axes[2] ?? 0, STICK_DEADZONE),
+      y: applyDeadzone(pad.axes[3] ?? 0, STICK_DEADZONE),
+      zoom: (pressed(PAD.RB) ? 1 : 0) - (pressed(PAD.LB) ? 1 : 0),
+    };
+  }
+
+  /** A dual-rumble effect on the pad, where supported (feature-detected; silently nothing otherwise). */
+  rumble(strong: number, weak: number, ms: number): void {
+    const play = this.firstPad()?.vibrationActuator?.playEffect;
+    if (typeof play !== 'function') return;
+    try {
+      void play
+        .call(this.firstPad()!.vibrationActuator, 'dual-rumble', { startDelay: 0, duration: ms, strongMagnitude: strong, weakMagnitude: weak })
+        .catch(() => undefined);
+    } catch {
+      // some browsers throw synchronously for unsupported effects
+    }
   }
 
   private firstPad(): PadLike | null {

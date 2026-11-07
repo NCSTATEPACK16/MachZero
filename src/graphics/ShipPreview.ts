@@ -1,6 +1,9 @@
 /**
  * Garage turntable: one ship (a ShipModel, so it looks exactly as it races) in its own small scene,
  * drawn by GraphicsSystem into a scissored viewport of the shared renderer over the menu backdrop.
+ *
+ * §V.2/§V.3: the showroom always uses LOD0, full materials and a shadow on the plinth, whatever the race preset.
+ * The right stick, a mouse drag or the wheel orbit and zoom it; left alone it settles back into the auto-spin.
  */
 import * as THREE from 'three';
 import { CONFIG } from '../core/config';
@@ -12,6 +15,11 @@ import { ShipModel } from './ShipModel';
 
 const BACKGROUND = 0x0b1024;
 const SPIN = 0.55; // rad/s
+/** Seconds after the last orbit input before the auto-spin resumes and tilt and zoom settle back. */
+const HOLD = 1.6;
+const PITCH = { min: -0.18, max: 0.55 } as const;
+const ZOOM = { min: -0.45, max: 0.4 } as const; // log scale of the camera distance (+ = closer)
+const SETTLE = 2.5; // 1/s
 
 /** The few fields ShipModel reads from a ship, for a ship that isn't racing. */
 function displayShip(loadout: Loadout): ShipState {
@@ -47,7 +55,12 @@ export class ShipPreview {
   /** chassis + parts (+ livery for procedural ships): a change of key rebuilds the model. */
   private key = '';
   private yaw = 0.6;
+  private pitch = 0;
+  private zoom = 0;
+  private held = 0;
   private last = 0;
+  private readonly baseCam = new THREE.Vector3(0, 3.6, 11.5);
+  private readonly target = new THREE.Vector3(0, -0.35, 0);
 
   constructor(environment: THREE.Texture) {
     this.scene.environment = environment;
@@ -55,6 +68,14 @@ export class ShipPreview {
     this.scene.add(new THREE.HemisphereLight(0x8fb4ff, 0x1a0a38, 0.6));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(4, 6, 5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.left = key.shadow.camera.bottom = -4;
+    key.shadow.camera.right = key.shadow.camera.top = 4;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 20;
+    key.shadow.bias = -0.0005;
+    key.shadow.normalBias = 0.02;
     const rim = new THREE.DirectionalLight(0xff4fd8, 1.6);
     rim.position.set(-5, 2, -6);
     this.scene.add(key, rim);
@@ -66,10 +87,11 @@ export class ShipPreview {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = -0.55;
     const discGeo = new THREE.CircleGeometry(2.7, 64);
-    const discMat = new THREE.MeshStandardMaterial({ color: 0x111633, metalness: 0.6, roughness: 0.35 });
+    const discMat = new THREE.MeshStandardMaterial({ color: 0x111633, metalness: 0.3, roughness: 0.5 });
     const disc = new THREE.Mesh(discGeo, discMat);
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = -0.56;
+    disc.receiveShadow = true;
     this.scene.add(ring, disc, this.turntable);
     this.owned.push(ringGeo, ringMat, discGeo, discMat);
 
@@ -96,7 +118,20 @@ export class ShipPreview {
 
   /** Spin by a drag (radians). */
   nudge(radians: number): void {
-    this.yaw += radians;
+    this.orbit(radians, 0, 0);
+  }
+
+  /** Turn (rad), tilt (rad, clamped) and zoom (log steps, clamped); pauses the auto-spin for a moment. */
+  orbit(yaw: number, pitch: number, zoom: number): void {
+    this.yaw += yaw;
+    this.pitch = Math.min(PITCH.max, Math.max(PITCH.min, this.pitch + pitch));
+    this.zoom = Math.min(ZOOM.max, Math.max(ZOOM.min, this.zoom + zoom));
+    this.held = HOLD;
+  }
+
+  /** Current orbit (tests and the e2e check). */
+  get view(): { yaw: number; pitch: number; zoom: number } {
+    return { yaw: this.yaw, pitch: this.pitch, zoom: this.zoom };
   }
 
   /** Draw into the CSS-pixel rectangle (x from the left, y from the bottom of the canvas). */
@@ -104,8 +139,20 @@ export class ShipPreview {
     if (!this.model || w < 2 || h < 2) return;
     const dt = this.last > 0 ? Math.min(0.1, timeSec - this.last) : 0;
     this.last = timeSec;
-    this.yaw += SPIN * dt;
+    if (this.held > 0) this.held -= dt;
+    else {
+      this.yaw += SPIN * dt;
+      const k = Math.exp(-SETTLE * dt);
+      this.pitch *= k;
+      this.zoom *= k;
+    }
     this.turntable.rotation.y = this.yaw;
+    // Tilt around the target, then move along the view line for zoom.
+    const offset = this.baseCam.clone().sub(this.target);
+    offset.applyAxisAngle(new THREE.Vector3(1, 0, 0), -this.pitch);
+    offset.multiplyScalar(Math.exp(-this.zoom));
+    this.camera.position.copy(this.target).add(offset);
+    this.camera.lookAt(this.target);
     this.model.updateVisuals(dt, timeSec);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -142,6 +189,9 @@ export class ShipPreview {
   hide(): void {
     this.clearModel();
     this.last = 0;
+    this.pitch = 0;
+    this.zoom = 0;
+    this.held = 0;
   }
 
   dispose(): void {
