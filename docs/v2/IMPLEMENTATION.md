@@ -767,9 +767,9 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## M5 — AI tiers, pilots, drafting — ✅ DONE (PR #PRNUM)
+## M5 — AI tiers, pilots, drafting — ✅ DONE (PR #26)
 
-**As built (PR #PRNUM)** (read before §V or M6; the plan below is kept for reference):
+**As built (PR #26)** (read before §V or M6; the plan below is kept for reference):
 - **Tiers:** `content/tiers.ts` (`TIERS`, `TIER_ORDER`, `TIER_OPTIONS`, `tierDef`) replaces `AI_PACE` and `CONFIG.AI_RUBBER_BAND_*`. `AIDriver.tunedProfile(personality, tier)` scales v1's `PROFILES` (lat budget, yaw, brake, overspeed, look-ahead, boost energy and cooldown, pit energy); Legend is v1 unchanged. Each tier also sets `paceScale`, `rubberBand`, `mistakeRate` (Poisson throttle lifts on their own RNG; the erratic personality keeps its own), `lineInset`, `aggression` (block, yield, ram), `draftSeeking`, `shortcutOdds` (replaces `SHORTCUT_ODDS`), `hazardMargin` and `droppedLookahead`.
 - **Deviations from the plan:** Rookie `paceScale` is **0.90**, not 0.75 (the user's iPhone playtest), with no catch-up (band 0.92–1.0). Pilot is **0.94**, not 0.88, so it stays above Rookie; its band is 0.97–1.06. Ace 0.97, Legend 1.0.
 - **Drafting:** `physics/Drafting.ts` (30 m, ±12°, ±4 m, ±3 m vertical, 0.6 s build, 0.4 s fade, ≥ 25 m/s, never airborne). `ShipController`: top speed and boost top × (1 + 0.06·draft), thrust × (1 + 0.15·draft), coast drag × (1 − 0.5·draft). `ShipState.drafting`, `ship:draft` with hysteresis (on 0.3, off 0.15). HUD **≋ DRAFT** chip, cyan speed lines, a soft whoosh.
