@@ -802,6 +802,67 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
+## V — Vehicle visual pass: grounded sci-fi ships and parts
+
+**Design decisions (grilling session with the user, 2026-11-07; settled, don't re-open):**
+
+- **Placement:** after M5, as its own PRs. Each PR ships to Netlify and iOS (§0 rule 9).
+- **Look: grounded sci-fi.** Today's silhouettes get mechanical detail: intakes, vents, panel seams, exposed engine parts, armour plates on the heavies. Materials read as real ones: carbon fibre, brushed and anodised metal, slight edge wear, baked AO. The livery still tints the paint. Not photoreal.
+- **Concepts are reference only.** The user makes concept images in Gemini from `docs/v2/VEHICLE_CONCEPTS.md`. Every ship and part is still built procedurally in `blender/` scripts, which keeps sockets, livery roles, both LODs and `npm run assets` deterministic. **No AI image-to-3D for ships or parts** (it loses sockets and roles). It may be used for one-off scenery props only.
+- **Concept files:** `assets/reference/ships/<id>/` (and `assets/reference/parts/`), JPEG, ≤ 500 KB each, ≤ 4 per chassis. They're committed, never shipped (not under `public/`), and listed in `assets/LICENSES.md`. The user marks the winner `chosen.jpg`, with optional `notes.md` ("nose from image 2"). **Model only from a `chosen.jpg`.**
+- **Identity is locked:** each chassis keeps its name, class, blurb, personality and factory livery (`content/ships.ts`). The hull stays within ±10% of today's bounding box per axis (SHIP_LENGTH × SHIP_WIDTH × SHIP_HEIGHT × class scale). Stats, collider, camera, items and sims don't change. §V is visual only; any sim or physics test diff is a bug.
+- **Order and gates:**
+  1. **V0, docs (this spec, the prompt sheet, `assets/`):** lands before M5 is built, so the user can generate images in parallel.
+  2. **V1, COMET pilot:** the default chassis end to end. This PR carries the shared machinery (UVs, trim sheet, AO bake, material changes, LOD rule, Garage High, Garage orbit, rumble, budget checks). **Gate:** user approval of look and fps (below) before V2.
+  3. **V2, the 16 bolt-on parts** in one PR (they're shared by every chassis, so new-look parts must follow COMET straight away).
+  4. **V3, the other 5 chassis** (one PR, or split light/balanced/heavy if large).
+
+### V.1 Geometry and textures
+
+- **Detail lives in surfaces, not triangle count.** Budgets stay: `<id>_LOD0` ≤ 12k triangles, `<id>_LOD1` ≤ 4k, parts ≤ 1.5k each (LOD0 is ≈ 3.1k today, so there is headroom for real shape detail such as intakes, plates and nozzles).
+- **One shared 1024² texture atlas for every ship and part, with surface detail only and no colour:** a **trim sheet** of tiling strips (panel seams, vents, rivet rows, carbon weave, brushed metal, grille, worn edge). Each surface is UV-mapped (`TEXCOORD_0`) onto the strip it needs, so all 22 meshes share the 1024² without each one needing its own texture space.
+  - Channels: a normal map, plus one packed texture (glTF ORM: R = detail AO, G = roughness, B = metalness).
+  - The trim sheet is **generated in Blender** by a script (`blender/textures/build_trim.py`): high-detail strips baked onto a plane with Cycles. The bake is small (1024², a few minutes at most), and its output PNGs are committed like the GLBs. Nothing is hand-painted.
+- **Large-scale AO is baked per vertex into `COLOR_0.a`.** `COLOR_0.rgb` already holds the decal body coordinates, so the decal shader is untouched. That way AO costs no texture space and each ship keeps its own occlusion. If vertex density makes it blotchy, V1 may switch to a per-ship AO region in the atlas instead and record why.
+- **Livery is unchanged in behaviour:** `ShipAssembly.makeMaterials` keeps the role materials, the livery tint, the 6 decals and `setLivery()` in place. The trim maps are added as `normalMap` / `roughnessMap` / `aoMap` (or ORM via `onBeforeCompile`) on top of the existing tints. Saved liveries and the livery editor keep working without a save migration.
+- **Texture format:** WebP (`EXT_texture_webp`) through glTF Transform. iOS Safari decodes WebP. KTX2 is out for now (`toktx` isn't installed); revisit only if texture memory or decode time shows up in profiles.
+
+### V.2 Rendering rules
+
+- **Your ship always uses LOD0, on every preset.** This replaces the `GraphicsSystem.addShip` rule. Rivals keep today's rule (High LOD0; Med and Low LOD1). Today iOS auto-selects Low, so the player sees the 850-triangle LOD1. LOD0 for close rivals is a later option, only if V1 measures headroom.
+- **Low preset:** rivals drop the normal map and clearcoat (keeping AO and roughness). The player keeps full materials. These are separate material instances, so add them to the shader warm-up.
+- **Garage is the showroom:** the turntable always renders LOD0 with full materials and shadows at High quality, whatever the race preset (it's a single ship and the race backdrop isn't rendered while the garage is open, §M2 as built).
+- **Animation, all in shaders on existing meshes:** engine glow already follows throttle and boost (v1 `ShipModel`). §V adds a nozzle flare on boost (at `socket_exhaust_L/R`) and a hover-pad glow under the hull that pulses with hover bob and speed. **No new moving meshes** beyond today's flaps and bank.
+
+### V.3 Controls
+
+- **Garage orbit:** the right stick turns the turntable (yaw, plus limited pitch), a shoulder button (LB/RB) zooms, and releasing the stick lets it settle back into the auto-spin. Mouse drag and wheel do the same on the web; touch drag can follow in M7. It must not steal the d-pad or left-stick menu navigation.
+- **Rumble is a nice-to-have where supported:** `gamepad.vibrationActuator?.playEffect('dual-rumble', …)` on wall hits, item hits, boost start and big landings, feature-detected and silently skipped when null. iOS's WKWebView doesn't reliably expose it (MDN compat lists iOS Safari as unsupported; WebKit's newer work is experimental), so **don't expect rumble on the TestFlight build.** A native Capacitor plugin (GCController haptics) is an M7 option, not §V.
+
+### V.4 Budgets and checks (extend `scripts/check-assets.mjs`)
+
+- Each ship GLB ≤ **300 KB** (was 400). `parts.glb` stays ≤ 600 KB. The trim sheet (all its textures) ≤ 400 KB. **All ship assets together ≤ 2 MB** (ships, parts and the trim textures).
+- Run the official glTF validation (`@gltf-transform` `validate`, or `gltf-validator`) on every GLB; errors fail.
+- Keep today's checks (node, socket and role names, triangle budgets, nose direction). Add checks for `TEXCOORD_0` on every textured mesh and for each hull's bounds staying within ±10% of the pre-§V values (store them in the test).
+- Retune the numbers after V1 is measured on device; record the result in the as-built notes.
+
+### V.5 Done when
+
+**V1 COMET (the gate):**
+- [ ] The PR body has before-and-after screenshots of the Garage turntable, the race chase camera at Med, and the Low preset.
+- [ ] An 8-ship race on Neon Bay holds 60 fps on the iPhone 18 Pro Max and the iPad Air 11" (the user reads the perf overlay). The 95th-percentile frame time is no more than 1 ms worse than the pre-§V build.
+- [ ] Desktop web on High shows no frame-time regression.
+- [ ] The look is approved by the user.
+- [ ] All sims, unit tests and e2e tests pass unchanged. `check-assets` passes with the new budgets.
+
+**V2 parts / V3 chassis:** the same screenshots and checks per PR. The total asset budget holds. Every chassis × part combination renders on Low, Med and High (extend `e2e/garage.spec.ts` to cycle them).
+
+### V.6 Not adopted from the cross-game asset-pipeline doc (decided, 2026-11-07)
+
+The user's `ASSET_PIPELINE.md` (written for GolfCartSimulator) was reviewed. Adopted: scripted headless export (already the case), glTF Transform optimisation (already), CI validation and budget enforcement, `assets/LICENSES.md`, `assets/reference/`, and AO/normal/roughness for realism instead of triangle count. **Not adopted:** GIS terrain, Git LFS (assets total under 1 MB), a shared `asset-tools` repo (maybe later, if a second game uses the same scripts), Windows-PC offloading (no job is heavy enough), and KTX2 (for now).
+
+---
+
 ## M6 — Audio: music sequencer + expanded SFX
 
 - Move `game/AudioSystem.ts` → `audio/AudioSystem.ts` (keep its bus subscriptions).
