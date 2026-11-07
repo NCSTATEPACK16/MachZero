@@ -33,6 +33,8 @@ export interface GameEvents {
   'hazard:mine': { shipId: ShipId; mine: number; owner: ShipId | null; point: THREE.Vector3 };
   /** A ship hit a piece of drifting debris (Orbital Ring): `debris` is its index in PhysicsSystem.debris. */
   'hazard:debris': { shipId: ShipId; debris: number; point: THREE.Vector3 };
+  /** A ship entered (active) or left another's slipstream (physics/Drafting.ts hysteresis). */
+  'ship:draft': { shipId: ShipId; active: boolean };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */
   'ship:land': { shipId: ShipId; intensity: number };
   /** An EMP fired by `from` hit `target` (the racer directly ahead). */

@@ -21,6 +21,7 @@ import { CLASS_SCALE, chassisById } from '../content/ships';
 import { type BuiltGate, buildGates, gateClosure, gatePose } from '../track/features/gate';
 import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../track/features/debris';
 import { MineField, type MineState } from './MineField';
+import { Drafting } from './Drafting';
 import { MINE_LIFT } from '../track/features/mine';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
@@ -97,6 +98,7 @@ export class PhysicsSystem implements IPhysicsSystem {
   private readonly obstacleHitTime = new Map<number, number>();
   /** Mines (Orbital Ring): trigger spheres on the hazard clock. */
   private readonly mineField: MineField;
+  private readonly drafting: Drafting;
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -144,6 +146,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     for (const b of this.debris) this.addObstacle('debris', b.index, b.width, b.height, b.length);
     this.poseObstacles(true);
     this.mineField = new MineField(track);
+    this.drafting = new Drafting(bus);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -217,6 +220,7 @@ export class PhysicsSystem implements IPhysicsSystem {
       lateral: proj.lateral,
       heightAboveTrack: proj.height,
       airborne: false,
+      drafting: 0,
       lastControls: neutralControls(),
       status: 'grid',
       boostUnlocked: false,
@@ -338,6 +342,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     if (this.obstacles.length > 0) this.poseObstacles(false);
 
     const list = this.controllerList;
+    this.drafting.update(this.ships, dt);
 
     // 1. Render-interpolation history first, then per-ship simulation.
     for (let i = 0; i < list.length; i++) list[i].beginStep();
@@ -369,6 +374,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     const c = this.controllers.get(id);
     if (!c) throw new Error(`PhysicsSystem: unknown ship ${id}`);
     c.reset(slot);
+    this.drafting.clear(c.state);
     for (const [key, pair] of this.activePairs) {
       if (pair[0] === c || pair[1] === c) this.activePairs.delete(key);
     }

@@ -419,6 +419,8 @@ export interface ShipState {
   heightAboveTrack: number;
   /** In the air over a jump gap (no surface under the hover rays). */
   airborne: boolean;
+  /** Slipstream 0..1 (physics/Drafting.ts): builds behind a ship ahead, raises top speed and thrust. */
+  drafting: number;
   lastControls: ControlInput;
 
   // --- written by GAME only ---

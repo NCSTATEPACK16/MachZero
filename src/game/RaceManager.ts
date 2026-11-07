@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
-import { AI_PACE, CONFIG } from '../core/config';
+import { CONFIG } from '../core/config';
+import { tierDef } from '../content/tiers';
 import type {
   IRaceManager,
   RaceSnapshot,
@@ -436,7 +437,8 @@ export class RaceManager implements IRaceManager {
         r.ship.thrustScale = 1;
         continue;
       }
-      const pace = AI_PACE[r.ship.def.tier ?? 'pilot'];
+      const tier = tierDef(r.ship.def.tier);
+      const pace = { base: tier.paceScale, min: tier.rubberBand.min, max: tier.rubberBand.max };
       let band = 1;
       if (playerRacing) {
         const gap = (r.progress - player.progress) * this.track.length; // + = AI ahead

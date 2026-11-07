@@ -134,6 +134,7 @@ export function makeShip(id: ShipId, isPlayer = id === 0, personality?: ShipDefi
     lateral: 0,
     heightAboveTrack: 1.2,
     airborne: false,
+    drafting: 0,
     lastControls: neutralControls(),
     status: 'grid',
     boostUnlocked: false,
