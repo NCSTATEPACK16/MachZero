@@ -64,7 +64,7 @@ export const TIERS: Readonly<Record<AITier, Readonly<TierDef>>> = {
     id: 'pilot',
     label: 'PILOT',
     hint: 'Rivals with tuned engines who push to keep up with you.',
-    paceScale: 0.95,
+    paceScale: 0.94,
     rubberBand: { min: 0.97, max: 1.06 },
     drive: { latBudget: 0.96, yawFactor: 0.97, brakeDecel: 0.92, overspeedTol: 0.8, lookScale: 1.02 },
     boost: { energyOffset: 6, cooldownScale: 1.25 },

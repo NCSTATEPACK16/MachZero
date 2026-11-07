@@ -103,6 +103,8 @@ export class RaceManager implements IRaceManager {
     ships: ShipState[],
     private readonly bus: GameBus,
     private readonly records: RecordStore = localRecordStore,
+    /** Seconds after the player finishes before the results (headless sims: until every ship is home). */
+    private readonly resultsDelay: number = CONFIG.RESULTS_DELAY,
   ) {
     this.racers = ships.map((ship) => ({
       ship,
@@ -352,7 +354,7 @@ export class RaceManager implements IRaceManager {
 
     if (this.playerRacer.ship.status !== 'racing') {
       this.resultsClock += dt;
-      if (this.resultsClock >= CONFIG.RESULTS_DELAY) this.enterResults();
+      if (this.resultsClock >= this.resultsDelay || (this.resultsDelay === Infinity && this.racers.every((r) => r.ship.status !== 'racing'))) this.enterResults();
     }
   }
 

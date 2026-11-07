@@ -46,6 +46,8 @@ export interface RaceFieldOptions {
   playerGridIndex?: number;
   /** Every ship's grid slot: index = slot (0 = pole), value = ship id (Grand Prix reverse grid). Wins over `playerGridIndex`. */
   gridOrder?: readonly ShipId[];
+  /** Per rival (roster order), its own tier and fits instead of the race's: a mixed field (tier sims). */
+  rivalTiers?: readonly AITier[];
 }
 
 /** Player (id 0) + 7 rivals (ids 1..7). Rivals fill the grid slots the player doesn't take, in roster order. */
@@ -64,10 +66,10 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
   };
   const freeSlots: number[] = [];
   for (let g = 0; g < RACE_SIZE; g++) if (g !== playerGrid) freeSlots.push(g);
-  const parts = RIVAL_FITS[opts.tier];
   const rivals = RIVALS.map((p, i): ShipDefinition => {
     chassisById(p.chassisId); // validates the id
-    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...parts }, livery: { ...p.livery, decal: i % 6 } };
+    const tier = opts.rivalTiers?.[i] ?? opts.tier;
+    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...RIVAL_FITS[tier] }, livery: { ...p.livery, decal: i % 6 } };
     return {
       id: i + 1,
       name: p.name,
@@ -78,7 +80,7 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
       loadout,
       stats: resolveStats(loadout),
       pilotId: p.id,
-      tier: opts.tier,
+      tier,
     };
   });
   return [player, ...rivals];

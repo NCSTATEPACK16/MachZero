@@ -28,6 +28,8 @@ const ROUTE_DECIDE = 300;
 const FORK_APPROACH = 160;
 /** …or this many seconds at the ship's speed, if longer (a drafting Legend at 150 m/s needs more than 1 s to cross). */
 const FORK_APPROACH_TIME = 1.6;
+/** Margin (m) kept inside the shortcut's deck edges while lining up for its fork. */
+const FORK_DECK_MARGIN = 3.5;
 /** Stone gates: metres ahead the driver plans for, the arrival window (s) it wants clear, the margin (m) from a
  *  shut slab's edge, and the slowest it will crawl to time a shut gate. */
 const GATE_LOOKAHEAD = 240;
@@ -536,6 +538,12 @@ export class AIDriver implements IAIDriver {
 
     const limit = this.mistakeKind === 'rail' ? halfWidth - 1.6 : maxLat;
     desired = clamp(desired, this.pitMode ? -halfWidth + 1.5 : -limit, this.pitMode ? halfWidth - 1.5 : limit);
+    // Over the fork approach a driver bound for the shortcut keeps inside the shortcut's deck whatever it is avoiding:
+    // the main road's edge on that side is the shortcut's outer rail.
+    if (route.branch && ship.path === null && route.length - targetR < Math.max(FORK_APPROACH, speed * FORK_APPROACH_TIME)) {
+      const inner = route.branch.halfWidth - FORK_DECK_MARGIN;
+      desired = clamp(desired, route.offset - inner, route.offset + inner);
+    }
     this.tLat = damp(this.tLat, desired, onIce ? ICE_LATERAL_RATE : ram ? LATERAL_RATE * 1.6 : LATERAL_RATE, dt);
 
     // --- steering: PD on the signed angle to the target point, in the ship's plane ---
