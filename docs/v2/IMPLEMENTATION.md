@@ -813,9 +813,9 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## V — Vehicle visual pass: grounded sci-fi ships and parts
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 in review (PR #27, at the gate)
 
-**As built — V1 COMET (PR #PRV1, at the gate: waiting on the user's look approval and iPhone/iPad fps)** (read before V2):
+**As built — V1 COMET (PR #27, at the gate: waiting on the user's look approval and iPhone/iPad fps)** (read before V2):
 - **Model:** `blender/ships/build_ships.py` `build_comet` (GROUNDED chassis; the other 5 still use `build_ship` until V3), from `assets/reference/ships/comet/chosen.jpg`: blue tube fuselage with a painted scheme by position (white spine stripe nose → canopy, white lower chine, dark belly), a dark ram-intake mouth with a louvred tunnel, bubble canopy in a white surround, dark louvred side scoops with cyan strips, short pods at the rear on carbon outrigger pylons (white intake collars, glowing turbine faces, ribbed nozzles), swept white wings outboard of the pods with carbon trailing edges, twin canted tail fins with blue tips. LOD0 5,628 tris, LOD1 1,314. Size 2.74 × 1.03 × 4.53 m (pre-§V 2.56 × 1.04 × 4.52; width +7%, inside ±10%). Sockets moved with the pods (exhausts at the new pod tails; boosters on the pod flanks).
 - **Trim sheet:** `blender/textures/build_trim.py`, 8 strips × 128 px (panel, plate, carbon, brushed, vent, ribbed, grip, flat; `common.TRIM_BANDS`). **Deviation:** the strips are numpy height fields (normals from the gradient, AO from a multi-radius cavity term) instead of a Cycles bake of modelled strips: exact, deterministic, ~1 s. Blender writes PNGs; `npm run assets -- trim` ships WebP via sharp: `trim_normal.webp` 105 KB + `trim_orm.webp` 76 KB = 181 KB (budget 400). The neutral `flat` strip sits where UV (0, 0) samples, so meshes without UVs (parts, other chassis) render exactly as before.
 - **UVs:** `common.py` helpers take `strip=` (loft: u along the tube, the circumference split into panels that each span the strip; slab: caps u along y / f across x, sides u along the edge; fin, torus, disc likewise). `export_glb(..., texcoords=True)` for GROUNDED ships only.
