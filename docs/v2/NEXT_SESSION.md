@@ -61,6 +61,11 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
   - Drafting; pilot intro cards; `physics/Assists.ts` as logic.
   - The 5 tracks × 4 tiers sim matrix.
   - Ready to build after §GP without a design session.
+- **§V, vehicle visual pass** (spec settled in IMPLEMENTATION §V on 2026-11-07; build it after M5):
+  - Grounded sci-fi ships and parts, still procedural in `blender/`. A shared trim-sheet atlas (normal and ORM maps), with AO per vertex in `COLOR_0.a`. The livery and decals are unchanged.
+  - The player's ship always uses LOD0, cheaper rival materials on Low, the Garage always at High, right-stick orbit in the Garage, rumble only where supported.
+  - **V1 COMET is the gate** (the user approves the look and the iPhone/iPad fps), then V2 parts, then V3 the other 5 chassis.
+  - It needs the user's Gemini concepts first: `assets/reference/ships/<id>/chosen.jpg` (prompts in `docs/v2/VEHICLE_CONCEPTS.md`). Don't model a chassis without one.
 - **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
 - **M7, touch and comfort (#11):** touch and tilt controls, comfort settings, assist toggles, and the portrait HUD overlap seen on phones. Needs a design session first.
 - **M8, modes and polish (#12):** World Tour, Time Trial, ghosts, world map, onboarding, the balance pass, and turning every flag on. Needs a design session first.
