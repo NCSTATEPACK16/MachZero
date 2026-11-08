@@ -1,13 +1,14 @@
-# Next-session brief: build MachZero 2.0 (M5 in review; next: §V V1 COMET at its gate, then V2/V3 after approval)
+# Next-session brief: build MachZero 2.0 (M5 and §V V1 COMET in review; V2 parts after the user approves V1)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-07: H, §P, §GP and M5 in review; §V V1 COMET is next, stacked on M5)
+## Where things stand (2026-11-07: H, §P, §GP, M5 and §V V1 COMET in review; V2 waits on the V1 gate)
 
 - **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5) → **#25 §V spec** (docs, prompt sheet, the user's concept images). Each is built and green locally; the user playtests the previews and merges. If any is still open when you start, stack M5 on the newest open one (#25 at the time of writing) and write "stacked on #N".
 - **§V concepts are in:** `assets/reference/ships/<id>/chosen.jpg` for all 6 chassis (one Gemini concept each, resized to ≤ 300 KB; the full-size originals are git-ignored and local only). They are on the brief: three views, no wheels, grounded materials, factory liveries.
 - **M5 (PR #26, branch `v2/m5-tiers`, stacked on #24; #25 already merged into `v2/gp-grand-prix`):** tiers, drafting, assists, pilot intro card, the 5 × 4 tier matrix. Read IMPLEMENTATION's "As built (PR #26)" under §M5 before §V or M6. Pending on device: the intro card and DRAFT chip on iPhone/iPad, and a Pilot-tier race to judge pace 0.94.
+- **§V V1 COMET (PR #27, branch `v2/v1-comet`, stacked on #26) is at its gate:** the user must approve the look and read the perf overlay on the iPhone 18 Pro Max and iPad Air 11" (8-ship Neon Bay race at 60 fps, p95 no more than 1 ms worse than M5). **Don't start V2 or V3 until they do.** Read "As built — V1 COMET" under IMPLEMENTATION §V first; it lists what V2 inherits (trim strips, `strip=` UV helpers, AO bake, the nozzle flare and hover glow still to do).
 - Read IMPLEMENTATION's "As built" notes for §H, §P and §GP before M5. Pending on device: the 8BitDo item select (§P) and a pad-only cup (§GP) on iOS.
 
 

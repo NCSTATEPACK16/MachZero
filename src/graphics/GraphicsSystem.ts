@@ -460,12 +460,20 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.preview?.nudge(radians);
   }
 
+  /** Garage orbit: turn (rad), tilt (rad) and zoom (log steps, + = closer). */
+  orbitPreview(yaw: number, pitch: number, zoom: number): void {
+    this.preview?.orbit(yaw, pitch, zoom);
+  }
+
   addShip(ship: ShipState): void {
     if (this.models.has(ship.def.id)) return;
-    // Ship LOD per preset: High LOD0; Med LOD0 for the player, LOD1 for rivals; Low LOD1.
+    // Ship LOD and materials (§V.2): your ship is always LOD0 with full materials. Rivals: High LOD0; Med and
+    // Low LOD1, and on Low without normal maps or clearcoat.
     const q = this.quality.level;
-    const lod: 0 | 1 = q === 'high' || (q === 'med' && ship.def.isPlayer) ? 0 : 1;
-    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod) : null;
+    const player = ship.def.isPlayer;
+    const lod: 0 | 1 = player || q === 'high' ? 0 : 1;
+    const lite = !player && q === 'low';
+    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod, { lite }) : null;
     const model = new ShipModel(ship, assembled);
     this.models.set(ship.def.id, model);
     this.modelList.push(model);

@@ -379,16 +379,21 @@ export function Garage({ app }: { app: App }) {
     opener.current = null;
   }, [buying]);
 
-  // Drag the turntable.
-  const drag = useRef<{ id: number; x: number } | null>(null);
+  // Drag the turntable (sideways turns, up and down tilts); the wheel zooms (§V.3).
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   const onPointerDown = (e: PointerEvent) => {
-    drag.current = { id: e.pointerId, x: e.clientX };
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent) => {
     if (drag.current?.id !== e.pointerId) return;
-    app.nudgeShipPreview((e.clientX - drag.current.x) * 0.012);
+    app.orbitShipPreview((e.clientX - drag.current.x) * 0.012, (e.clientY - drag.current.y) * 0.006, 0);
     drag.current.x = e.clientX;
+    drag.current.y = e.clientY;
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    app.orbitShipPreview(0, 0, -Math.sign(e.deltaY) * 0.08);
   };
   const onPointerUp = () => (drag.current = null);
 
@@ -429,7 +434,7 @@ export function Garage({ app }: { app: App }) {
       </header>
       <div class="mzu-garage-main" inert={buying !== null}>
         <div class="mzu-stage-col">
-          <div ref={stage} class="mzu-stage" data-preview onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+          <div ref={stage} class="mzu-stage" data-preview onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
             <div class="mzu-stage-label">
               <span class="mzu-choice-name">{c.name}</span>
               <span class={`mzu-tagpill ${c.cls}`}>{CLASS_LABEL[c.cls].toUpperCase()}</span>
