@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AITier } from '../core/contracts';
 import { runWorldRace } from './worldRace';
+import { describeTierMatrix } from './tierMatrix';
 
 vi.setConfig({ testTimeout: 300_000 });
 
@@ -27,3 +28,5 @@ describe.each<AITier>(['rookie', 'legend'])('neon-bay: 8-ship race (%s fits)', (
     }
   });
 });
+
+describeTierMatrix('neon-bay');

@@ -1,0 +1,8 @@
+# Commit only the picked concept (resized, ≤ 500 KB), notes and READMEs; full-size originals stay local.
+*.jpg
+*.jpeg
+*.png
+*.webp
+!chosen.jpg
+!parts/*.jpg
+.DS_Store

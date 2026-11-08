@@ -699,7 +699,21 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## GP — Grand Prix cups (after §P; one PR; pulled forward from M8)
+## GP — Grand Prix cups — ✅ DONE (PR #24)
+
+**As built (PR #24)** (read before M5 or M8):
+- **Code:** `game/modes/GrandPrix.ts` is pure: `CupState { tier, results }` (per race, per ship id, the finishing position; 0 = retired), `recordRace(cup, standings, retire?)`, `cupStandings` (points, best finish, last-race points, movement), `cupGridOrder` (null for race 1, then the reverse of the table), `cupBonus`, `cupAward`, `addTrophy`, `sanitizeCup`. M8 adds World Tour and Time Trial beside it.
+- **Tiebreak:** points, then best finish, then the last race's finish, then ship id (so the order is total and stable).
+- **Grid:** `buildRaceField({ gridOrder })` (index = slot, value = ship id); a malformed order is ignored and the default path is unchanged. `runWorldRace(…, { gridOrder })` too.
+- **App:** `cupRace` signal marks the race session as a cup race (part of the session key, so a cup race always builds its own session and HUD). `currentWorld` and the tier come from the cup. `bindStats` pays the normal payout, then `bookCupRace` records the result and, after race 5, pays the bonus (one combined `economy:credits` on the results), awards the trophy, clears `Profile.cup` and keeps the final table in `lastCup` for the standings screen.
+- **No restarts:** `HudActions.cup` hides RESTART on the pause screen (MENU becomes **RETIRE**) and turns the results' RACE AGAIN into **CUP STANDINGS**. Keyboard R and Ⓑ on the pause panel do nothing in a cup; Ⓐ or Ⓑ on the results go to the standings. RETIRE books the race with the player at 0 points and the rivals scored in their running order.
+- **Screens:** `ui/screens/GrandPrix.tsx` (worlds, trophies, START / CONTINUE / QUIT CUP) and `CupStandings.tsx` (table with movement, NEXT RACE, GARAGE, QUIT CUP with a confirmation; the final table after race 5). Routes `gp` and `cup`; the Garage takes `back: 'cup'`. Main menu: CONTINUE CUP (first and focused) while a cup is in progress, GRAND PRIX after WORLDS otherwise. Trophies show on the pilot card.
+- **Flag:** shipped ON (behind `worlds`, like the world select), not behind `modes`, which stays off for M8.
+- **Save v5:** `Profile.cup` and `Profile.trophies` (migration 4 → 5 adds `null` and `[]`).
+- **Known gap:** closing the app *mid-race* and reopening resumes the cup at that race (the cup is saved between races only). Accepted: counting it as a retire would punish a crash or a phone call.
+- **Debug:** `__machzero.simulate(seconds)` steps the race with nobody driving (the player's AI drives), for the e2e.
+- **Tests:** `game/modes/__tests__/GrandPrix.test.ts` (9), `sim/grandPrix.sim.test.ts` (five real races, reload mid-cup), the migration in `SaveStore.test.ts`, the grid order in `ShipStatsResolver.test.ts`, and `e2e/grandprix.spec.ts` (pad only: start, race 1, standings, reload, CONTINUE CUP, race 2 on the reverse grid).
+
 
 **Build notes (where things are, 2026-11-02):**
 - **Grid:** `content/pilots.ts` `buildRaceField(opts)` already takes `playerGridIndex` (Rookie defaults to the back). The reverse-standings grid needs an explicit order for *every* ship: add `gridOrder?: ShipId[]` and keep the default path unchanged so the existing sims don't move.
@@ -753,7 +767,18 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## M5 — AI tiers, pilots, drafting
+## M5 — AI tiers, pilots, drafting — ✅ DONE (PR #26)
+
+**As built (PR #26)** (read before §V or M6; the plan below is kept for reference):
+- **Tiers:** `content/tiers.ts` (`TIERS`, `TIER_ORDER`, `TIER_OPTIONS`, `tierDef`) replaces `AI_PACE` and `CONFIG.AI_RUBBER_BAND_*`. `AIDriver.tunedProfile(personality, tier)` scales v1's `PROFILES` (lat budget, yaw, brake, overspeed, look-ahead, boost energy and cooldown, pit energy); Legend is v1 unchanged. Each tier also sets `paceScale`, `rubberBand`, `mistakeRate` (Poisson throttle lifts on their own RNG; the erratic personality keeps its own), `lineInset`, `aggression` (block, yield, ram), `draftSeeking`, `shortcutOdds` (replaces `SHORTCUT_ODDS`), `hazardMargin` and `droppedLookahead`.
+- **Deviations from the plan:** Rookie `paceScale` is **0.90**, not 0.75 (the user's iPhone playtest), with no catch-up (band 0.92–1.0). Pilot is **0.94**, not 0.88, so it stays above Rookie; its band is 0.97–1.06. Ace 0.97, Legend 1.0.
+- **Drafting:** `physics/Drafting.ts` (30 m, ±12°, ±4 m, ±3 m vertical, 0.6 s build, 0.4 s fade, ≥ 25 m/s, never airborne). `ShipController`: top speed and boost top × (1 + 0.06·draft), thrust × (1 + 0.15·draft), coast drag × (1 − 0.5·draft). `ShipState.drafting`, `ship:draft` with hysteresis (on 0.3, off 0.15). HUD **≋ DRAFT** chip, cyan speed lines, a soft whoosh.
+- **AI racecraft:** Ace and Legend look for a draft 15–34 m ahead; aggressive tiers block a rival ≤ 12 m behind, Rookie yields. Only on straights, never in centre sections, the pit, split paths or on the way to a chosen shortcut. Shortcut-bound drivers keep inside the shortcut deck at the fork, and the fork approach scales with speed (1.6 s, ≥ 160 m).
+- **Loops (fix found by the matrix):** inside a loop the AI holds its lateral line (`LOOP_STEER_KP/KD`), sees zero curvature and treats the loop as a centre section: `LoopCompensation` carries the hull, and steering at the side-shifted aim point drove Rookie DARTs into the Orbital Ring rail.
+- **Assists:** `physics/Assists.ts` `PlayerAssists` (auto-accelerate, steering weight 0 / 0.3 / 0.6, rail push) as tested logic; no settings UI yet (M7). The sims use it for the Rookie balance race.
+- **Pilots:** each pilot has a `mark`; `game/pilotPortrait.ts` draws a helmet badge in the livery (SVG) and `rosterOf(field)` feeds the HUD. **Grid intro card** before every menu race: 8 rows in grid order with portrait, ship and catchphrase, ≈ 3 s on the **wall clock** (the fixed loop runs behind real time on slow GPUs), any input skips. Results rows show portraits; a rival winner's catchphrase shows under the table.
+- **Picker:** CPU DIFFICULTY (4 tiers + hint) on World Select and in Settings, saved to `Profile.aiTier`. Rookie switches on the Rookie hazard policy. `buildRaceField({ rivalTiers })` builds mixed fields (each rival with its tier's fits).
+- **Sims:** `sim/tierMatrix.ts` adds to every per-world file: Pilot and Ace fields, a mixed field (Legend rivals ahead of Rookie rivals on average: P2.0 vs P7.0 on every track), Rookie-assisted from P8 (P1–P2 everywhere) and Pilot balance. "Mid-pack" is defined as P2–P7 and within 1.5 % of the field's median time: the Pilot field finishes as a ~1 s pack, so the exact place is a lottery. `runWorldRace(…, { untilAllFinish })` uses `RaceManager`'s new `resultsDelay = Infinity` so every ship finishes. Jade Ruins Legend sits at `maxLateral` 15.00 (limit < 16): watch it.
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
@@ -785,6 +810,80 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
   - A Rookie-assisted autopilot (strong steering assist) on stock parts finishes top 3 against Rookie AI.
   - An unassisted Pilot-level autopilot on stock parts finishes mid-pack against Pilot AI.
 - Run the sims with fixed seeds, and budget CI time: each race ≈ 1–2 s headless, 20 races + holds ≈ 60 s.
+
+---
+
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 in review (PR #27, at the gate)
+
+**As built — V1 COMET (PR #27, at the gate: waiting on the user's look approval and iPhone/iPad fps)** (read before V2):
+- **Model:** `blender/ships/build_ships.py` `build_comet` (GROUNDED chassis; the other 5 still use `build_ship` until V3), from `assets/reference/ships/comet/chosen.jpg`: blue tube fuselage with a painted scheme by position (white spine stripe nose → canopy, white lower chine, dark belly), a dark ram-intake mouth with a louvred tunnel, bubble canopy in a white surround, dark louvred side scoops with cyan strips, short pods at the rear on carbon outrigger pylons (white intake collars, glowing turbine faces, ribbed nozzles), swept white wings outboard of the pods with carbon trailing edges, twin canted tail fins with blue tips. LOD0 5,628 tris, LOD1 1,314. Size 2.74 × 1.03 × 4.53 m (pre-§V 2.56 × 1.04 × 4.52; width +7%, inside ±10%). Sockets moved with the pods (exhausts at the new pod tails; boosters on the pod flanks).
+- **Trim sheet:** `blender/textures/build_trim.py`, 8 strips × 128 px (panel, plate, carbon, brushed, vent, ribbed, grip, flat; `common.TRIM_BANDS`). **Deviation:** the strips are numpy height fields (normals from the gradient, AO from a multi-radius cavity term) instead of a Cycles bake of modelled strips: exact, deterministic, ~1 s. Blender writes PNGs; `npm run assets -- trim` ships WebP via sharp: `trim_normal.webp` 105 KB + `trim_orm.webp` 76 KB = 181 KB (budget 400). The neutral `flat` strip sits where UV (0, 0) samples, so meshes without UVs (parts, other chassis) render exactly as before.
+- **UVs:** `common.py` helpers take `strip=` (loft: u along the tube, the circumference split into panels that each span the strip; slab: caps u along y / f across x, sides u along the edge; fin, torus, disc likewise). `export_glb(..., texcoords=True)` for GROUNDED ships only.
+- **AO:** `common.bake_vertex_ao` (Cycles AO bake to vertex colours, 96 samples, 0.6 m, each LOD alone) into `COLOR_0.a`. Runtime (`ShipAssembly.withVertexAO`): indirect diffuse × AO, indirect specular × mix(1, AO, 0.7), direct diffuse × mix(1, AO, 0.5). Vertex density is enough on COMET; no atlas fallback needed.
+- **Materials:** `AssetLoader.loadShips` also loads the trim (flipY off, u repeat, v clamp, anisotropy 4). Role materials get `aoMap`/`roughnessMap`/`metalnessMap` = ORM and `normalMap` (normalScale (s, −s): derivative tangents). `assembleShip(…, { lite })`: rivals on Low drop the normal map and clearcoat (warm-up compiles them since they're in the scene).
+- **LOD rule:** your ship is always LOD0 with full materials; rivals High LOD0, Med/Low LOD1, Low lite.
+- **Garage:** turntable always LOD0 + full materials; the key light casts a shadow on the plinth (disc now metalness 0.3, roughness 0.5 so it shows). Orbit: right stick (yaw + clamped pitch), LB/RB zoom, mouse drag (x turn, y tilt) and wheel; it settles back to the auto-spin 1.6 s after the last input. `InputManager.orbitInput()`, `GraphicsSystem.orbitPreview`.
+- **Rumble:** `game/Rumble.ts` on the player's rail/ship hits, boost, landings ≥ 0.35, EMP, mine, destruction; spaced ≥ 90 ms; `InputManager.rumble` feature-detects `vibrationActuator` (nothing on iOS WKWebView, as expected).
+- **Checks:** `check-assets` — ship GLB ≤ 300 KB (COMET 121 KB), trim ≤ 400 KB, ships + parts + trim ≤ 2 MB (632 KB), Khronos `gltf-validator` on every GLB (errors fail), `TEXCOORD_0` on GROUNDED chassis, LOD0 size within ±10% of `HULL_SIZE`.
+- **Not done in V1:** nozzle flare on boost and hover-pad glow (§V.2 animation) → V2; parts keep their M2 look → V2.
+- **Desktop (High, autopilot, Neon Bay, 25 s, headless Chrome on Metal):** before 60 fps, p95 16.8 ms; after 60 fps, p95 16.8 ms. Device fps pending.
+
+**Design decisions (grilling session with the user, 2026-11-07; settled, don't re-open):**
+
+- **Placement:** after M5, as its own PRs. Each PR ships to Netlify and iOS (§0 rule 9).
+- **Look: grounded sci-fi.** Today's silhouettes get mechanical detail: intakes, vents, panel seams, exposed engine parts, armour plates on the heavies. Materials read as real ones: carbon fibre, brushed and anodised metal, slight edge wear, baked AO. The livery still tints the paint. Not photoreal.
+- **Concepts are reference only.** The user makes concept images in Gemini from `docs/v2/VEHICLE_CONCEPTS.md`. Every ship and part is still built procedurally in `blender/` scripts, which keeps sockets, livery roles, both LODs and `npm run assets` deterministic. **No AI image-to-3D for ships or parts** (it loses sockets and roles). It may be used for one-off scenery props only.
+- **Concept files:** `assets/reference/ships/<id>/` (and `assets/reference/parts/`), JPEG, ≤ 500 KB each, ≤ 4 per chassis. They're committed, never shipped (not under `public/`), and listed in `assets/LICENSES.md`. The user marks the winner `chosen.jpg`, with optional `notes.md` ("nose from image 2"). **Model only from a `chosen.jpg`.**
+- **Identity is locked:** each chassis keeps its name, class, blurb, personality and factory livery (`content/ships.ts`). The hull stays within ±10% of today's bounding box per axis (SHIP_LENGTH × SHIP_WIDTH × SHIP_HEIGHT × class scale). Stats, collider, camera, items and sims don't change. §V is visual only; any sim or physics test diff is a bug.
+- **Order and gates:**
+  1. **V0, docs (this spec, the prompt sheet, `assets/`):** lands before M5 is built, so the user can generate images in parallel.
+  2. **V1, COMET pilot:** the default chassis end to end. This PR carries the shared machinery (UVs, trim sheet, AO bake, material changes, LOD rule, Garage High, Garage orbit, rumble, budget checks). **Gate:** user approval of look and fps (below) before V2.
+  3. **V2, the 16 bolt-on parts** in one PR (they're shared by every chassis, so new-look parts must follow COMET straight away).
+  4. **V3, the other 5 chassis** (one PR, or split light/balanced/heavy if large).
+
+### V.1 Geometry and textures
+
+- **Detail lives in surfaces, not triangle count.** Budgets stay: `<id>_LOD0` ≤ 12k triangles, `<id>_LOD1` ≤ 4k, parts ≤ 1.5k each (LOD0 is ≈ 3.1k today, so there is headroom for real shape detail such as intakes, plates and nozzles).
+- **One shared 1024² texture atlas for every ship and part, with surface detail only and no colour:** a **trim sheet** of tiling strips (panel seams, vents, rivet rows, carbon weave, brushed metal, grille, worn edge). Each surface is UV-mapped (`TEXCOORD_0`) onto the strip it needs, so all 22 meshes share the 1024² without each one needing its own texture space.
+  - Channels: a normal map, plus one packed texture (glTF ORM: R = detail AO, G = roughness, B = metalness).
+  - The trim sheet is **generated in Blender** by a script (`blender/textures/build_trim.py`): high-detail strips baked onto a plane with Cycles. The bake is small (1024², a few minutes at most), and its output PNGs are committed like the GLBs. Nothing is hand-painted.
+- **Large-scale AO is baked per vertex into `COLOR_0.a`.** `COLOR_0.rgb` already holds the decal body coordinates, so the decal shader is untouched. That way AO costs no texture space and each ship keeps its own occlusion. If vertex density makes it blotchy, V1 may switch to a per-ship AO region in the atlas instead and record why.
+- **Livery is unchanged in behaviour:** `ShipAssembly.makeMaterials` keeps the role materials, the livery tint, the 6 decals and `setLivery()` in place. The trim maps are added as `normalMap` / `roughnessMap` / `aoMap` (or ORM via `onBeforeCompile`) on top of the existing tints. Saved liveries and the livery editor keep working without a save migration.
+- **Texture format:** WebP (`EXT_texture_webp`) through glTF Transform. iOS Safari decodes WebP. KTX2 is out for now (`toktx` isn't installed); revisit only if texture memory or decode time shows up in profiles.
+
+### V.2 Rendering rules
+
+- **Your ship always uses LOD0, on every preset.** This replaces the `GraphicsSystem.addShip` rule. Rivals keep today's rule (High LOD0; Med and Low LOD1). Today iOS auto-selects Low, so the player sees the 850-triangle LOD1. LOD0 for close rivals is a later option, only if V1 measures headroom.
+- **Low preset:** rivals drop the normal map and clearcoat (keeping AO and roughness). The player keeps full materials. These are separate material instances, so add them to the shader warm-up.
+- **Garage is the showroom:** the turntable always renders LOD0 with full materials and shadows at High quality, whatever the race preset (it's a single ship and the race backdrop isn't rendered while the garage is open, §M2 as built).
+- **Animation, all in shaders on existing meshes:** engine glow already follows throttle and boost (v1 `ShipModel`). §V adds a nozzle flare on boost (at `socket_exhaust_L/R`) and a hover-pad glow under the hull that pulses with hover bob and speed. **No new moving meshes** beyond today's flaps and bank.
+
+### V.3 Controls
+
+- **Garage orbit:** the right stick turns the turntable (yaw, plus limited pitch), a shoulder button (LB/RB) zooms, and releasing the stick lets it settle back into the auto-spin. Mouse drag and wheel do the same on the web; touch drag can follow in M7. It must not steal the d-pad or left-stick menu navigation.
+- **Rumble is a nice-to-have where supported:** `gamepad.vibrationActuator?.playEffect('dual-rumble', …)` on wall hits, item hits, boost start and big landings, feature-detected and silently skipped when null. iOS's WKWebView doesn't reliably expose it (MDN compat lists iOS Safari as unsupported; WebKit's newer work is experimental), so **don't expect rumble on the TestFlight build.** A native Capacitor plugin (GCController haptics) is an M7 option, not §V.
+
+### V.4 Budgets and checks (extend `scripts/check-assets.mjs`)
+
+- Each ship GLB ≤ **300 KB** (was 400). `parts.glb` stays ≤ 600 KB. The trim sheet (all its textures) ≤ 400 KB. **All ship assets together ≤ 2 MB** (ships, parts and the trim textures).
+- Run the official glTF validation (`@gltf-transform` `validate`, or `gltf-validator`) on every GLB; errors fail.
+- Keep today's checks (node, socket and role names, triangle budgets, nose direction). Add checks for `TEXCOORD_0` on every textured mesh and for each hull's bounds staying within ±10% of the pre-§V values (store them in the test).
+- Retune the numbers after V1 is measured on device; record the result in the as-built notes.
+
+### V.5 Done when
+
+**V1 COMET (the gate):**
+- [ ] The PR body has before-and-after screenshots of the Garage turntable, the race chase camera at Med, and the Low preset.
+- [ ] An 8-ship race on Neon Bay holds 60 fps on the iPhone 18 Pro Max and the iPad Air 11" (the user reads the perf overlay). The 95th-percentile frame time is no more than 1 ms worse than the pre-§V build.
+- [ ] Desktop web on High shows no frame-time regression.
+- [ ] The look is approved by the user.
+- [ ] All sims, unit tests and e2e tests pass unchanged. `check-assets` passes with the new budgets.
+
+**V2 parts / V3 chassis:** the same screenshots and checks per PR. The total asset budget holds. Every chassis × part combination renders on Low, Med and High (extend `e2e/garage.spec.ts` to cycle them).
+
+### V.6 Not adopted from the cross-game asset-pipeline doc (decided, 2026-11-07)
+
+The user's `ASSET_PIPELINE.md` (written for GolfCartSimulator) was reviewed. Adopted: scripted headless export (already the case), glTF Transform optimisation (already), CI validation and budget enforcement, `assets/LICENSES.md`, `assets/reference/`, and AO/normal/roughness for realism instead of triangle count. **Not adopted:** GIS terrain, Git LFS (assets total under 1 MB), a shared `asset-tools` repo (maybe later, if a second game uses the same scripts), Windows-PC offloading (no job is heavy enough), and KTX2 (for now).
 
 ---
 

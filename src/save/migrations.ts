@@ -48,6 +48,12 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
         })
       : [],
   }),
+  // v4 → 5: Grand Prix cups (IMPLEMENTATION §GP): no cup in progress, no trophies yet.
+  4: (save) => ({
+    ...save,
+    version: 5,
+    profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, cup: null, trophies: [] } : p)) : [],
+  }),
 };
 
 /** Version of a raw save (missing or invalid → 0, treated as unreadable by the caller). */

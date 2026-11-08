@@ -97,10 +97,12 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
 
-  // Keyboard: RACE is focused; ↓ WORLDS, ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
+  // Keyboard: RACE is focused; ↓ WORLDS, ↓ GRAND PRIX, ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
   await expect.poll(() => focusedText(page)).toContain('RACE');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => focusedText(page)).toContain('WORLDS');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => focusedText(page)).toContain('GRAND PRIX');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => focusedText(page)).toContain('GARAGE');
   await page.keyboard.press('ArrowDown');
@@ -125,6 +127,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await padPress(page, 13);
   await padPress(page, 13);
   await padPress(page, 13);
+  await padPress(page, 13);
   await expect.poll(() => focusedText(page)).toContain('SETTINGS');
   await padPress(page, 0); // A
   await expect(screen(page)).toHaveAttribute('data-screen', 'settings');
@@ -136,8 +139,12 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
 
   // Race from the menu, pause with Escape, quit to the menu from the pause screen.
   await page.getByRole('button', { name: /^RACE/ }).click();
+  // The grid intro card (every racer, portrait and catchphrase) shows first, then the countdown starts by itself.
+  await expect(page.locator('.mz-hud.intro .mz-intro-row')).toHaveCount(8, { timeout: 60_000 });
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toMatch(/countdown|racing/);
   expect(await route(page)).toBe('race');
+  await expect(page.locator('.mz-hud.intro')).toHaveCount(0);
+  await expect(page.locator('.mz-draft')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toBe('paused');
   await page.locator('.mz-pause').getByRole('button', { name: 'MENU' }).click();
