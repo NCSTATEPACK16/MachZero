@@ -6,6 +6,9 @@ import type { AIPersonality, AITier, Loadout, PartSlot, PartTier, ShipDefinition
 import { resolveStats } from '../physics/ShipStatsResolver';
 import { chassisById } from './ships';
 
+/** Emblem on a pilot's helmet portrait (game/pilotPortrait.ts). */
+export type PilotMark = 'flame' | 'star' | 'bolt' | 'chip' | 'snow' | 'turbo' | 'gear' | 'player';
+
 export interface PilotDef {
   id: string;
   name: string;
@@ -16,16 +19,18 @@ export interface PilotDef {
   style: string;
   catchphrase: string;
   livery: ShipLivery;
+  /** Portrait-badge recipe: the helmet is drawn in the livery's colours with this emblem. */
+  mark: PilotMark;
 }
 
 export const RIVALS: readonly PilotDef[] = [
-  { id: 'nova', name: 'NOVA BLAZE', chassisId: 'dart', personality: 'aggressive', style: 'aggressive', catchphrase: 'Try to keep up!', livery: { primary: 0xff3b1f, secondary: 0x1a1a1a, glow: 0xffb319 } },
-  { id: 'ziggy', name: 'CAPTAIN ZIGGY', chassisId: 'comet', personality: 'steady', style: 'steady', catchphrase: 'Smooth is fast, cadet.', livery: { primary: 0x1fb5ff, secondary: 0xf4f7ff, glow: 0x19f0ff } },
-  { id: 'rex', name: 'REX THUNDER', chassisId: 'titan', personality: 'aggressive', style: 'rams', catchphrase: 'Coming through!', livery: { primary: 0xd81b2a, secondary: 0x2b2b35, glow: 0xff5a2b } },
-  { id: 'pixel', name: 'PIXEL', chassisId: 'wisp', personality: 'erratic', style: 'erratic (robot)', catchphrase: 'BEEP. VICTORY. PROBABLE.', livery: { primary: 0x7dff3a, secondary: 0x14161f, glow: 0x7dff3a } },
-  { id: 'luna', name: 'LUNA FROST', chassisId: 'arrow', personality: 'steady', style: 'precise', catchphrase: "I don't miss apexes.", livery: { primary: 0xcfe8ff, secondary: 0x3a4a8a, glow: 0x8ad8ff } },
-  { id: 'tia', name: 'TURBO TIA', chassisId: 'dart', personality: 'aggressive', style: 'boost-happy', catchphrase: 'Boost now, think later!', livery: { primary: 0xff2bd6, secondary: 0xf2b705, glow: 0xff2bd6 } },
-  { id: 'sparky', name: 'OLD SPARKY', chassisId: 'bastion', personality: 'steady', style: 'veteran', catchphrase: 'Been racing since before hover was cool.', livery: { primary: 0x8a6a3a, secondary: 0xe8dcc0, glow: 0xffb319 } },
+  { id: 'nova', name: 'NOVA BLAZE', chassisId: 'dart', personality: 'aggressive', style: 'aggressive', catchphrase: 'Try to keep up!', livery: { primary: 0xff3b1f, secondary: 0x1a1a1a, glow: 0xffb319 }, mark: 'flame' },
+  { id: 'ziggy', name: 'CAPTAIN ZIGGY', chassisId: 'comet', personality: 'steady', style: 'steady', catchphrase: 'Smooth is fast, cadet.', livery: { primary: 0x1fb5ff, secondary: 0xf4f7ff, glow: 0x19f0ff }, mark: 'star' },
+  { id: 'rex', name: 'REX THUNDER', chassisId: 'titan', personality: 'aggressive', style: 'rams', catchphrase: 'Coming through!', livery: { primary: 0xd81b2a, secondary: 0x2b2b35, glow: 0xff5a2b }, mark: 'bolt' },
+  { id: 'pixel', name: 'PIXEL', chassisId: 'wisp', personality: 'erratic', style: 'erratic (robot)', catchphrase: 'BEEP. VICTORY. PROBABLE.', livery: { primary: 0x7dff3a, secondary: 0x14161f, glow: 0x7dff3a }, mark: 'chip' },
+  { id: 'luna', name: 'LUNA FROST', chassisId: 'arrow', personality: 'steady', style: 'precise', catchphrase: "I don't miss apexes.", livery: { primary: 0xcfe8ff, secondary: 0x3a4a8a, glow: 0x8ad8ff }, mark: 'snow' },
+  { id: 'tia', name: 'TURBO TIA', chassisId: 'dart', personality: 'aggressive', style: 'boost-happy', catchphrase: 'Boost now, think later!', livery: { primary: 0xff2bd6, secondary: 0xf2b705, glow: 0xff2bd6 }, mark: 'turbo' },
+  { id: 'sparky', name: 'OLD SPARKY', chassisId: 'bastion', personality: 'steady', style: 'veteran', catchphrase: 'Been racing since before hover was cool.', livery: { primary: 0x8a6a3a, secondary: 0xe8dcc0, glow: 0xffb319 }, mark: 'gear' },
 ];
 
 /** Parts fitted to rivals per AI tier (Appendix A). */
@@ -35,6 +40,10 @@ export const RIVAL_FITS: Readonly<Record<AITier, Readonly<Record<PartSlot, PartT
   ace: { engine: 2, booster: 2, stabilizer: 1, hull: 1 },
   legend: { engine: 3, booster: 3, stabilizer: 2, hull: 2 },
 };
+
+export function pilotById(id: string | undefined): PilotDef | undefined {
+  return RIVALS.find((p) => p.id === id);
+}
 
 export const RACE_SIZE = 8;
 
@@ -46,6 +55,8 @@ export interface RaceFieldOptions {
   playerGridIndex?: number;
   /** Every ship's grid slot: index = slot (0 = pole), value = ship id (Grand Prix reverse grid). Wins over `playerGridIndex`. */
   gridOrder?: readonly ShipId[];
+  /** Per rival (roster order), its own tier and fits instead of the race's: a mixed field (tier sims). */
+  rivalTiers?: readonly AITier[];
 }
 
 /** Player (id 0) + 7 rivals (ids 1..7). Rivals fill the grid slots the player doesn't take, in roster order. */
@@ -64,10 +75,10 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
   };
   const freeSlots: number[] = [];
   for (let g = 0; g < RACE_SIZE; g++) if (g !== playerGrid) freeSlots.push(g);
-  const parts = RIVAL_FITS[opts.tier];
   const rivals = RIVALS.map((p, i): ShipDefinition => {
     chassisById(p.chassisId); // validates the id
-    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...parts }, livery: { ...p.livery, decal: i % 6 } };
+    const tier = opts.rivalTiers?.[i] ?? opts.tier;
+    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...RIVAL_FITS[tier] }, livery: { ...p.livery, decal: i % 6 } };
     return {
       id: i + 1,
       name: p.name,
@@ -78,7 +89,7 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
       loadout,
       stats: resolveStats(loadout),
       pilotId: p.id,
-      tier: opts.tier,
+      tier,
     };
   });
   return [player, ...rivals];

@@ -4,6 +4,8 @@ import type { HudActions, ShipState } from '../../core/contracts';
 import { EventBus, type GameEvents } from '../../core/events';
 import { HUD } from '../HUD';
 import { RaceManager } from '../RaceManager';
+import { rosterOf } from '../pilotPortrait';
+import { buildRaceField, defaultLoadout } from '../../content/pilots';
 import { makeCircleTrack, makeShip, placeShip } from './helpers';
 
 /** Just enough of a DOM to exercise HUD/Minimap code paths in a node environment. */
@@ -97,6 +99,39 @@ describe('HUD (fake DOM smoke test)', () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('shows the grid intro card with every pilot, and the draft chip while the player drafts', () => {
+    const track = makeCircleTrack(500);
+    const bus = new EventBus<GameEvents>();
+    const field = buildRaceField({ playerName: 'ACE', playerLoadout: defaultLoadout(), tier: 'pilot' });
+    const actions: HudActions = { onStart: () => undefined, onRestart: () => undefined, onResume: () => undefined, onToggleMute: () => undefined };
+    const root = new FakeEl('div');
+    const hud = new HUD(root as unknown as HTMLElement, bus, track, actions, { showTitle: false, roster: rosterOf(field) });
+    const container = root.children[0];
+    const rows = container.find('mz-intro')!.findAll('mz-intro-row');
+    expect(rows).toHaveLength(8);
+    // Grid order: P1 first; the player (P5 off Rookie) is marked and has no catchphrase.
+    expect(rows[0].find('slot')!.textContent).toBe('P1');
+    const mine = rows.find((r) => r.className.includes('player'))!;
+    expect(mine.find('slot')!.textContent).toBe('P5');
+    expect(mine.find('quote')!.textContent).toBe('YOU');
+    expect(rows.some((r) => r.find('quote')!.textContent === '“Smooth is fast, cadet.”')).toBe(true);
+    expect(hud.introShown).toBe(false);
+    hud.setIntro(true);
+    expect(hud.introShown).toBe(true);
+    hud.setIntro(false);
+    expect(hud.introShown).toBe(false);
+
+    const chip = container.find('mz-draft')! as unknown as { hidden: boolean };
+    expect(chip.hidden).toBe(true);
+    bus.emit('ship:draft', { shipId: 3, active: true });
+    expect(chip.hidden).toBe(true); // a rival's draft
+    bus.emit('ship:draft', { shipId: 0, active: true });
+    expect(chip.hidden).toBe(false);
+    bus.emit('ship:draft', { shipId: 0, active: false });
+    expect(chip.hidden).toBe(true);
+    hud.dispose();
   });
 
   it('builds all screens, follows race state and renders results', () => {

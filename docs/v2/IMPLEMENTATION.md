@@ -767,7 +767,18 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## M5 — AI tiers, pilots, drafting
+## M5 — AI tiers, pilots, drafting — ✅ DONE (PR #26)
+
+**As built (PR #26)** (read before §V or M6; the plan below is kept for reference):
+- **Tiers:** `content/tiers.ts` (`TIERS`, `TIER_ORDER`, `TIER_OPTIONS`, `tierDef`) replaces `AI_PACE` and `CONFIG.AI_RUBBER_BAND_*`. `AIDriver.tunedProfile(personality, tier)` scales v1's `PROFILES` (lat budget, yaw, brake, overspeed, look-ahead, boost energy and cooldown, pit energy); Legend is v1 unchanged. Each tier also sets `paceScale`, `rubberBand`, `mistakeRate` (Poisson throttle lifts on their own RNG; the erratic personality keeps its own), `lineInset`, `aggression` (block, yield, ram), `draftSeeking`, `shortcutOdds` (replaces `SHORTCUT_ODDS`), `hazardMargin` and `droppedLookahead`.
+- **Deviations from the plan:** Rookie `paceScale` is **0.90**, not 0.75 (the user's iPhone playtest), with no catch-up (band 0.92–1.0). Pilot is **0.94**, not 0.88, so it stays above Rookie; its band is 0.97–1.06. Ace 0.97, Legend 1.0.
+- **Drafting:** `physics/Drafting.ts` (30 m, ±12°, ±4 m, ±3 m vertical, 0.6 s build, 0.4 s fade, ≥ 25 m/s, never airborne). `ShipController`: top speed and boost top × (1 + 0.06·draft), thrust × (1 + 0.15·draft), coast drag × (1 − 0.5·draft). `ShipState.drafting`, `ship:draft` with hysteresis (on 0.3, off 0.15). HUD **≋ DRAFT** chip, cyan speed lines, a soft whoosh.
+- **AI racecraft:** Ace and Legend look for a draft 15–34 m ahead; aggressive tiers block a rival ≤ 12 m behind, Rookie yields. Only on straights, never in centre sections, the pit, split paths or on the way to a chosen shortcut. Shortcut-bound drivers keep inside the shortcut deck at the fork, and the fork approach scales with speed (1.6 s, ≥ 160 m).
+- **Loops (fix found by the matrix):** inside a loop the AI holds its lateral line (`LOOP_STEER_KP/KD`), sees zero curvature and treats the loop as a centre section: `LoopCompensation` carries the hull, and steering at the side-shifted aim point drove Rookie DARTs into the Orbital Ring rail.
+- **Assists:** `physics/Assists.ts` `PlayerAssists` (auto-accelerate, steering weight 0 / 0.3 / 0.6, rail push) as tested logic; no settings UI yet (M7). The sims use it for the Rookie balance race.
+- **Pilots:** each pilot has a `mark`; `game/pilotPortrait.ts` draws a helmet badge in the livery (SVG) and `rosterOf(field)` feeds the HUD. **Grid intro card** before every menu race: 8 rows in grid order with portrait, ship and catchphrase, ≈ 3 s on the **wall clock** (the fixed loop runs behind real time on slow GPUs), any input skips. Results rows show portraits; a rival winner's catchphrase shows under the table.
+- **Picker:** CPU DIFFICULTY (4 tiers + hint) on World Select and in Settings, saved to `Profile.aiTier`. Rookie switches on the Rookie hazard policy. `buildRaceField({ rivalTiers })` builds mixed fields (each rival with its tier's fits).
+- **Sims:** `sim/tierMatrix.ts` adds to every per-world file: Pilot and Ace fields, a mixed field (Legend rivals ahead of Rookie rivals on average: P2.0 vs P7.0 on every track), Rookie-assisted from P8 (P1–P2 everywhere) and Pilot balance. "Mid-pack" is defined as P2–P7 and within 1.5 % of the field's median time: the Pilot field finishes as a ~1 s pack, so the exact place is a lottery. `runWorldRace(…, { untilAllFinish })` uses `RaceManager`'s new `resultsDelay = Infinity` so every ship finishes. Jade Ruins Legend sits at `maxLateral` 15.00 (limit < 16): watch it.
 
 **Design decisions (grilling session with the user, 2026-10-04 — settled, don't re-open):**
 
@@ -802,7 +813,20 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## V — Vehicle visual pass: grounded sci-fi ships and parts
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 in review (PR #27, at the gate)
+
+**As built — V1 COMET (PR #27, at the gate: waiting on the user's look approval and iPhone/iPad fps)** (read before V2):
+- **Model:** `blender/ships/build_ships.py` `build_comet` (GROUNDED chassis; the other 5 still use `build_ship` until V3), from `assets/reference/ships/comet/chosen.jpg`: blue tube fuselage with a painted scheme by position (white spine stripe nose → canopy, white lower chine, dark belly), a dark ram-intake mouth with a louvred tunnel, bubble canopy in a white surround, dark louvred side scoops with cyan strips, short pods at the rear on carbon outrigger pylons (white intake collars, glowing turbine faces, ribbed nozzles), swept white wings outboard of the pods with carbon trailing edges, twin canted tail fins with blue tips. LOD0 5,628 tris, LOD1 1,314. Size 2.74 × 1.03 × 4.53 m (pre-§V 2.56 × 1.04 × 4.52; width +7%, inside ±10%). Sockets moved with the pods (exhausts at the new pod tails; boosters on the pod flanks).
+- **Trim sheet:** `blender/textures/build_trim.py`, 8 strips × 128 px (panel, plate, carbon, brushed, vent, ribbed, grip, flat; `common.TRIM_BANDS`). **Deviation:** the strips are numpy height fields (normals from the gradient, AO from a multi-radius cavity term) instead of a Cycles bake of modelled strips: exact, deterministic, ~1 s. Blender writes PNGs; `npm run assets -- trim` ships WebP via sharp: `trim_normal.webp` 105 KB + `trim_orm.webp` 76 KB = 181 KB (budget 400). The neutral `flat` strip sits where UV (0, 0) samples, so meshes without UVs (parts, other chassis) render exactly as before.
+- **UVs:** `common.py` helpers take `strip=` (loft: u along the tube, the circumference split into panels that each span the strip; slab: caps u along y / f across x, sides u along the edge; fin, torus, disc likewise). `export_glb(..., texcoords=True)` for GROUNDED ships only.
+- **AO:** `common.bake_vertex_ao` (Cycles AO bake to vertex colours, 96 samples, 0.6 m, each LOD alone) into `COLOR_0.a`. Runtime (`ShipAssembly.withVertexAO`): indirect diffuse × AO, indirect specular × mix(1, AO, 0.7), direct diffuse × mix(1, AO, 0.5). Vertex density is enough on COMET; no atlas fallback needed.
+- **Materials:** `AssetLoader.loadShips` also loads the trim (flipY off, u repeat, v clamp, anisotropy 4). Role materials get `aoMap`/`roughnessMap`/`metalnessMap` = ORM and `normalMap` (normalScale (s, −s): derivative tangents). `assembleShip(…, { lite })`: rivals on Low drop the normal map and clearcoat (warm-up compiles them since they're in the scene).
+- **LOD rule:** your ship is always LOD0 with full materials; rivals High LOD0, Med/Low LOD1, Low lite.
+- **Garage:** turntable always LOD0 + full materials; the key light casts a shadow on the plinth (disc now metalness 0.3, roughness 0.5 so it shows). Orbit: right stick (yaw + clamped pitch), LB/RB zoom, mouse drag (x turn, y tilt) and wheel; it settles back to the auto-spin 1.6 s after the last input. `InputManager.orbitInput()`, `GraphicsSystem.orbitPreview`.
+- **Rumble:** `game/Rumble.ts` on the player's rail/ship hits, boost, landings ≥ 0.35, EMP, mine, destruction; spaced ≥ 90 ms; `InputManager.rumble` feature-detects `vibrationActuator` (nothing on iOS WKWebView, as expected).
+- **Checks:** `check-assets` — ship GLB ≤ 300 KB (COMET 121 KB), trim ≤ 400 KB, ships + parts + trim ≤ 2 MB (632 KB), Khronos `gltf-validator` on every GLB (errors fail), `TEXCOORD_0` on GROUNDED chassis, LOD0 size within ±10% of `HULL_SIZE`.
+- **Not done in V1:** nozzle flare on boost and hover-pad glow (§V.2 animation) → V2; parts keep their M2 look → V2.
+- **Desktop (High, autopilot, Neon Bay, 25 s, headless Chrome on Metal):** before 60 fps, p95 16.8 ms; after 60 fps, p95 16.8 ms. Device fps pending.
 
 **Design decisions (grilling session with the user, 2026-11-07; settled, don't re-open):**
 

@@ -139,8 +139,12 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
 
   // Race from the menu, pause with Escape, quit to the menu from the pause screen.
   await page.getByRole('button', { name: /^RACE/ }).click();
+  // The grid intro card (every racer, portrait and catchphrase) shows first, then the countdown starts by itself.
+  await expect(page.locator('.mz-hud.intro .mz-intro-row')).toHaveCount(8, { timeout: 60_000 });
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toMatch(/countdown|racing/);
   expect(await route(page)).toBe('race');
+  await expect(page.locator('.mz-hud.intro')).toHaveCount(0);
+  await expect(page.locator('.mz-draft')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toBe('paused');
   await page.locator('.mz-pause').getByRole('button', { name: 'MENU' }).click();

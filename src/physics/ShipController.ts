@@ -7,6 +7,7 @@ import { copyControls, neutralControls } from '../core/controls';
 import type { GameBus } from '../core/events';
 import type { HazardPolicy } from '../core/hazards';
 import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
+import { DRAFT } from './Drafting';
 import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 
@@ -375,8 +376,11 @@ export class ShipController {
       const rawThrottle = clamp01(c.throttle);
       const throttle = finished ? Math.min(rawThrottle, 0.6) : rawThrottle;
       const brake = clamp01(c.brake);
-      const topSpeed = this.stats.topSpeed * pace;
-      const boostTop = this.stats.boostTopSpeed * pace;
+      // Slipstream (physics/Drafting.ts): a higher top speed, more thrust and less coast drag.
+      const draft = s.drafting;
+      const topSpeed = this.stats.topSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
+      const boostTop = this.stats.boostTopSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
+      const thrustAccel = this.stats.thrustAccel * (1 + DRAFT.ACCEL_BONUS * draft);
       const limit = boosting ? boostTop : topSpeed;
       const fPos = Math.max(f, 0);
 
@@ -388,7 +392,7 @@ export class ShipController {
         const cap = topSpeed * (0.4 + 0.6 * throttle);
         if (fPos < cap) {
           const x = fPos / cap;
-          f += this.stats.thrustAccel * pace * throttle * (1 - x * x) * authority * dt;
+          f += thrustAccel * pace * throttle * (1 - x * x) * authority * dt;
         }
       }
 
@@ -397,7 +401,7 @@ export class ShipController {
 
       // Coast drag with no throttle and no boost.
       if (throttle <= 0.02 && !boosting) {
-        const k = Math.exp(-CONFIG.COAST_DRAG * dt);
+        const k = Math.exp(-CONFIG.COAST_DRAG * (1 - DRAFT.DRAG_CUT * draft) * dt);
         f *= k;
       }
 
@@ -974,6 +978,7 @@ export class ShipController {
     s.grounded = true;
     s.onDash = false;
     s.airborne = false;
+    s.drafting = 0;
     this.jumping = false;
     this.preVel.copy(s.velocity);
     this.railContact = false;
