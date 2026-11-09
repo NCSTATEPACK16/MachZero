@@ -813,7 +813,7 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 ✅ DONE (PR #27, gate passed 2026-11-08); next V2 + V3 in one session (§V.7)
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 ✅ DONE (PR #27, gate passed 2026-11-08); V2 parts built (PR A, `v2/v2-parts`, awaiting the user's look approval); V3 next (§V.7)
 
 **V1 gate result (2026-11-08):**
 - **Look approved** by the user (2026-11-07).
@@ -839,6 +839,18 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 - **Checks:** `check-assets` — ship GLB ≤ 300 KB (COMET 121 KB), trim ≤ 400 KB, ships + parts + trim ≤ 2 MB (632 KB), Khronos `gltf-validator` on every GLB (errors fail), `TEXCOORD_0` on GROUNDED chassis, LOD0 size within ±10% of `HULL_SIZE`.
 - **Not done in V1:** nozzle flare on boost and hover-pad glow (§V.2 animation) → V2; parts keep their M2 look → V2.
 - **Desktop (High, autopilot, Neon Bay, 25 s, headless Chrome on Metal):** before 60 fps, p95 16.8 ms; after 60 fps, p95 16.8 ms. Device fps pending.
+
+**As built — V2 parts (PR A, branch `v2/v2-parts`)** (read before V3):
+- **Draw-call audit (§V.7 step 1).** `scripts/perf-desktop.mjs` (serve `dist/`, 8-ship Neon Bay autopilot in headless Chrome on Metal, per preset; `--audit` counts one frame's calls by category by hiding groups and re-rendering, on the grid and mid-race).
+  - **The 94 → 220 rise was screenshot timing, not code.** The perf panel's "calls" is one frame's count, and it swings 82–281 within a single race depending on how many ships are on screen. `origin/main` (the old TestFlight code) draws the same 250-call grid frame as M5 + COMET (252: the +2 is §P's mine group).
+  - **Ships were 80% of the worst frame:** 204 of 252 calls on the grid (High), with parts at 114 of them. Each part was multi-role, so each ship's 5 part instances cost about 12 draw calls, more than its chassis (6) and effects (4).
+  - **Fix:** `assembleShip(…, { merge: true })` for rivals bakes chassis + parts into **one mesh per material role** (≤ 6 calls per rival) once per race (`mergeByMaterial`). It dequantises meshopt attributes through `getX…`, flips the winding of the mirrored left booster, keeps COLOR_0.a (AO) and TEXCOORD_0, and gives part vertices body coordinates that no decal covers. The player's ship and the Garage stay unmerged (`setLivery`, part swaps). A unit test checks every chassis × Stock/Prototype × LOD for ≤ 6 meshes with the same triangles and bounds.
+  - **Result (desktop):** grid frame 252 → 161 calls on High/Med and 224 → 141 on Low; race peak 264 → 166; median 114 → 107. p95 unchanged at 16.7–16.8 ms on every preset. Triangles unchanged (135k / 129k / 116k).
+- **Parts** (`blender/parts/build_parts.py`): all 16 rebuilt on the COMET look and the tier ladder. Stock is painted plate. Mk II adds cooling fins (vent/ribbed) and a glow line. Mk III is carbon and brushed metal with machined collars. Prototype has an exposed glowing core: a caged core on the engine, a core band on the booster, a twin element on the stabilizer and a crest over a core window on the hull. Trim UVs on every face, AO baked (`bake_vertex_ao`, 64 samples, 0.25 m), **≤ 3 roles each** (the build fails above that). 24–968 triangles; `parts.glb` 166 KB (was 102 KB). Sizes stay at the M2 parts', so they sit on COMET's sockets and the 5 legacy chassis (checked on TITAN in the Garage). There are no `_heavy` class variants: none existed, and the runtime only asks for `<slot>_t<tier>`.
+- **Nozzle flare and hover-pad glow (§V.2), 0 extra draw calls.** The flare is one quad per nozzle inside the existing merged flame mesh (`aFlare` attribute; a hot core with a horizontal streak). It bursts when a boost starts (decays over ~0.45 s) and holds at 0.6 × the boost level while boosting. The pads are four hot spots in the hover-pool shader under the hull sides, fore and aft: brightest at the bottom of the bob, fading to 25% by 90 m/s. Both use the livery glow colour and are off for rivals on Low (`ShipModel` option `fxLite`).
+- **Checks:** `check-assets`: ≤ 3 primitives, `TEXCOORD_0` and `COLOR_0` on every part; ≤ 6 primitives per chassis LOD. `e2e/garage.spec.ts`: on each of Low, Med and High, cycle every chassis × tier (all four slots at each tier) on the turntable, then start a race (merged rivals), with no console errors. `blender/tools/preview.py --parts` renders the parts sheet (`docs/v2/shots/v2/parts-sheet.jpg`).
+- **Tests:** 445 unit/sim tests in 52 files; e2e 13/13. App JS 324.8 KB gzip; `public/game` 944 KB; ship assets (ships + parts + trim) 714 KB of 2 MB.
+- **Commit granularity:** the four slots landed in one commit (they share one script and one GLB) instead of one commit per slot.
 
 **Design decisions (grilling session with the user, 2026-11-07; settled, don't re-open):**
 

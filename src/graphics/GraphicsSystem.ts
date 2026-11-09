@@ -468,13 +468,14 @@ export class GraphicsSystem implements IGraphicsSystem {
   addShip(ship: ShipState): void {
     if (this.models.has(ship.def.id)) return;
     // Ship LOD and materials (§V.2): your ship is always LOD0 with full materials. Rivals: High LOD0; Med and
-    // Low LOD1, and on Low without normal maps or clearcoat.
+    // Low LOD1, and on Low without normal maps or clearcoat. Rivals' parts are baked into the chassis, one mesh per
+    // role (§V.7 step 1: parts were half of every ship's draw calls).
     const q = this.quality.level;
     const player = ship.def.isPlayer;
     const lod: 0 | 1 = player || q === 'high' ? 0 : 1;
     const lite = !player && q === 'low';
-    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod, { lite }) : null;
-    const model = new ShipModel(ship, assembled);
+    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod, { lite, merge: !player }) : null;
+    const model = new ShipModel(ship, assembled, { fxLite: lite });
     this.models.set(ship.def.id, model);
     this.modelList.push(model);
     this.scene.add(model.root);

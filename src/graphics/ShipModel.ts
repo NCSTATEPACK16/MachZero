@@ -263,16 +263,22 @@ const FLAME_VERT = /* glsl */ `
   uniform float uRad;
   uniform float uPodX;
   uniform float uNy;
+  uniform float uFlare;
+  attribute float aFlare;
   varying vec2 vUv;
   varying vec3 vN;
   varying vec3 vV;
+  varying float vFlare;
   void main() {
     vUv = uv;
+    vFlare = aFlare;
     vec3 p = position;
     float cx = sign(p.x) * uPodX;
-    p.z = uBaseZ + (p.z - uBaseZ) * uLen;
-    p.x = cx + (p.x - cx) * uRad;
-    p.y = uNy + (p.y - uNy) * uRad;
+    // aFlare = 1: the nozzle flare quad (§V.2), sized by uFlare and not stretched with the flame
+    float k = mix(uRad, uFlare, aFlare);
+    p.z = mix(uBaseZ + (p.z - uBaseZ) * uLen, p.z, aFlare);
+    p.x = cx + (p.x - cx) * k;
+    p.y = uNy + (p.y - uNy) * k;
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     vN = normalize(normalMatrix * normal);
     vV = normalize(-mv.xyz);
@@ -285,10 +291,22 @@ const FLAME_FRAG = /* glsl */ `
   uniform vec3 uCore;
   uniform float uIntensity;
   uniform float uTime;
+  uniform float uFlare;
   varying vec2 vUv;
   varying vec3 vN;
   varying vec3 vV;
+  varying float vFlare;
   void main() {
+    if (vFlare > 0.5) {
+      // nozzle flare: a hot core with a horizontal streak and a weaker vertical one
+      vec2 q = (vUv - 0.5) * 2.0;
+      float r = length(q);
+      float core = exp(-r * r * 9.0);
+      float streak = exp(-abs(q.y) * 26.0) * (1.0 - abs(q.x)) + 0.5 * exp(-abs(q.x) * 30.0) * (1.0 - abs(q.y));
+      float fa = clamp((core + 0.6 * streak) * min(uFlare * 1.6, 1.0), 0.0, 1.0);
+      gl_FragColor = vec4(mix(uCore, uColor, smoothstep(0.05, 0.6, r)) * 2.2, fa);
+      return;
+    }
     float along = vUv.y;
     float fres = abs(dot(normalize(vN), normalize(vV)));
     float flick = 0.88 + 0.12 * sin(uTime * 60.0 + along * 9.0);
@@ -310,13 +328,19 @@ const POOL_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uIntensity;
   uniform float uTime;
+  uniform float uPad;
+  uniform vec2 uPadPos;
   varying vec2 vUv;
   void main() {
     vec2 p = (vUv - 0.5) * 2.0;
     float r = length(p);
     float a = pow(clamp(1.0 - r, 0.0, 1.0), 2.0);
     float rings = 0.85 + 0.15 * sin(r * 14.0 - uTime * 8.0);
-    gl_FragColor = vec4(uColor * uIntensity * (0.5 + 0.9 * a) * rings, a * clamp(uIntensity, 0.0, 1.0));
+    // hover pads (§V.2): four hot spots under the hull, pulsing with the bob and fading with speed (uPad)
+    vec2 d = (abs(vUv - 0.5) - uPadPos) / vec2(0.045, 0.06);
+    float pads = exp(-dot(d, d) * 1.4) * uPad;
+    vec3 col = uColor * uIntensity * (0.5 + 0.9 * a) * rings + mix(uColor, vec3(1.0), 0.35) * pads * 1.8;
+    gl_FragColor = vec4(col, clamp(a * clamp(uIntensity, 0.0, 1.0) + pads, 0.0, 1.0));
   }
 `;
 
@@ -437,6 +461,11 @@ export class ShipModel {
   private readonly itemShield: THREE.Mesh;
   private readonly itemShieldMat: THREE.ShaderMaterial;
   private crackTime = 0;
+  /** Rivals on Low (§V.2): no nozzle flare or hover-pad glow. */
+  private readonly fxLite: boolean;
+  private wasBoosting = false;
+  /** Nozzle flare burst at boost start, decaying (0..1). */
+  private flareKick = 0;
   private readonly disposables: { dispose(): void }[] = [];
   /** Class size (content/ships CLASS_SCALE), matching the physics collider. */
   private readonly scale: number;
@@ -448,9 +477,10 @@ export class ShipModel {
   private poseInit = false;
 
   /** `assembled`: a GLB ship from ShipAssembly; without it the v1 procedural ship is built (fallback). */
-  constructor(ship: ShipState, assembled: AssembledShip | null = null) {
+  constructor(ship: ShipState, assembled: AssembledShip | null = null, opts: { fxLite?: boolean } = {}) {
     this.ship = ship;
     this.assembled = assembled;
+    this.fxLite = opts.fxLite === true;
     // v1 roster (no loadout): the four original designs by id.
     const loadout = ship.def.loadout;
     const variant = loadout ? (CHASSIS_DESIGN[loadout.chassisId] ?? 0) : ship.def.id % 4;
@@ -646,7 +676,13 @@ export class ShipModel {
       cone.translate(0, 0.5, 0);
       cone.rotateX(Math.PI / 2);
       cone.translate(sign * lay.podX, lay.nozzleY, lay.podZ1 + 0.02);
+      cone.setAttribute('aFlare', new THREE.Float32BufferAttribute(new Float32Array(cone.attributes.position.count), 1));
       coneGeos.push(cone);
+      // nozzle flare quad, facing the rear (+Z); its size is uFlare (0 = hidden)
+      const flare = new THREE.PlaneGeometry(lay.podR * 6.5, lay.podR * 3.6);
+      flare.translate(sign * lay.podX, lay.nozzleY, lay.podZ1 + 0.06);
+      flare.setAttribute('aFlare', new THREE.Float32BufferAttribute(new Float32Array(flare.attributes.position.count).fill(1), 1));
+      coneGeos.push(flare);
     }
     const flameGeo = mergeGeometries(coneGeos)!;
     for (const g of coneGeos) g.dispose();
@@ -663,6 +699,7 @@ export class ShipModel {
         uRad: { value: 1 },
         uPodX: { value: lay.podX },
         uNy: { value: lay.nozzleY },
+        uFlare: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -697,7 +734,14 @@ export class ShipModel {
     this.poolMat = new THREE.ShaderMaterial({
       vertexShader: POOL_VERT,
       fragmentShader: POOL_FRAG,
-      uniforms: { uColor: { value: glow.clone() }, uIntensity: { value: 1 }, uTime: { value: 0 } },
+      uniforms: {
+        uColor: { value: glow.clone() },
+        uIntensity: { value: 1 },
+        uTime: { value: 0 },
+        uPad: { value: 0 },
+        // pad centres in pool UV, from the pool centre: under the hull sides, fore and aft
+        uPadPos: { value: new THREE.Vector2((lay.hullHW * 0.72) / (3.6 * (0.9 + lay.hullHW * 0.2)), 1.25 / 6.4) },
+      },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -825,6 +869,11 @@ export class ShipModel {
     fu.uLen.value = 0.35 + 1.1 * throttle + 3.4 * boostK + Math.sin(time * 40 + this.phase) * 0.06;
     fu.uRad.value = 1 + 0.5 * boostK;
     fu.uTime.value = time;
+    // nozzle flare: a burst when a boost starts, then a steady flare while it lasts
+    if (s.boosting && !this.wasBoosting) this.flareKick = 1;
+    this.wasBoosting = s.boosting;
+    this.flareKick = Math.max(0, this.flareKick - dt * 2.2);
+    fu.uFlare.value = this.fxLite || !live ? 0 : Math.max(0.6 * boostK, this.flareKick);
     (fu.uColor.value as THREE.Color).copy(this.glowColor);
     (fu.uCore.value as THREE.Color).setRGB(1, 0.95 - 0.2 * boostK, 0.85 - 0.4 * boostK);
 
@@ -834,6 +883,11 @@ export class ShipModel {
     this.pool.visible = lift > 0.02;
     this.poolMat.uniforms.uIntensity.value = pulse * lift * (0.75 + 0.35 * Math.min(1.5, this.engine));
     this.poolMat.uniforms.uTime.value = time;
+    // hover pads: brightest at the bottom of the bob, fading as speed builds
+    const t0 = time + this.phase;
+    const bob = Math.sin(t0 * 2.1) * 0.025 + Math.sin(t0 * 5.3) * 0.01;
+    const slow = 1 - 0.75 * clamp01(Math.abs(s.speed) / 90);
+    this.poolMat.uniforms.uPad.value = this.fxLite ? 0 : lift * slow * (0.6 + 0.4 * clamp01(0.5 - bob / 0.07));
 
     // air-brake flaps
     this.openL = damp(this.openL, clamp01(controls.airbrakeLeft), 14, dt);
@@ -875,6 +929,8 @@ export class ShipModel {
     this.crackTime = 0;
     this.itemShield.visible = false;
     this.engine = 0.4;
+    this.flareKick = 0;
+    this.wasBoosting = false;
     this.openL = 0;
     this.openR = 0;
     this.poseInit = false;

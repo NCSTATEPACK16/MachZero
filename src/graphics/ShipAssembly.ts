@@ -175,6 +175,110 @@ const PART_SOCKET: Record<PartSlot, string[]> = {
 export interface AssembleOptions {
   /** Cheaper materials (rivals on the Low preset, §V.2): no normal map or clearcoat. */
   lite?: boolean;
+  /**
+   * Bake the parts into the chassis: one mesh per material role (≤ 6 draw calls for the whole ship instead of
+   * ≈ 18). For rivals (§V.7 step 1); the player's ship and the Garage stay separate so part previews can swap.
+   */
+  merge?: boolean;
+}
+
+/**
+ * Body coordinates for merged part vertices that every decal mask maps to 0 (parts are decal-free, see
+ * DECAL_GLSL): u = 0 is behind every along-the-ship mask, w = 0.51 is under the top masks and over the split.
+ */
+const NO_DECAL_BODY = [0, 0.5, 0.51] as const;
+
+interface MergeSource {
+  mesh: THREE.Mesh;
+  /** Mesh space → assembly root space. */
+  matrix: THREE.Matrix4;
+  part: boolean;
+}
+
+/**
+ * One geometry per material from many meshes (positions and normals in root space, COLOR_0 and TEXCOORD_0 kept;
+ * a mesh without UVs gets (0, 0), the neutral strip, as when drawn on its own). Quantised or interleaved
+ * attributes are read through getX..getW, so meshopt's normalised ints dequantise; mirrored meshes (the left
+ * booster) get their winding flipped, which the renderer otherwise does from the negative determinant.
+ */
+export function mergeByMaterial(sources: MergeSource[]): Map<THREE.Material, THREE.BufferGeometry> {
+  const groups = new Map<THREE.Material, { src: MergeSource; start: number; count: number }[]>();
+  for (const src of sources) {
+    const geo = src.mesh.geometry;
+    const mats = Array.isArray(src.mesh.material) ? src.mesh.material : [src.mesh.material];
+    const ranges = geo.groups.length > 0 && Array.isArray(src.mesh.material) ? geo.groups : [{ start: 0, count: geo.index ? geo.index.count : geo.attributes.position.count, materialIndex: 0 }];
+    for (const r of ranges) {
+      const mat = mats[r.materialIndex ?? 0];
+      if (!mat) continue;
+      if (!groups.has(mat)) groups.set(mat, []);
+      groups.get(mat)!.push({ src, start: r.start, count: r.count });
+    }
+  }
+  const out = new Map<THREE.Material, THREE.BufferGeometry>();
+  const p = new THREE.Vector3();
+  const nm = new THREE.Matrix3();
+  for (const [mat, list] of groups) {
+    let verts = 0;
+    let idx = 0;
+    for (const g of list) {
+      verts += g.src.mesh.geometry.attributes.position.count;
+      idx += g.count;
+    }
+    const pos = new Float32Array(verts * 3);
+    const nor = new Float32Array(verts * 3);
+    const col = new Float32Array(verts * 4);
+    const uv = new Float32Array(verts * 2);
+    const index = new Uint32Array(idx);
+    let vo = 0;
+    let io = 0;
+    for (const { src, start, count } of list) {
+      const geo = src.mesh.geometry;
+      const P = geo.attributes.position;
+      const N = geo.attributes.normal as THREE.BufferAttribute | undefined;
+      const C = geo.attributes.color as THREE.BufferAttribute | undefined;
+      const T = geo.attributes.uv as THREE.BufferAttribute | undefined;
+      nm.getNormalMatrix(src.matrix);
+      for (let i = 0; i < P.count; i++) {
+        p.fromBufferAttribute(P, i).applyMatrix4(src.matrix).toArray(pos, (vo + i) * 3);
+        if (N) p.fromBufferAttribute(N, i).applyMatrix3(nm).normalize().toArray(nor, (vo + i) * 3);
+        const c = (vo + i) * 4;
+        if (src.part) {
+          col[c] = NO_DECAL_BODY[0];
+          col[c + 1] = NO_DECAL_BODY[1];
+          col[c + 2] = NO_DECAL_BODY[2];
+        } else if (C) {
+          col[c] = C.getX(i);
+          col[c + 1] = C.getY(i);
+          col[c + 2] = C.getZ(i);
+        }
+        col[c + 3] = C && C.itemSize > 3 ? C.getW(i) : 1;
+        if (T) {
+          uv[(vo + i) * 2] = T.getX(i);
+          uv[(vo + i) * 2 + 1] = T.getY(i);
+        }
+      }
+      const flip = src.matrix.determinant() < 0;
+      const I = geo.index;
+      for (let k = 0; k < count; k += 3) {
+        const a = I ? I.getX(start + k) : start + k;
+        const b = I ? I.getX(start + k + 1) : start + k + 1;
+        const c = I ? I.getX(start + k + 2) : start + k + 2;
+        index[io++] = vo + a;
+        index[io++] = vo + (flip ? c : b);
+        index[io++] = vo + (flip ? b : c);
+      }
+      vo += P.count;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    geo.computeBoundingSphere();
+    out.set(mat, geo);
+  }
+  return out;
 }
 
 export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1, opts: AssembleOptions = {}): AssembledShip | null {
@@ -227,6 +331,29 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1, o
     mesh.castShadow = !onlyGlow;
   });
 
+  // Rivals: bake chassis + parts into one mesh per role (the part primary joins the decal primary: merged part
+  // vertices carry body coordinates no decal covers).
+  const merged: THREE.BufferGeometry[] = [];
+  if (opts.merge) {
+    root.updateWorldMatrix(true, true);
+    const sources: MergeSource[] = [];
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((m) => (m === partPrimary ? mats.livery_primary : m));
+      else if (mesh.material === partPrimary) mesh.material = mats.livery_primary;
+      sources.push({ mesh, matrix: mesh.matrixWorld.clone(), part: inPart.has(mesh) });
+    });
+    root.clear();
+    for (const [mat, geo] of mergeByMaterial(sources)) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = `${loadout.chassisId}_merged_${(Object.keys(ROLE_NAMES) as (keyof typeof ROLE_NAMES)[]).find((k) => mats[k] === mat) ?? 'part'}`;
+      mesh.castShadow = mat !== mats.glow;
+      root.add(mesh);
+      merged.push(geo);
+    }
+  }
+
   const pos = (name: string, fallback: THREE.Vector3) => {
     const m = sockets.get(name);
     return m ? new THREE.Vector3().setFromMatrixPosition(m) : fallback;
@@ -257,6 +384,9 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1, o
       mats.glow.color.set(l.glow);
       mats.glass.emissive.set(l.glow);
     },
-    dispose: () => owned.forEach((m) => m.dispose()), // geometry is shared with the cached GLB
+    dispose: () => {
+      owned.forEach((m) => m.dispose());
+      merged.forEach((g) => g.dispose()); // other geometry is shared with the cached GLB
+    },
   };
 }

@@ -133,3 +133,42 @@ test('cycling ships on the turntable does not grow GPU memory', async ({ page })
   expect(after.textures).toBeLessThanOrEqual(base.textures + 2);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+// §V V2: every chassis × slot × tier renders (the Garage turntable draws LOD0 with full materials), and a race
+// on each preset builds its rivals (merged parts, LOD1 and lite materials on Low) without a console error.
+for (const quality of ['low', 'med', 'high'] as const) {
+  test(`every chassis and part tier renders on ${quality}`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto(`/?features=profiles&debug=1&quality=${quality}`);
+    await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+    await page.evaluate(() => {
+      const d = (window as unknown as { __machzero: Debug & { app: { buyPart(s: string, t: number): string; equipPart(s: string, t: number): boolean } } }).__machzero;
+      d.app.createProfile('PARTS', 2, 'classic');
+      d.grantCredits(100_000);
+      for (const s of ['engine', 'booster', 'stabilizer', 'hull']) for (const t of [1, 2, 3]) d.app.buyPart(s, t);
+    });
+    await page.getByRole('button', { name: /^GARAGE/ }).click();
+    await expect(screen(page)).toHaveAttribute('data-screen', 'garage');
+    const frames = () => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+    for (const id of ['dart', 'wisp', 'comet', 'arrow', 'titan', 'bastion']) {
+      for (const tier of [0, 1, 2, 3]) {
+        await page.evaluate(
+          ([c, t]) => {
+            const d = (window as unknown as { __machzero: { app: { selectChassis(c: string): void; equipPart(s: string, t: number): boolean } } }).__machzero;
+            d.app.selectChassis(c as string);
+            for (const s of ['engine', 'booster', 'stabilizer', 'hull']) d.app.equipPart(s, t as number);
+          },
+          [id, tier] as const,
+        );
+        await frames();
+      }
+      await expect(page.locator('.mzu-stage-label')).toContainText(id.toUpperCase());
+    }
+    expect(await dbg(page, (d) => Boolean(d.app.graphics.preview?.model))).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^RACE/ }).click();
+    await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 60_000 }).toMatch(/countdown|racing/);
+    await frames();
+    expect(errors, errors.join('\n')).toEqual([]);
+  });
+}
