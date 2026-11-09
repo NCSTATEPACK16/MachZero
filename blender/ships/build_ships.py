@@ -818,9 +818,116 @@ def build_titan(lod_level, bounds):
     return mb.finish(bounds)
 
 
+
+# ------------------------------------------------------------------------------------------------- BASTION
+# assets/reference/ships/bastion/chosen.jpg: COMET's layout made boxier and wider. Green paint with a wide silver
+# spine and lower chine, flat armour panels, lime glow strips, a dark ram mouth, louvred side scoops, square-edged
+# pods with large grille intakes behind silver collars and a hazard-stripe band (geometry stripes in the dark and
+# glow roles, not a texture), grab rails along the deck, a wide canopy, small canards, swept wings with carbon
+# trailing edges and twin canted fins.
+BASTION = dict(hullHW=0.7, hullTop=0.13, podX=1.0, podR=0.3, podZ0=-0.1, podZ1=1.8, noseZ=-2.2, tailZ=2.1, halfW=1.42,
+               stabSock=(1.4, 0.12))
+BASTION_PROFILE = [
+    (0.0, 0.62, -0.34, -0.04),
+    (0.03, 0.72, -0.38, 0.0),
+    (0.08, 0.82, -0.41, 0.05),
+    (0.18, 0.88, -0.43, 0.09),
+    (0.32, 0.92, -0.44, 0.12),
+    (0.48, 0.95, -0.44, 0.13),
+    (0.62, 0.97, -0.43, 0.13),
+    (0.76, 0.95, -0.41, 0.12),
+    (0.88, 0.88, -0.37, 0.09),
+    (1.0, 0.78, -0.32, 0.05),
+]
+
+
+def bastion_paint(s, t):
+    if s < 0.03:
+        return "dark", "brushed"
+    if abs(t - 0.25) < 0.1 and s < 0.66:
+        return "livery_secondary", "plate"  # wide silver spine, nose to canopy
+    if abs(t - 0.75) < 0.12:
+        return "dark", "grip"
+    if 0.85 < t < 0.95 or 0.55 < t < 0.65:
+        return "livery_secondary", "plate"  # silver lower chine
+    return "livery_primary", "panel"
+
+
+def hazard_band(mb, x, y0, y1, z0, z1, n):
+    """Diagonal hazard stripes on a flat band at x (facing outwards): alternating dark and glow slanted quads."""
+    sign = 1 if x > 0 else -1
+    step = (y1 - y0) / n
+    lean = (z1 - z0) * 0.6
+    for i in range(n):
+        role = "dark" if i % 2 == 0 else "glow"
+        ya, yb = y0 + i * step, y0 + (i + 1) * step
+        quad = [(x, ya, z0), (x, yb, z0), (x, yb + lean, z1), (x, ya + lean, z1)]
+        if sign < 0:
+            quad = list(reversed(quad))
+        mb.add_faces(quad, [(0, 1, 2, 3)], role, "flat" if role == "glow" else "grip")
+
+
+def build_bastion(lod_level, bounds):
+    d = BASTION
+    detail = lod_level == 0
+    mb = C.MeshBuilder(f"bastion_LOD{lod_level}")
+    hw, top = d["hullHW"], d["hullTop"]
+    rows = hull_rows(BASTION_PROFILE, hw, d["noseZ"], d["tailZ"], detail)
+    ring = 40 if detail else 16
+    comet_loft(mb, rows, ring, 3.6, bastion_paint, 4)
+    tail_bay(mb, detail, rows, hw, 3.6)
+    _s, y_n, cz_n, hw_n, hh_n = rows[-1]
+    mouth = [(y_n - 0.42, 0.0, cz_n - 0.01, hw_n * 0.62, hh_n * 0.55), (y_n - 0.08, 0.0, cz_n, hw_n * 0.8, hh_n * 0.76), (y_n + 0.005, 0.0, cz_n, hw_n * 0.86, hh_n * 0.84)]
+    C.loft(mb, mouth, ring, 3.6, "dark", cap_start=True, cap_end=False, strip="vent")
+    canopy(mb, detail, top, 0.46, 0.27, 1.05, -0.3, frame_role="livery_secondary", frame_strip="plate", frame_w=0.07)
+    for sign in (-1, 1):
+        # louvred side scoops (twin, dark) and lime strips above them
+        for (za, zb) in ((-0.95, -0.65), (-0.55, -0.2)):
+            x_in, x_out = sign * hw * 0.88, sign * hw * 1.03
+            sc = [(x_in, y_of(zb)), (x_out, y_of(zb)), (x_out, y_of(za) - 0.04), (x_in, y_of(za))]
+            C.slab(mb, mirror_outline(sc, sign), -0.28, -0.04, "dark", strip="vent", edge_strip="carbon")
+        gx = sign * hw * 0.96
+        C.slab(mb, mirror_outline([(gx - 0.012, y_of(0.9)), (gx + 0.012, y_of(0.9)), (gx + 0.012, y_of(-1.2)), (gx - 0.012, y_of(-1.2))], sign), 0.02, 0.05, "glow", strip="flat")
+        # grab rails along the deck
+        if detail:
+            rx = sign * hw * 0.62
+            beam(mb, (rx, y_of(-1.55), top - 0.01), (rx, y_of(-0.95), top + 0.03), 0.025, 0.025, "metal", "brushed")
+            beam(mb, (rx, y_of(-0.95), top + 0.03), (rx, y_of(0.25), top + 0.04), 0.025, 0.025, "metal", "brushed")
+        # small canards near the nose
+        can = [(sign * hw * 0.9, y_of(-1.55)), (sign * (hw + 0.36), y_of(-1.3)), (sign * (hw + 0.36), y_of(-1.15)), (sign * hw * 0.9, y_of(-1.2))]
+        C.slab(mb, mirror_outline(can, sign), -0.24, -0.19, "livery_primary", strip="panel", edge_strip="grip")
+        # square-edged pod: silver collar, big grille intake, hazard band on the lower flank
+        px, r = sign * d["podX"], d["podR"]
+        pod(mb, detail, sign, px, r, d["podZ0"], d["podZ1"], main=("livery_primary", "panel"), collar=("livery_secondary", "plate"), collar_s=0.18, power=3.5, intake="grille",
+            prof=[(0.0, 0.88), (0.05, 0.98), (0.12, 1.0), (0.18, 1.0), (0.5, 1.0), (0.82, 1.0), (0.92, 0.94), (1.0, 0.84)])
+        if detail:
+            hazard_band(mb, px + sign * (r + 0.004), y_of(1.45), y_of(0.6), POD_Z - 0.2, POD_Z - 0.1, 10)
+        # carbon pylon to the hull with a silver cap
+        x0, x1 = sign * hw * 0.85, sign * (d["podX"] - r * 0.6)
+        pyl = [(x0, y_of(1.55)), (x1, y_of(1.55)), (x1, y_of(0.3)), (x0, y_of(0.05))]
+        C.slab(mb, mirror_outline(pyl, sign), POD_Z - 0.08, POD_Z + 0.04, "dark", strip="carbon", edge_strip="grip")
+        # swept wing outboard: green with a carbon trailing edge and a lime tip light
+        xw0, xw1 = sign * (d["podX"] + r * 0.6), sign * d["halfW"]
+        wing = [(xw0, y_of(0.7)), (xw1, y_of(1.1)), (xw1, y_of(1.38)), (xw0, y_of(1.45))]
+        trail = [(xw0, y_of(1.45)), (xw1, y_of(1.38)), (xw1, y_of(1.55)), (xw0, y_of(1.62))]
+        C.slab(mb, mirror_outline(wing, sign), POD_Z - 0.025, POD_Z + 0.025, "livery_primary", strip="panel", edge_strip="grip")
+        C.slab(mb, mirror_outline(trail, sign), POD_Z - 0.025, POD_Z + 0.02, "dark", strip="carbon")
+        if detail:
+            C.slab(mb, mirror_outline([(xw1 - sign * 0.03, y_of(1.2)), (xw1, y_of(1.2)), (xw1, y_of(1.36)), (xw1 - sign * 0.03, y_of(1.36))], sign), POD_Z - 0.03, POD_Z + 0.03, "glow", strip="flat")
+        # twin canted fins, green with silver leading tips
+        fx = sign * hw * 0.5
+        C.fin(mb, top - 0.03, 0.48, 0.85, 0.36, 0.45, 0.06, "livery_primary", x=fx, cant=sign * 0.38, strip="panel", y=y_of(1.6))
+        if detail:
+            C.fin(mb, top - 0.03 + 0.42, 0.08, 0.5, 0.4, 0.06, 0.066, "livery_secondary", x=fx + sign * math.sin(0.38) * 0.42, cant=sign * 0.38, strip="plate", y=y_of(1.6) - 0.43)
+    # lime band behind the canopy
+    if detail:
+        C.slab(mb, [(-0.2, y_of(0.36)), (0.2, y_of(0.36)), (0.2, y_of(0.3)), (-0.2, y_of(0.3))], top - 0.005, top + 0.014, "glow", strip="flat")
+    return mb.finish(bounds)
+
+
 # chassis -> (builder, socket/bounds parameters); the rest still use build_ship + DESIGNS until V3 replaces them
 COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, noseZ=HULL_NOSE_Z, halfW=1.28)
-GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW), "titan": (build_titan, TITAN)}
+GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW), "titan": (build_titan, TITAN), "bastion": (build_bastion, BASTION)}
 
 
 def ship_bounds(d):
