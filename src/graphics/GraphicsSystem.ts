@@ -475,7 +475,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     const lod: 0 | 1 = player || q === 'high' ? 0 : 1;
     const lite = !player && q === 'low';
     const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod, { lite, merge: !player }) : null;
-    const model = new ShipModel(ship, assembled);
+    const model = new ShipModel(ship, assembled, { fxLite: lite });
     this.models.set(ship.def.id, model);
     this.modelList.push(model);
     this.scene.add(model.root);

@@ -21,6 +21,8 @@ export const BUDGET = {
   lod0: 12000,
   lod1: 4000,
   part: 1500,
+  partPrimitives: 3, // §V.7: at most 3 material roles (= draw calls) per part
+  lodPrimitives: 6, // one per role
   shipBytes: 300 * 1024, // §V.4 (was 400)
   partsBytes: 600 * 1024,
   trimBytes: 400 * 1024, // the shared trim sheet, all its textures
@@ -126,6 +128,7 @@ export async function checkAssets(root = resolve(import.meta.dirname, '..')) {
       const max = lod === 0 ? BUDGET.lod0 : BUDGET.lod1;
       if (tris > max) problems.push(`ships/${id}.glb: LOD${lod} has ${tris} triangles > ${max}`);
       if (!mesh.listPrimitives().every((p) => p.getAttribute('COLOR_0'))) problems.push(`ships/${id}.glb: LOD${lod} lacks COLOR_0 (decal coordinates)`);
+      if (mesh.listPrimitives().length > BUDGET.lodPrimitives) problems.push(`ships/${id}.glb: LOD${lod} has ${mesh.listPrimitives().length} primitives > ${BUDGET.lodPrimitives}`);
       if (GROUNDED.includes(id) && !mesh.listPrimitives().every((p) => p.getAttribute('TEXCOORD_0'))) problems.push(`ships/${id}.glb: LOD${lod} lacks TEXCOORD_0 (trim sheet UVs)`);
       if (lod === 0) {
         const b = getBounds(n);
@@ -174,13 +177,20 @@ export async function checkAssets(root = resolve(import.meta.dirname, '..')) {
           continue;
         }
         let tris = 0;
+        const prims = [];
         node.traverse((n) => {
           const m = n.getMesh();
-          if (m) tris += triangles(m);
+          if (m) {
+            tris += triangles(m);
+            prims.push(...m.listPrimitives());
+          }
         });
         report[name] = tris;
         if (tris === 0) problems.push(`parts.glb: "${name}" has no mesh`);
         if (tris > BUDGET.part) problems.push(`parts.glb: "${name}" has ${tris} triangles > ${BUDGET.part}`);
+        if (prims.length > BUDGET.partPrimitives) problems.push(`parts.glb: "${name}" has ${prims.length} primitives > ${BUDGET.partPrimitives}`);
+        if (!prims.every((p) => p.getAttribute('TEXCOORD_0'))) problems.push(`parts.glb: "${name}" lacks TEXCOORD_0 (trim sheet UVs, §V V2)`);
+        if (!prims.every((p) => p.getAttribute('COLOR_0'))) problems.push(`parts.glb: "${name}" lacks COLOR_0 (baked AO)`);
       }
     }
     problems.push(...materialProblems(doc, 'parts.glb'));
