@@ -813,9 +813,21 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 in review (PR #27, at the gate)
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 ✅ DONE (PR #27, gate passed 2026-11-08); next V2 + V3 in one session (§V.7)
 
-**As built — V1 COMET (PR #27, at the gate: waiting on the user's look approval and iPhone/iPad fps)** (read before V2):
+**V1 gate result (2026-11-08):**
+- **Look approved** by the user (2026-11-07).
+- **Device fps:** the user ran an 8-ship Neon Bay race on the iPhone (the screenshot aspect matches the iPhone 18 Pro Max), with the performance panel on, before and after COMET. The device auto-picked **Med** (render ×1.50, dynamic resolution 100% throughout).
+
+  | Build | fps | p50 / p95 / p99 (ms) | CPU sim / upd / draw (ms) | Draw calls | Triangles | Missed | Hitches (worst) |
+  |---|---|---|---|---|---|---|---|
+  | Before (the TestFlight build at the time, pre-M5) | 60 | 17.0 / 17.0 / 17.0 | 0.9 / 0.4 / 1.2 | 94 | 122k | 0.1% | 1 (151 ms) |
+  | After (`v2/gp-grand-prix` with M5 + COMET) | 60 | 17.0 / 17.0 / 18.0 | 1.2 / 0.5 / 1.0 | 220 | 145k | 0.1% | 1 (105 ms) |
+
+  **p95 unchanged, so V1 passes.** The user approved going ahead ("looks great") **without an iPad reading**: the iPad Air reading moves to V3's gate.
+- **Watch item: draw calls rose 94 → 220.** This is not COMET's mesh: every ship LOD has 6 primitives, before and after. The "before" build also lacked §P, §GP and M5, so the rise is from those or from the per-ship trim/lite material split. Frame time didn't move, but V2/V3 must not add to it. See the draw-call rule in §V.7.
+
+**As built — V1 COMET (PR #27)** (read before V2):
 - **Model:** `blender/ships/build_ships.py` `build_comet` (GROUNDED chassis; the other 5 still use `build_ship` until V3), from `assets/reference/ships/comet/chosen.jpg`: blue tube fuselage with a painted scheme by position (white spine stripe nose → canopy, white lower chine, dark belly), a dark ram-intake mouth with a louvred tunnel, bubble canopy in a white surround, dark louvred side scoops with cyan strips, short pods at the rear on carbon outrigger pylons (white intake collars, glowing turbine faces, ribbed nozzles), swept white wings outboard of the pods with carbon trailing edges, twin canted tail fins with blue tips. LOD0 5,628 tris, LOD1 1,314. Size 2.74 × 1.03 × 4.53 m (pre-§V 2.56 × 1.04 × 4.52; width +7%, inside ±10%). Sockets moved with the pods (exhausts at the new pod tails; boosters on the pod flanks).
 - **Trim sheet:** `blender/textures/build_trim.py`, 8 strips × 128 px (panel, plate, carbon, brushed, vent, ribbed, grip, flat; `common.TRIM_BANDS`). **Deviation:** the strips are numpy height fields (normals from the gradient, AO from a multi-radius cavity term) instead of a Cycles bake of modelled strips: exact, deterministic, ~1 s. Blender writes PNGs; `npm run assets -- trim` ships WebP via sharp: `trim_normal.webp` 105 KB + `trim_orm.webp` 76 KB = 181 KB (budget 400). The neutral `flat` strip sits where UV (0, 0) samples, so meshes without UVs (parts, other chassis) render exactly as before.
 - **UVs:** `common.py` helpers take `strip=` (loft: u along the tube, the circumference split into panels that each span the strip; slab: caps u along y / f across x, sides u along the edge; fin, torus, disc likewise). `export_glb(..., texcoords=True)` for GROUNDED ships only.
@@ -884,6 +896,112 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 ### V.6 Not adopted from the cross-game asset-pipeline doc (decided, 2026-11-07)
 
 The user's `ASSET_PIPELINE.md` (written for GolfCartSimulator) was reviewed. Adopted: scripted headless export (already the case), glTF Transform optimisation (already), CI validation and budget enforcement, `assets/LICENSES.md`, `assets/reference/`, and AO/normal/roughness for realism instead of triangle count. **Not adopted:** GIS terrain, Git LFS (assets total under 1 MB), a shared `asset-tools` repo (maybe later, if a second game uses the same scripts), Windows-PC offloading (no job is heavy enough), and KTX2 (for now).
+
+### V.7 V2 + V3 build plan: one session, two PRs (agreed 2026-11-08)
+
+The user asked for the rest of the ships "in one big session". One session builds both, as **two stacked PRs**: the parts are shared by every chassis, and each PR gets its own preview to review.
+- **PR A, V2:** the 16 parts, plus the V1 leftovers (nozzle flare, hover-pad glow).
+- **PR B, V3:** the other 5 chassis.
+
+Commit after each part slot and each chassis, and push PR A before starting V3, so a usage-limit stop loses little. The first M5 session stopped partway through.
+
+**Step 0: setup and baseline**
+- Branch `v2/v2-parts` from the newest open stack branch (`v2/gp-grand-prix` while #24 is open), and later `v2/v3-chassis` from `v2/v2-parts`.
+- Read "As built — V1 COMET" above. It covers the trim strips (`common.TRIM_BANDS`), the `strip=` UV helpers, `bake_vertex_ao`, `export_glb(texcoords=True)`, `ShipAssembly.withVertexAO`, the lite materials and the `check-assets` checks.
+- Record a desktop baseline before changing anything: `?perf=1`, an 8-ship Neon Bay race, High and Med, autopilot, giving fps, p95, draw calls and triangles. Use it for both PRs' before/after tables.
+
+**Step 1: draw-call audit (before modelling)**
+- Find where the 94 → 220 rise comes from (§V gate result). Use `renderer.info` per pass, and toggle ships, parts, scenery, items and effects in a dev build.
+- **Rule for V2/V3:** ship-related draw calls must not grow.
+  - Each chassis LOD keeps at most **6 primitives** (one per role).
+  - Each part keeps at most **3**.
+- If ships turn out to be a large share, merge each **rival's** parts into its chassis per material role at assembly time (`BufferGeometryUtils.mergeGeometries`, once per race, in `ShipAssembly`). The player's ship and the Garage stay unmerged so `setLivery()` and part previews keep working.
+- Record what the audit found in the as-built notes, even if nothing changes.
+
+**Step 2, PR A (V2): parts in COMET's language**
+- **No part concepts exist** (`assets/reference/parts/` is empty). Parts follow the approved COMET look and the tier ladder in `VEHICLE_CONCEPTS.md`:
+  - **Stock:** plain painted steel and panel strip.
+  - **Mk II:** adds cooling fins (vent and ribbed strips).
+  - **Mk III:** carbon and brushed, machined collars, more glow.
+  - **Prototype:** exposed glowing core, the most glow, still believable.
+  - If the user adds part concepts later, they replace this ladder.
+- Every part follows these rules:
+  - It is UV-mapped to trim strips, has AO baked into `COLOR_0.a`, and has at most 1.5k triangles and 3 primitives.
+  - It keeps its node name (`engine_t0..t3`, `booster_t0..t3`, `stabilizer_t0..t3`, `hull_t0..t3`, plus the class variants such as `hull_t2_heavy`).
+  - **It must sit right on both COMET's new sockets and the 5 old chassis**, which are still pre-§V during V2.
+  - `parts.glb` ≤ 600 KB.
+- **V1 leftovers (§V.2 animation, shader only):**
+  - **Nozzle flare on boost** at `socket_exhaust_L/R` (an additive cone or sprite, scaled by boost, `toneMapped: false`).
+  - **Hover-pad glow** under the hull that pulses with the hover bob and fades with speed.
+  - Both reuse the livery glow colour, add no moving meshes, and add at most 2 draw calls per ship. They're off for rivals on Low.
+- **Checks:**
+  - `check-assets` covers part UVs, per-part primitive and triangle counts, and the total of 2 MB or less.
+  - `e2e/garage.spec.ts` cycles every chassis × slot × tier on Low, Med and High with no console errors.
+  - `blender/tools/preview.py` produces a parts sheet for the PR body.
+- **PR A done when:**
+  - The PR has Garage screenshots of all 4 tiers per slot on COMET and on one heavy (TITAN), plus a race shot with boost flare.
+  - The desktop before/after table shows no p95 regression, and draw calls are not up.
+  - CI is green.
+  - The user approves the parts' look on the preview.
+
+**Step 3, PR B (V3): the other 5 chassis, from each `chosen.jpg`**
+- Build each as `build_<id>` (GROUNDED, like `build_comet`) in this order, committing after each: **DART → WISP → ARROW → TITAN → BASTION**.
+- When all 5 are done, delete the legacy `build_ship`/`DESIGNS` path. Keep v1's procedural `ShipModel` as the load-failure fallback.
+- **Every chassis:**
+  - LOD0 ≤ 12k triangles (aim 5–7k like COMET).
+  - LOD1 ≤ 4k (**aim ≤ 1.5k**, like COMET's 1,314: rivals use LOD1 on Med and Low, so V3 is the first time many new LOD1s are on screen together).
+  - 6 primitives per LOD.
+  - Hull within ±10% of `HULL_SIZE` per axis.
+  - Sockets moved with the pods.
+  - Colour stripes are geometry split by role, as on COMET: the trim sheet carries no colour.
+- **Per-chassis notes from the concepts:**
+  - **DART (light):**
+    - An orange tube fuselage behind a **long thin needle spike**.
+    - An exposed dark lattice truss along the lower mid-fuselage.
+    - Small canards near the nose.
+    - Long slim pods on pylons with amber nozzle rings.
+    - Dark swept wings and tall swept twin fins.
+    - **The spike counts toward length:** shorten the body so the spike keeps its read. LOD1 may reduce the spike to a 4-sided cone and the truss to a flat dark slab.
+  - **WISP (light):**
+    - A short, wide, rounded fuselage, almost all canopy: a very large bubble canopy.
+    - White swoosh panels edged with a magenta pinline.
+    - A small dark ram nose.
+    - Short fat pods with magenta turbine faces.
+    - Small swept wings and very tall, strongly canted fins.
+    - Use more loft rings on LOD0 for the curves.
+  - **ARROW (balanced):**
+    - **Faceted, folded-plate surfaces, not tubes:** build from slabs and folded panels.
+    - A long flat pointed nose and a long low canopy.
+    - A thin glowing yellow pinline along the chine, over a dark underbody.
+    - Slim pods with forward intakes.
+    - Straight-edged wings.
+    - **Twin canted fins** (the concept overrides the prompt's single centre fin).
+  - **TITAN (heavy):**
+    - A box-section armoured fuselage with bolted plates (plate strip) and black inset panels.
+    - A **worn steel ram nose** (worn-edge strip).
+    - Big pods with grille intakes.
+    - **Four rear nozzles**: two on the hull, two on the pods.
+    - A small armoured canopy set far back, and a triple fin.
+    - Mostly flat slabs, so cheap in triangles.
+  - **BASTION (heavy):**
+    - COMET's layout made boxier and wider: green paint with silver panels and flat armour panels.
+    - Lime glow strips.
+    - Louvred side scoops.
+    - Square-edged pods with large intakes and a **hazard-stripe band**: geometry stripes in the dark and glow roles, not a texture.
+    - Grab rails and a wide canopy.
+- **PR B done when:**
+  - A before/after sheet of all 5 (Garage plus race chase camera at Med and Low) is in the PR body.
+  - Sims, unit tests and e2e are unchanged and green, and `check-assets` passes.
+  - Total ship assets are ≤ 2 MB, and draw calls are not up versus PR A.
+  - **The device gate holds on BOTH devices:** an 8-ship Neon Bay race with a mixed field (every chassis present), at 60 fps, p95 ≤ the PR A build's + 1 ms.
+    - On the iPhone, the PR A build is the baseline (its pre-V2 reading was p95 17.0 ms).
+    - **The iPad Air needs its own before reading, taken on the PR A build before PR B merges.**
+  - The user approves each chassis's look. A rejected chassis can stay on the legacy build for a follow-up PR, recorded in the as-built notes.
+
+**Step 4: hand-off**
+- Update this section's header and as-built notes.
+- Run `npm run codebase`.
+- Put both PRs' preview URLs, the iOS build command and the device-test steps in the final report. Those steps are: Settings → Graphics → PERFORMANCE PANEL, then an 8-ship Neon Bay race, then screenshot the end-of-race summary.
 
 ---
 

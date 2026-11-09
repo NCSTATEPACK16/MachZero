@@ -1,14 +1,15 @@
-# Next-session brief: build MachZero 2.0 (M5 and §V V1 COMET in review; V2 parts after the user approves V1)
+# Next-session brief: build MachZero 2.0 (next: §V V2 parts + V3 the other 5 chassis, one session, two PRs)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-07: H, §P, §GP, M5 and §V V1 COMET in review; V2 waits on the V1 gate)
+## Where things stand (2026-11-08: V1 COMET passed its gate; next is V2 + V3 in one session)
 
-- **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5) → **#25 §V spec** (docs, prompt sheet, the user's concept images). Each is built and green locally; the user playtests the previews and merges. If any is still open when you start, stack M5 on the newest open one (#25 at the time of writing) and write "stacked on #N".
+- **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5). **#25 (§V spec), #26 (M5) and #27 (V1 COMET) are already merged into `v2/gp-grand-prix`**, so #24 now carries them too. The V2/V3 plan PR is stacked on #24 as well. The user playtests and merges. Stack new work on the newest open branch and write "stacked on #N".
+- **The user ships TestFlight builds from `v2/gp-grand-prix`** (M5 + COMET) ahead of `main`; the web catches up when the stack merges.
 - **§V concepts are in:** `assets/reference/ships/<id>/chosen.jpg` for all 6 chassis (one Gemini concept each, resized to ≤ 300 KB; the full-size originals are git-ignored and local only). They are on the brief: three views, no wheels, grounded materials, factory liveries.
 - **M5 (PR #26, branch `v2/m5-tiers`, stacked on #24; #25 already merged into `v2/gp-grand-prix`):** tiers, drafting, assists, pilot intro card, the 5 × 4 tier matrix. Read IMPLEMENTATION's "As built (PR #26)" under §M5 before §V or M6. Pending on device: the intro card and DRAFT chip on iPhone/iPad, and a Pilot-tier race to judge pace 0.94.
-- **§V V1 COMET (PR #27, branch `v2/v1-comet`, stacked on #26) is at its gate:** the user must approve the look and read the perf overlay on the iPhone 18 Pro Max and iPad Air 11" (8-ship Neon Bay race at 60 fps, p95 no more than 1 ms worse than M5). **Don't start V2 or V3 until they do.** Read "As built — V1 COMET" under IMPLEMENTATION §V first; it lists what V2 inherits (trim strips, `strip=` UV helpers, AO bake, the nozzle flare and hover glow still to do).
+- **§V V1 COMET (PR #27) passed its gate on 2026-11-08:** the look is approved, and the iPhone reads 60 fps with p95 17.0 ms before and after. There is no iPad reading yet; it moves to V3's gate. Watch item: draw calls rose 94 → 220. The table and notes are under IMPLEMENTATION §V "V1 gate result". **Next: V2 + V3, following the plan in IMPLEMENTATION §V.7 exactly.**
 - Read IMPLEMENTATION's "As built" notes for §H, §P and §GP before M5. Pending on device: the 8BitDo item select (§P) and a pad-only cup (§GP) on iOS.
 
 
@@ -67,7 +68,7 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
 - **§V, vehicle visual pass** (spec settled in IMPLEMENTATION §V on 2026-11-07; build it after M5):
   - Grounded sci-fi ships and parts, still procedural in `blender/`. A shared trim-sheet atlas (normal and ORM maps), with AO per vertex in `COLOR_0.a`. The livery and decals are unchanged.
   - The player's ship always uses LOD0, cheaper rival materials on Low, the Garage always at High, right-stick orbit in the Garage, rumble only where supported.
-  - **V1 COMET is the gate** (the user approves the look and the iPhone/iPad fps), then V2 parts, then V3 the other 5 chassis.
+  - V1 COMET ✅ (gate passed 2026-11-08). **V2 parts + V3 the other 5 chassis are next: one session, two stacked PRs, per §V.7.**
   - It needs the user's Gemini concepts first: `assets/reference/ships/<id>/chosen.jpg` (prompts in `docs/v2/VEHICLE_CONCEPTS.md`). Don't model a chassis without one.
 - **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
 - **M7, touch and comfort (#11):** touch and tilt controls, comfort settings, assist toggles, and the portrait HUD overlap seen on phones. Needs a design session first.
@@ -107,12 +108,11 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: build M5 (AI tiers, pilots, drafting; IMPLEMENTATION.md §M5) as one or more PRs, each shippable on its own.
-Then build §V V1, the COMET pilot (IMPLEMENTATION.md §V), as its own PR stacked on M5. Model COMET from
-assets/reference/ships/comet/chosen.jpg (look at it first). V1 ends at its gate: the user approves the look and
-reads the iPhone/iPad fps. Do NOT start V2 or V3 without that approval.
-H, §P and §GP are in PRs #22–#24, and the §V spec is in #25 (check which are merged). Read their as-built notes
-before coding. M6–M8 need the user first.
+GOAL: build §V V2 (the 16 parts, plus the nozzle flare and hover glow) and §V V3 (DART, WISP, ARROW, TITAN,
+BASTION) in this one session, as two stacked PRs, following IMPLEMENTATION.md §V.7 step by step. Start with
+step 0 (baseline) and step 1 (draw-call audit). Look at each assets/reference/ships/<id>/chosen.jpg before you
+model it. Commit after each part slot and each chassis, and push PR A before starting V3. PR B ends at its
+gate: the user approves the looks and reads iPhone AND iPad fps. M6–M8 need the user first.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play
@@ -138,7 +138,7 @@ HOW TO WORK (agreed with the user; follow exactly):
   passes unchanged.
 - Assets: Blender 5.2 headless Python scripts in blender/ are the source of truth. Output goes to
   public/game/ (NOT public/assets/), optimised with gltf-transform (meshopt; materials named by role). Until §V
-  ships have no textures; §V V1 adds the shared trim sheet (normal and ORM maps, WebP) as specified in §V.1. Use the Blender MCP (port 9876) only to preview or iterate; if it's not reachable, carry on
+  ships had no textures; since §V V1 they use the shared trim sheet (normal and ORM maps, WebP), see §V.1 and V1's as-built notes. Use the Blender MCP (port 9876) only to preview or iterate; if it's not reachable, carry on
   headless.
 - Confirm current library APIs with Context7 before using them (three.js r186 addons, Rapier 0.21,
   Preact + Signals, @gltf-transform, Playwright, Web Audio).
@@ -157,8 +157,8 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/m5-tiers from main, or
-from the newest open PR's branch (v2/v-vehicles-spec while #25 is open). Then build M5, then branch
-v2/v1-comet from v2/m5-tiers and build §V V1. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
+Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/v2-parts from the newest
+open stack branch (v2/gp-grand-prix while #24 is open, or the plan PR's branch if still open), then branch
+v2/v3-chassis from v2/v2-parts. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
 number). No attribution lines in commits or PR bodies.
 ```
