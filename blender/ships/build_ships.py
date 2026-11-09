@@ -569,9 +569,93 @@ def build_dart(lod_level, bounds):
     return mb.finish(bounds)
 
 
+
+# ---------------------------------------------------------------------------------------------------- WISP
+# assets/reference/ships/wisp/chosen.jpg: a short, wide, rounded fuselage that is almost all canopy (a very large
+# bubble), white swoosh panels edged with a magenta pinline, a small dark ram nose with side scoops, short fat
+# pods on white stub pylons (brushed intake lips, magenta rings), small swept white wings and very tall, strongly
+# canted purple fins with white tips. More loft rings on LOD0 for the curves.
+WISP = dict(hullHW=0.7, hullTop=0.16, podX=1.08, podR=0.3, podZ0=0.2, podZ1=1.62, noseZ=-2.0, tailZ=2.05, halfW=1.5,
+            hullSock=(-1.5, 0.1), stabSock=(1.2, 0.12))
+WISP_PROFILE = [
+    (0.0, 0.62, -0.32, -0.02),
+    (0.03, 0.72, -0.37, 0.03),
+    (0.1, 0.84, -0.42, 0.09),
+    (0.22, 0.94, -0.45, 0.14),
+    (0.36, 0.98, -0.46, 0.17),
+    (0.5, 0.95, -0.45, 0.17),
+    (0.62, 0.82, -0.42, 0.14),
+    (0.74, 0.6, -0.37, 0.1),
+    (0.86, 0.42, -0.32, 0.07),
+    (1.0, 0.32, -0.28, 0.04),
+]
+
+
+def wisp_paint(s, t):
+    if s < 0.03:
+        return "dark", "brushed"
+    up = abs(t - 0.25)
+    w = 0.075 if s < 0.3 else (0.0 if s < 0.62 else max(0.0, 0.07 * (0.78 - s) / 0.16))
+    side = min(abs(t - 0.07), abs(t - 0.43))  # upper flanks: the swoosh toward the pylons
+    sw = 0.03 if 0.45 < s < 0.72 else 0.0
+    if up < w or side < sw:
+        return "livery_secondary", "plate"
+    if (w > 0 and up < w + 0.025) or (sw > 0 and side < sw + 0.025):
+        return "glow", "flat"  # magenta pinline around the white
+    if abs(t - 0.75) < 0.1:
+        return "dark", "grip"
+    return "livery_primary", "panel"
+
+
+def build_wisp(lod_level, bounds):
+    d = WISP
+    detail = lod_level == 0
+    mb = C.MeshBuilder(f"wisp_LOD{lod_level}")
+    hw, top = d["hullHW"], d["hullTop"]
+    ring = 48 if detail else 16
+    rows = hull_rows(WISP_PROFILE, hw, d["noseZ"], d["tailZ"], detail)
+    comet_loft(mb, rows, ring, 2.2, wisp_paint, 4)
+    tail_bay(mb, detail, rows, hw, 2.2)
+    # small dark ram nose
+    _s, y_n, cz_n, hw_n, hh_n = rows[-1]
+    mouth = [(y_n - 0.3, 0.0, cz_n - 0.01, hw_n * 0.6, hh_n * 0.5), (y_n - 0.06, 0.0, cz_n, hw_n * 0.78, hh_n * 0.72), (y_n + 0.005, 0.0, cz_n, hw_n * 0.84, hh_n * 0.8)]
+    C.loft(mb, mouth, ring, 2.6, "dark", cap_start=True, cap_end=False, strip="vent")
+    # the big bubble canopy in a white surround
+    canopy(mb, detail, top, 0.66, 0.44, 1.75, -0.5, frame_role="livery_secondary", frame_strip="plate", pw=0.5, frame_w=0.06)
+    for sign in (-1, 1):
+        # dark louvred side scoops under the canopy
+        x_in, x_out = sign * hw * 0.9, sign * hw * 1.0
+        y0, y1 = y_of(-0.6), y_of(-1.1)
+        scoop = [(x_in, y0), (x_out, y0), (x_out, y1 + 0.06), (x_in, y1)]
+        C.slab(mb, mirror_outline(scoop, sign), -0.3, -0.12, "dark", strip="vent", edge_strip="carbon")
+        # dark vents ahead of the pylons
+        if detail:
+            v = [(sign * hw * 0.55, y_of(0.35)), (sign * hw * 0.82, y_of(0.25)), (sign * hw * 0.82, y_of(0.05)), (sign * hw * 0.55, y_of(0.1))]
+            C.slab(mb, mirror_outline(v, sign), 0.06, 0.1, "dark", strip="vent")
+        # short fat pod on a white stub pylon
+        px, r = sign * d["podX"], d["podR"]
+        pod(mb, detail, sign, px, r, d["podZ0"], d["podZ1"], collar=("metal", "brushed"), collar_s=0.12, power=2.0)
+        x0, x1 = sign * hw * 0.7, sign * (d["podX"] - r * 0.6)
+        pyl = [(x0, y_of(1.45)), (x1, y_of(1.3)), (x1, y_of(0.55)), (x0, y_of(0.3))]
+        C.slab(mb, mirror_outline(pyl, sign), POD_Z - 0.04, POD_Z + 0.05, "livery_secondary", strip="plate", edge_strip="grip")
+        # small swept wing outboard of the pod, white with a glowing tip light
+        xw0, xw1 = sign * (d["podX"] + r * 0.6), sign * 1.5
+        wing = [(xw0, y_of(0.75)), (xw1, y_of(1.15)), (xw1, y_of(1.38)), (xw0, y_of(1.45))]
+        C.slab(mb, mirror_outline(wing, sign), POD_Z - 0.02, POD_Z + 0.02, "livery_secondary", strip="plate", edge_strip="grip")
+        if detail:
+            tipl = [(xw1 - sign * 0.03, y_of(1.2)), (xw1, y_of(1.2)), (xw1, y_of(1.34)), (xw1 - sign * 0.03, y_of(1.34))]
+            C.slab(mb, mirror_outline(tipl, sign), POD_Z - 0.025, POD_Z + 0.025, "glow", strip="flat")
+        # very tall, strongly canted fins with white tips
+        fx = sign * hw * 0.28
+        C.fin(mb, top - 0.06, 0.82, 1.15, 0.42, 0.75, 0.05, "livery_primary", x=fx, cant=sign * 0.5, strip="panel", y=y_of(1.55))
+        if detail:
+            C.fin(mb, top - 0.06 + 0.74, 0.12, 0.5, 0.42, 0.11, 0.056, "livery_secondary", x=fx + sign * math.sin(0.5) * 0.74, cant=sign * 0.5, strip="plate", y=y_of(1.55) - 0.68)
+    return mb.finish(bounds)
+
+
 # chassis -> (builder, socket/bounds parameters); the rest still use build_ship + DESIGNS until V3 replaces them
 COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, noseZ=HULL_NOSE_Z, halfW=1.28)
-GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART)}
+GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP)}
 
 
 def ship_bounds(d):
@@ -609,12 +693,15 @@ def build(cid, out_dir):
     pod_tail = y_of(d["podZ1"])
     pod_mid = y_of(d["podZ0"] + 0.62 * (d["podZ1"] - d["podZ0"]))
     edge = d["podX"] + d["podR"]
+    # part sockets on the deck; a §V chassis may move them (a big canopy, a low tail)
+    stab = d.get("stabSock", (1.35, d["hullTop"] - 0.01))
+    hull_s = d.get("hullSock", (-0.95, d["hullTop"] - 0.04))
     sockets = [
         ("socket_engine", (0.0, tail + 0.05, -0.12)),
         ("socket_booster_L", (-edge + 0.02, pod_mid, POD_Z)),
         ("socket_booster_R", (edge - 0.02, pod_mid, POD_Z)),
-        ("socket_stabilizer", (0.0, y_of(1.35), d["hullTop"] - 0.01)),
-        ("socket_hull", (0.0, y_of(-0.95), d["hullTop"] - 0.04)),
+        ("socket_stabilizer", (0.0, y_of(stab[0]), stab[1])),
+        ("socket_hull", (0.0, y_of(hull_s[0]), hull_s[1])),
         ("socket_exhaust_L", (-d["podX"], pod_tail - 0.08, POD_Z)),
         ("socket_exhaust_R", (d["podX"], pod_tail - 0.08, POD_Z)),
         ("socket_camera", (0.0, tail - 7.0, 2.4)),
