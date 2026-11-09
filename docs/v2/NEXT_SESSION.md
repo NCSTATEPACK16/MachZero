@@ -1,9 +1,19 @@
-# Next-session brief: build MachZero 2.0 (next: §V V2 parts + V3 the other 5 chassis, one session, two PRs)
+# Next-session brief: build MachZero 2.0 (§V V2 #29 and V3 #30 built; waiting on the user's look approval and the iPhone + iPad gate)
 
 Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-08: V1 COMET passed its gate; next is V2 + V3 in one session)
+## Where things stand (2026-11-08, end of the V2 + V3 session)
+
+- **§V V2 parts: PR #29** (`v2/v2-parts`, stacked on #28). **§V V3 chassis: PR #30** (`v2/v3-chassis`, stacked on #29). Both are built, with CI green and the as-built notes in IMPLEMENTATION §V.
+- **Waiting on the user:**
+  - their look approval of the parts (#29) and of each of the 5 chassis (#30);
+  - **perf-panel readings on the iPhone 18 Pro Max and the iPad Air**: Settings → Graphics → PERFORMANCE PANEL, an 8-ship Neon Bay race, screenshot the end-of-race summary. The iPad needs a "before" reading on a #29 build and an "after" on #30; the iPhone's baseline is #29.
+- **A rejected chassis** goes back for a follow-up commit on `v2/v3-chassis`. The legacy builder is deleted, so a rejected chassis is reworked in its `build_<id>` rather than reverted.
+- The draw-call audit settled the "94 → 220" watch item: the panel shows one frame's count, and it varies 82–281 within a race. Rivals now merge their parts per role (grid frame 252 → 161).
+- **Next after the gate:** M6 (audio) needs a design session with the user first.
+
+## Earlier state (2026-11-08: V1 COMET passed its gate; V2 + V3 were next)
 
 - **Open PRs, stacked (merge in this order):** #21 → **#22 H Housekeeping** → **#23 §P Powerups** (save v4) → **#24 §GP Grand Prix** (save v5). **#25 (§V spec), #26 (M5) and #27 (V1 COMET) are already merged into `v2/gp-grand-prix`**, so #24 now carries them too. The V2/V3 plan PR is stacked on #24 as well. The user playtests and merges. Stack new work on the newest open branch and write "stacked on #N".
 - **The user ships TestFlight builds from `v2/gp-grand-prix`** (M5 + COMET) ahead of `main`; the web catches up when the stack merges.

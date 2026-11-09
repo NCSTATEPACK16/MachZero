@@ -813,7 +813,7 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 
 ---
 
-## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 ✅ DONE (PR #27, gate passed 2026-11-08); V2 parts built (PR A, `v2/v2-parts`, awaiting the user's look approval); V3 next (§V.7)
+## V — Vehicle visual pass: grounded sci-fi ships and parts — V1 ✅ DONE (PR #27); V2 parts built (PR #29) and V3 chassis built (PR #30), both awaiting the user's look approval and the iPhone + iPad gate (§V.7)
 
 **V1 gate result (2026-11-08):**
 - **Look approved** by the user (2026-11-07).
@@ -840,7 +840,7 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 - **Not done in V1:** nozzle flare on boost and hover-pad glow (§V.2 animation) → V2; parts keep their M2 look → V2.
 - **Desktop (High, autopilot, Neon Bay, 25 s, headless Chrome on Metal):** before 60 fps, p95 16.8 ms; after 60 fps, p95 16.8 ms. Device fps pending.
 
-**As built — V2 parts (PR A, branch `v2/v2-parts`)** (read before V3):
+**As built — V2 parts (PR #29, branch `v2/v2-parts`, stacked on #28):**
 - **Draw-call audit (§V.7 step 1).** `scripts/perf-desktop.mjs` (serve `dist/`, 8-ship Neon Bay autopilot in headless Chrome on Metal, per preset; `--audit` counts one frame's calls by category by hiding groups and re-rendering, on the grid and mid-race).
   - **The 94 → 220 rise was screenshot timing, not code.** The perf panel's "calls" is one frame's count, and it swings 82–281 within a single race depending on how many ships are on screen. `origin/main` (the old TestFlight code) draws the same 250-call grid frame as M5 + COMET (252: the +2 is §P's mine group).
   - **Ships were 80% of the worst frame:** 204 of 252 calls on the grid (High), with parts at 114 of them. Each part was multi-role, so each ship's 5 part instances cost about 12 draw calls, more than its chassis (6) and effects (4).
@@ -851,6 +851,36 @@ Found at the end of M4c (2026-11-02). Branch `v2/h-housekeeping` from `main`.
 - **Checks:** `check-assets`: ≤ 3 primitives, `TEXCOORD_0` and `COLOR_0` on every part; ≤ 6 primitives per chassis LOD. `e2e/garage.spec.ts`: on each of Low, Med and High, cycle every chassis × tier (all four slots at each tier) on the turntable, then start a race (merged rivals), with no console errors. `blender/tools/preview.py --parts` renders the parts sheet (`docs/v2/shots/v2/parts-sheet.jpg`).
 - **Tests:** 445 unit/sim tests in 52 files; e2e 13/13. App JS 324.8 KB gzip; `public/game` 944 KB; ship assets (ships + parts + trim) 714 KB of 2 MB.
 - **Commit granularity:** the four slots landed in one commit (they share one script and one GLB) instead of one commit per slot.
+
+**As built — V3 chassis (PR #30, branch `v2/v3-chassis`, stacked on #29):**
+- **All six chassis are now GROUNDED**, each modelled from its `chosen.jpg` (looked at before modelling), in the order DART → WISP → ARROW → TITAN → BASTION, one commit each. The legacy `build_ship`/`DESIGNS`/`LODS` path is deleted; `ShipModel`'s procedural ship stays as the load-failure fallback. A full `npm run assets -- ships` rebuilds all six byte-identical to the committed GLBs (COMET included).
+- **Shared helpers** in `build_ships.py`:
+  - `hull_rows` and `comet_loft`: a painted loft whose paint scheme is a function of position.
+  - `canopy` (optional facets), `pod` (collar/main paint, turbine or grille intake, ribbed glowing nozzle, power 2 round to 5 square).
+  - `beam` (truss struts, grab rails, chine pinlines), `tail_bay`, `hull_nozzle`, `hazard_band`, `mirror_outline`.
+  - **Per-chassis sockets:** each config carries pod geometry, the nose/tail/spike z, the COLOR_0 box half-width and optional `hullSock`/`stabSock` (WISP's big canopy covers the default hull-part spot; TITAN's and BASTION's decks sit differently).
+- **Per chassis** (LOD0 / LOD1 triangles, LOD0 size x × y × z, GLB):
+  - **DART** 4,910 / 1,110, 2.60 × 1.14 × 5.25 m, 115 KB.
+    - A needle spike (counts toward length; LOD1 is a 4-sided cone), an exposed lattice truss along the lower mid-fuselage (LOD1: a flat dark slab), and canards.
+    - Slim pods with grille intakes and amber rings, dark (livery secondary) swept wings and tall fins with orange tips.
+  - **WISP** 5,192 / 1,242, 3.00 × 1.42 × 4.56 m, 118 KB.
+    - 48 loft rings on LOD0, a very large canopy, white swooshes edged with a magenta pinline (glow faces in the paint scheme).
+    - A dark ram nose and scoops, fat pods with brushed lips, and very tall fins canted 0.5 rad.
+  - **ARROW** 3,180 / 842, 2.28 × 1.19 × 5.21 m, 88 KB.
+    - An 8-facet loft (power 1.6, every face a flat plate), a long flat pointed nose, and a faceted canopy.
+    - A glow pinline beam along the chine over a dark underbody, faceted pods, straight-edged wings, twin canted fins and small pod fins.
+  - **TITAN** 3,560 / 920, 2.97 × 1.16 × 4.38 m, 98 KB.
+    - A box loft (power 6) of red plates with black inset deck panels, a steel ram with twin intakes, louvred vents and lower armour strakes.
+    - Square grille pods, **four nozzles** (two hull, two pod), a small armoured canopy far back on a dark deck, and a triple fin.
+  - **BASTION** 4,508 / 1,178, 2.84 × 1.06 × 4.50 m, 112 KB.
+    - COMET's layout boxier (power 3.6) and wider, with a silver spine and chine, twin louvred scoops and lime strips.
+    - Square pods behind silver collars with a **hazard band of alternating dark/glow quads**, grab rails, canards and a wide canopy.
+  - Every LOD has 6 primitives, LOD1 ≤ 1.5k, and hulls are within ±10% of `HULL_SIZE`. `check-assets` now requires TEXCOORD_0 on every chassis.
+- **Deviation:** the livery secondary is dark on DART, ARROW and TITAN's factory liveries, so the concepts' dark carbon panels use `livery_secondary`, and a player's livery recolours them. Fixed-dark details (intakes, truss, nozzles) use `dark`.
+- **Desktop (same method as V2):** grid frame 161 / 161 / 141 draw calls on High / Med / Low, the same as PR #29. Race median 107 / 107 / 86. p95 16.8 ms on every preset. Ship assets 999 KB of 2 MB; `public/game` 1,229 KB.
+- **Tests:** 445 unit/sim tests (52 files) and e2e 13/13, unchanged and green.
+- **Screenshots:** `docs/v2/shots/v3/<id>-before-after.jpg` (top: PR #29 build; bottom: V3. Columns: Garage, race chase at Med, at Low) and `<id>-views.jpg`. The "before" race shots carry Prototype parts, as do the after shots.
+- **Gate (pending):** the user approves each chassis's look, then reads the perf panel on the iPhone 18 Pro Max **and** the iPad Air: 8-ship Neon Bay, mixed field, 60 fps, p95 ≤ the PR #29 build's + 1 ms. The iPad's "before" reading is taken on the #29 build.
 
 **Design decisions (grilling session with the user, 2026-11-07; settled, don't re-open):**
 
