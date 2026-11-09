@@ -361,7 +361,7 @@ def hull_rows(profile, hw, nose_z, tail_z, detail):
     return rows
 
 
-def canopy(mb, detail, top, cw, ch, cl, cz, frame_role="livery_secondary", frame_strip="plate", rise=0.45, pw=0.6, frame_w=0.05):
+def canopy(mb, detail, top, cw, ch, cl, cz, frame_role="livery_secondary", frame_strip="plate", rise=0.45, pw=0.6, frame_w=0.05, segs=None, power=2.2):
     """A glass bubble in a painted surround, centred at three z `cz` (comet's canopy, parametrised)."""
     cy = y_of(cz)
     n = 12 if detail else 6
@@ -372,8 +372,8 @@ def canopy(mb, detail, top, cw, ch, cl, cz, frame_role="livery_secondary", frame
         y = cy - cl / 2 + cl * t
         frame.append((y, 0.0, top + 0.02 + ch * 0.2 * f, max(cw / 2 * f + frame_w, 0.02), max(ch * 0.25 * f, 0.01)))
         glass.append((y, 0.0, top + 0.03 + ch * rise * f, max(cw / 2 * f, 0.004), max(ch * 0.5 * f, 0.004)))
-    C.loft(mb, frame, 16 if detail else 8, 2.4, frame_role, strip=frame_strip)
-    C.loft(mb, glass, 20 if detail else 8, 2.2, "glass", cap_start=False, cap_end=False, strip="flat")
+    C.loft(mb, frame, segs or (16 if detail else 8), max(power, 2.4) if segs is None else power, frame_role, strip=frame_strip)
+    C.loft(mb, glass, segs or (20 if detail else 8), power, "glass", cap_start=False, cap_end=False, strip="flat")
 
 
 def beam(mb, a, b, w, h, role, strip):
@@ -653,9 +653,83 @@ def build_wisp(lod_level, bounds):
     return mb.finish(bounds)
 
 
+
+# --------------------------------------------------------------------------------------------------- ARROW
+# assets/reference/ships/arrow/chosen.jpg: faceted, folded-plate surfaces rather than tubes (an 8-sided loft with
+# crisp edges), a long flat pointed nose, a long low faceted canopy, a thin glowing yellow pinline along the chine
+# over a dark underbody, slim faceted pods with forward intakes and dark carbon panels, straight-edged wings and
+# twin canted fins (the concept overrides the prompt's single centre fin).
+ARROW = dict(hullHW=0.56, hullTop=0.1, podX=0.8, podR=0.17, podZ0=-0.25, podZ1=2.15, noseZ=-2.75, tailZ=2.15, halfW=1.14)
+ARROW_PROFILE = [
+    (0.0, 0.06, -0.2, -0.17),
+    (0.08, 0.25, -0.26, -0.1),
+    (0.18, 0.45, -0.32, -0.04),
+    (0.3, 0.64, -0.36, 0.02),
+    (0.42, 0.8, -0.38, 0.07),
+    (0.55, 0.92, -0.39, 0.1),
+    (0.68, 1.0, -0.39, 0.11),
+    (0.8, 0.98, -0.37, 0.09),
+    (0.9, 0.88, -0.33, 0.05),
+    (1.0, 0.72, -0.28, 0.0),
+]
+FACETS = 8  # ring segments: every face a flat plate (45 degrees apart, above the smoothing angle)
+
+
+def arrow_paint(s, t):
+    if t > 0.5:
+        return "livery_secondary", "panel"  # dark underbody
+    if s > 0.72 and abs(t - 0.25) < 0.13:
+        return "livery_secondary", "carbon"  # carbon deck between the fins
+    return "livery_primary", "plate"
+
+
+def build_arrow(lod_level, bounds):
+    d = ARROW
+    detail = lod_level == 0
+    mb = C.MeshBuilder(f"arrow_LOD{lod_level}")
+    hw, top = d["hullHW"], d["hullTop"]
+    rows = hull_rows(ARROW_PROFILE, hw, d["noseZ"], d["tailZ"], detail)
+    comet_loft(mb, rows, FACETS, 1.6, arrow_paint, 4)
+    tail_bay(mb, detail, rows, hw, 1.6)
+    canopy(mb, detail, top, 0.42, 0.24, 1.55, -0.6, frame_role="livery_secondary", frame_strip="panel", rise=0.4, segs=6 if detail else 4, power=1.6)
+
+    for sign in (-1, 1):
+        # glowing pinline along the chine (the widest point of each facet ring)
+        if detail:
+            for (_s0, y0, cz0, hw0, _h0), (_s1, y1, cz1, hw1, _h1) in zip(rows, rows[1:]):
+                if hw0 < 0.06 and hw1 < 0.06:
+                    continue
+                beam(mb, (sign * (hw0 + 0.006), y0, cz0), (sign * (hw1 + 0.006), y1, cz1), 0.016, 0.016, "glow", "flat")
+        # slim faceted pod with a forward intake and dark carbon panels
+        px, r = sign * d["podX"], d["podR"]
+        pod(mb, detail, sign, px, r, d["podZ0"], d["podZ1"], main=("livery_primary", "plate"), collar=("livery_secondary", "carbon"), collar_s=0.2, power=1.6, intake="grille",
+            prof=[(0.0, 0.7), (0.05, 0.92), (0.14, 1.0), (0.2, 1.0), (0.5, 1.0), (0.8, 1.0), (0.92, 0.92), (1.0, 0.8)])
+        # dark pylon / inner wing between hull and pod
+        x_in, x_out = sign * hw * 0.75, sign * (d["podX"] - r * 0.5)
+        inner = [(x_in, y_of(1.85)), (x_out, y_of(1.9)), (x_out, y_of(0.2)), (x_in, y_of(-0.3))]
+        C.slab(mb, mirror_outline(inner, sign), POD_Z - 0.04, POD_Z + 0.02, "livery_secondary", strip="carbon", edge_strip="grip")
+        # straight-edged wing outboard of the pod: yellow with a dark trailing panel and a glowing leading line
+        xw0, xw1 = sign * (d["podX"] + r * 0.6), sign * d["halfW"]
+        wing = [(xw0, y_of(0.85)), (xw1, y_of(1.35)), (xw1, y_of(1.65)), (xw0, y_of(1.6))]
+        trail = [(xw0, y_of(1.6)), (xw1, y_of(1.65)), (xw1, y_of(1.85)), (xw0, y_of(1.85))]
+        C.slab(mb, mirror_outline(wing, sign), POD_Z - 0.02, POD_Z + 0.02, "livery_primary", strip="plate", edge_strip="grip")
+        C.slab(mb, mirror_outline(trail, sign), POD_Z - 0.02, POD_Z + 0.015, "livery_secondary", strip="carbon")
+        if detail:
+            lead = [(xw0, y_of(0.85) + 0.01), (xw1, y_of(1.35) + 0.01), (xw1, y_of(1.35) - 0.01), (xw0, y_of(0.85) - 0.01)]
+            C.slab(mb, mirror_outline(lead, sign), POD_Z + 0.018, POD_Z + 0.026, "glow", strip="flat")
+        # twin canted fins: yellow with dark tips
+        fx = sign * hw * 0.5
+        C.fin(mb, top - 0.04, 0.72, 1.0, 0.38, 0.6, 0.05, "livery_primary", x=fx, cant=sign * 0.32, strip="plate", y=y_of(1.6))
+        if detail:
+            C.fin(mb, top - 0.04 + 0.64, 0.1, 0.44, 0.36, 0.08, 0.056, "livery_secondary", x=fx + sign * math.sin(0.32) * 0.64, cant=sign * 0.32, strip="panel", y=y_of(1.6) - 0.6)
+        # small canted fin on each pod tail
+        C.fin(mb, POD_Z + r * 0.7, 0.22, 0.5, 0.22, 0.2, 0.035, "livery_secondary", x=px, cant=sign * 0.5, strip="carbon", y=y_of(d["podZ1"] - 0.35))
+    return mb.finish(bounds)
+
+
 # chassis -> (builder, socket/bounds parameters); the rest still use build_ship + DESIGNS until V3 replaces them
 COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, noseZ=HULL_NOSE_Z, halfW=1.28)
-GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP)}
+GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW)}
 
 
 def ship_bounds(d):
