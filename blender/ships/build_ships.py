@@ -727,9 +727,100 @@ def build_arrow(lod_level, bounds):
     return mb.finish(bounds)
 
 
+
+def hull_nozzle(mb, detail, x, y_tail, z, r):
+    """A ribbed nozzle with a glowing core set into a hull tail (TITAN's centre pair)."""
+    seg = 20 if detail else 8
+    C.loft(mb, [(y_tail - 0.16, x, z, r * 0.82, r * 0.82), (y_tail + 0.04, x, z, r, r)], seg, 2.0, "dark", cap_start=False, cap_end=False, strip="ribbed")
+    C.torus_ring(mb, x, y_tail - 0.16, z, r * 0.78, r * 0.1, seg, 6 if detail else 4, "glow", strip="flat")
+    C.disc(mb, x, y_tail - 0.15, z, r * 0.74, seg, "glow", strip="flat")
+
+
+# --------------------------------------------------------------------------------------------------- TITAN
+# assets/reference/ships/titan/chosen.jpg: a box-section armoured fuselage of bolted red plates with black inset
+# panels and louvred side vents, a worn steel ram nose with twin dark intakes, small red canards, big square pods
+# with grille intakes and red glow lines, four rear nozzles (two on the hull, two on the pods), a small armoured
+# canopy set far back on a dark rear deck, and a triple fin. Mostly flat slabs, so cheap in triangles.
+TITAN = dict(hullHW=0.62, hullTop=0.16, podX=1.12, podR=0.36, podZ0=-0.25, podZ1=1.75, noseZ=-2.2, tailZ=2.0, halfW=1.48,
+             hullSock=(-1.1, 0.1), stabSock=(1.45, 0.15))
+TITAN_PROFILE = [
+    (0.0, 0.8, -0.36, -0.02),
+    (0.06, 0.88, -0.4, 0.04),
+    (0.15, 0.92, -0.42, 0.08),
+    (0.4, 0.92, -0.42, 0.1),
+    (0.5, 0.96, -0.43, 0.12),
+    (0.62, 1.0, -0.44, 0.16),
+    (0.78, 1.0, -0.44, 0.16),
+    (0.9, 0.96, -0.42, 0.13),
+    (1.0, 0.9, -0.38, 0.08),
+]
+
+
+def titan_paint(s, t):
+    if s < 0.08:
+        return "metal", "plate"  # the worn steel ram
+    if abs(t - 0.75) < 0.14:
+        return "dark", "grip"
+    if 0.12 < s < 0.52 and abs(t - 0.25) < 0.08:
+        return "livery_secondary", "vent"  # black inset deck panels
+    if 0.3 < s < 0.55 and (0.95 < t or t < 0.05 or 0.45 < t < 0.55):
+        return "livery_secondary", "plate"  # black side panels around the vents
+    return "livery_primary", "plate"
+
+
+def build_titan(lod_level, bounds):
+    d = TITAN
+    detail = lod_level == 0
+    mb = C.MeshBuilder(f"titan_LOD{lod_level}")
+    hw, top = d["hullHW"], d["hullTop"]
+    rows = hull_rows(TITAN_PROFILE, hw, d["noseZ"], d["tailZ"], detail)
+    comet_loft(mb, rows, 24 if detail else 8, 6.0, titan_paint, 4)
+    # tail: a dark cap with two hull nozzles
+    _s, y_t, cz_t, hw_t, hh_t = rows[0]
+    C.loft(mb, [(y_t - 0.03, 0.0, cz_t, hw_t * 0.9, hh_t * 0.9), (y_t, 0.0, cz_t, hw_t, hh_t)], 24 if detail else 8, 6.0, "dark", cap_start=True, cap_end=False, strip="ribbed")
+    for sx in (-1, 1):
+        hull_nozzle(mb, detail, sx * hw * 0.42, y_t, cz_t, 0.19)
+    # ram nose: twin dark intakes in the steel
+    _s, y_n, cz_n, hw_n, hh_n = rows[-1]
+    for sx in (-1, 1):
+        C.loft(mb, [(y_n - 0.3, sx * hw_n * 0.42, cz_n, hw_n * 0.3, hh_n * 0.55), (y_n + 0.005, sx * hw_n * 0.42, cz_n, hw_n * 0.38, hh_n * 0.7)], 12 if detail else 4, 5.0, "dark", cap_start=True, cap_end=False, strip="vent")
+    # dark rear deck around the canopy, and the small armoured canopy set far back
+    deck = [(-hw * 0.95, y_of(1.75)), (hw * 0.95, y_of(1.75)), (hw * 0.95, y_of(0.0)), (hw * 0.5, y_of(-0.35)), (-hw * 0.5, y_of(-0.35)), (-hw * 0.95, y_of(0.0))]
+    C.slab(mb, deck, top - 0.02, top + 0.03, "livery_secondary", strip="plate", edge_strip="grip")
+    canopy(mb, detail, top + 0.03, 0.42, 0.2, 0.8, 0.55, frame_role="livery_primary", frame_strip="plate", rise=0.4, segs=6 if detail else 4, power=4.0, frame_w=0.08)
+    for sign in (-1, 1):
+        x_side = sign * (hw * 1.0 + 0.005)
+        # louvred side vents in the black panels
+        if detail:
+            for k, (za, zb) in enumerate(((-0.75, -0.55), (-0.48, -0.28))):
+                C.slab(mb, mirror_outline([(x_side - sign * 0.03, y_of(zb)), (x_side, y_of(zb)), (x_side, y_of(za)), (x_side - sign * 0.03, y_of(za))], sign), -0.3, -0.04, "dark", strip="vent")
+        # bolted armour plates along the lower flanks
+        plate = [(x_side - sign * 0.02, y_of(1.6)), (x_side + sign * 0.03, y_of(1.6)), (x_side + sign * 0.03, y_of(-1.6)), (x_side - sign * 0.02, y_of(-1.6))]
+        C.slab(mb, mirror_outline(plate, sign), -0.4, -0.3, "livery_primary", strip="plate", edge_strip="grip")
+        # small red canards near the nose
+        can = [(sign * hw * 0.95, y_of(-1.5)), (sign * (hw + 0.42), y_of(-1.25)), (sign * (hw + 0.42), y_of(-1.1)), (sign * hw * 0.95, y_of(-1.15))]
+        C.slab(mb, mirror_outline(can, sign), -0.22, -0.17, "livery_primary", strip="plate", edge_strip="grip")
+        # big square pod with a grille intake; dark block pylon to the hull
+        px, r = sign * d["podX"], d["podR"]
+        pod(mb, detail, sign, px, r, d["podZ0"], d["podZ1"], main=("livery_primary", "plate"), collar=("livery_secondary", "plate"), collar_s=0.14, power=5.0, intake="grille",
+            prof=[(0.0, 0.9), (0.04, 0.98), (0.1, 1.0), (0.14, 1.0), (0.5, 1.0), (0.85, 1.0), (0.93, 0.95), (1.0, 0.85)])
+        pyl = [(sign * hw * 0.9, y_of(1.5)), (sign * (d["podX"] - r * 0.8), y_of(1.5)), (sign * (d["podX"] - r * 0.8), y_of(0.2)), (sign * hw * 0.9, y_of(0.0))]
+        C.slab(mb, mirror_outline(pyl, sign), POD_Z - 0.14, POD_Z + 0.1, "livery_secondary", strip="plate", edge_strip="grip")
+        if detail:  # red glow lines along the pod flank
+            gx = px + sign * (r + 0.004)
+            C.slab(mb, mirror_outline([(gx - sign * 0.01, y_of(1.45)), (gx, y_of(1.45)), (gx, y_of(0.25)), (gx - sign * 0.01, y_of(0.25))], sign), POD_Z - 0.1, POD_Z - 0.07, "glow", strip="flat")
+        # side fins of the triple fin
+        C.fin(mb, top - 0.02, 0.5, 0.75, 0.32, 0.4, 0.06, "livery_primary", x=sign * hw * 0.62, cant=sign * 0.35, strip="plate", y=y_of(1.55))
+    # centre fin
+    C.fin(mb, top + 0.02, 0.42, 0.8, 0.28, 0.42, 0.06, "livery_primary", x=0.0, strip="plate", y=y_of(1.6))
+    if detail:
+        C.slab(mb, [(-0.012, y_of(1.6)), (0.012, y_of(1.6)), (0.012, y_of(0.95)), (-0.012, y_of(0.95))], top + 0.03, top + 0.045, "glow", strip="flat")
+    return mb.finish(bounds)
+
+
 # chassis -> (builder, socket/bounds parameters); the rest still use build_ship + DESIGNS until V3 replaces them
 COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, noseZ=HULL_NOSE_Z, halfW=1.28)
-GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW)}
+GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW), "titan": (build_titan, TITAN)}
 
 
 def ship_bounds(d):
