@@ -45,8 +45,8 @@ export const HULL_SIZE = {
   bastion: [2.84, 1.083, 4.529],
 };
 export const HULL_TOLERANCE = 0.1;
-/** Chassis rebuilt in the §V look so far: they carry trim UVs (TEXCOORD_0) and baked AO. V3 adds the rest. */
-export const GROUNDED = ['comet'];
+/** Chassis rebuilt in the §V look: they carry trim UVs (TEXCOORD_0) and baked AO. Since V3, all six. */
+export const GROUNDED = [...CHASSIS];
 
 /** Khronos glTF validation; returns error messages (warnings and infos are not problems). */
 async function validationErrors(bytes, where) {
