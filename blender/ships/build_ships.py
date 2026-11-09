@@ -344,7 +344,234 @@ def build_comet(lod_level, bounds):
     return mb.finish(bounds)
 
 
-GROUNDED = {"comet": build_comet}
+
+# --------------------------------------------------------------------------------------------- §V V3 helpers
+# Shared building blocks for the V3 chassis (DART, WISP, ARROW, TITAN, BASTION). Coordinates: Blender (+Y nose, +Z
+# up); `y_of` converts the three z used by the v1 tables. COMET keeps its own builder above (approved as built).
+
+
+def hull_rows(profile, hw, nose_z, tail_z, detail):
+    """Painted-loft rows (s, y, cz, hw, hh) tail -> nose from a profile of (s 0 nose..1 tail, width frac, bottom, top).
+    LOD1 keeps every other row (and both ends)."""
+    prof = profile if detail else [p for i, p in enumerate(profile) if i % 2 == 0 or i == len(profile) - 1]
+    rows = []
+    for (s, w, z0, z1) in reversed(prof):
+        tz = nose_z + s * (tail_z - nose_z)
+        rows.append((s, y_of(tz), (z0 + z1) / 2, max(w * hw, 0.004), max((z1 - z0) / 2, 0.004)))
+    return rows
+
+
+def canopy(mb, detail, top, cw, ch, cl, cz, frame_role="livery_secondary", frame_strip="plate", rise=0.45, pw=0.6, frame_w=0.05):
+    """A glass bubble in a painted surround, centred at three z `cz` (comet's canopy, parametrised)."""
+    cy = y_of(cz)
+    n = 12 if detail else 6
+    frame, glass = [], []
+    for i in range(n + 1):
+        t = i / n
+        f = math.sin(math.pi * t) ** pw
+        y = cy - cl / 2 + cl * t
+        frame.append((y, 0.0, top + 0.02 + ch * 0.2 * f, max(cw / 2 * f + frame_w, 0.02), max(ch * 0.25 * f, 0.01)))
+        glass.append((y, 0.0, top + 0.03 + ch * rise * f, max(cw / 2 * f, 0.004), max(ch * 0.5 * f, 0.004)))
+    C.loft(mb, frame, 16 if detail else 8, 2.4, frame_role, strip=frame_strip)
+    C.loft(mb, glass, 20 if detail else 8, 2.2, "glass", cap_start=False, cap_end=False, strip="flat")
+
+
+def beam(mb, a, b, w, h, role, strip):
+    """A box beam from point a to b (truss struts, grab rails), w across and h up."""
+    a, b = Vector(a), Vector(b)
+    d = (b - a).normalized()
+    up = Vector((0.0, 0.0, 1.0)) if abs(d.z) < 0.9 else Vector((1.0, 0.0, 0.0))
+    side = d.cross(up).normalized()
+    upv = side.cross(d).normalized()
+    pts = []
+    for p in (a, b):
+        for (sx, sz) in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            q = p + side * (sx * w / 2) + upv * (sz * h / 2)
+            pts.append((q.x, q.y, q.z))
+    faces = [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+    mb.add_faces(pts, faces, role, strip)
+
+
+def mirror_outline(outline, sign):
+    """Keep a slab outline counter-clockwise from above on either side."""
+    return list(reversed(outline)) if sign < 0 else outline
+
+
+def pod(mb, detail, sign, px, r, z0, z1, *, main=("livery_primary", "panel"), collar=("livery_secondary", "plate"), collar_s=0.26,
+        power=2.0, prof=None, intake="turbine", nozzle_glow=True, pz=POD_Z, band=True):
+    """An engine pod along the ship (three z0 front .. z1 tail): a collar section at the front, main paint behind,
+    an intake face (glowing turbine or dark grille), a ribbed nozzle with a glowing core and an optional glow band
+    at the collar seam. `power` 2 = round, 4 = square-edged."""
+    seg = 24 if detail else 10
+    pod_len = z1 - z0
+    prof = prof or [(0.0, 0.62), (0.05, 0.9), (0.14, 1.0), (0.24, 1.0), (collar_s, 0.97), (0.5, 0.97), (0.8, 0.96), (0.92, 0.9), (1.0, 0.78)]
+    if not detail:
+        prof = [prof[0], prof[2], prof[5], prof[-1]] if len(prof) > 6 else prof
+    front, back = [], []
+    for (sp, k) in reversed(prof):
+        sec = (y_of(z0 + sp * pod_len), px, pz, r * k, r * k)
+        (front if sp <= collar_s else back).append(sec)
+    if not back:
+        back = front[:1]
+    back.append(front[0])
+    C.loft(mb, back, seg, power, main[0], cap_start=False, cap_end=False, strip=main[1], panels=3)
+    if len(front) > 1:
+        C.loft(mb, front, seg, power, collar[0], cap_start=False, cap_end=False, strip=collar[1], panels=3)
+    y_in = y_of(z0)
+    k0 = prof[0][1]
+    if intake == "turbine":
+        C.torus_ring(mb, px, y_in - 0.01, pz, r * k0 * 0.9, r * 0.07, seg, 6 if detail else 4, "dark", strip="ribbed")
+        C.loft(mb, [(y_in - 0.12, px, pz, r * k0 * 0.8, r * k0 * 0.8), (y_in, px, pz, r * k0, r * k0)], seg, power, "dark", cap_start=False, cap_end=False, strip="ribbed")
+        C.disc(mb, px, y_in - 0.12, pz, r * k0 * 0.8, seg, "glow", facing=1, strip="flat")
+    else:  # grille: a dark louvred plug
+        C.loft(mb, [(y_in - 0.1, px, pz, r * k0 * 0.85, r * k0 * 0.85), (y_in, px, pz, r * k0, r * k0)], seg, power, "dark", cap_start=True, cap_end=False, strip="vent")
+    y_tail = y_of(z1)
+    C.loft(mb, [(y_tail - 0.14, px, pz, r * 0.68, r * 0.68), (y_tail + 0.02, px, pz, r * 0.8, r * 0.8)], seg, power, "dark", cap_start=False, cap_end=False, strip="ribbed")
+    C.torus_ring(mb, px, y_tail - 0.14, pz, r * 0.64, r * 0.08, seg, 6 if detail else 4, "glow" if nozzle_glow else "metal", strip="flat" if nozzle_glow else "ribbed")
+    C.disc(mb, px, y_tail - 0.13, pz, r * 0.6, seg, "glow", strip="flat")
+    if detail and band:
+        C.torus_ring(mb, px, y_of(z0 + (collar_s + 0.01) * pod_len), pz, r * 0.97, 0.012, seg, 4, "glow", strip="flat")
+
+
+def grounded_sockets(cfg):
+    return {k: cfg[k] for k in ("podX", "podR", "podZ0", "podZ1", "hullTop")}
+
+
+
+def profile_width(profile, s):
+    """Width fraction of a hull profile at s (linear between rows)."""
+    for (s0, w0, *_), (s1, w1, *_) in zip(profile, profile[1:]):
+        if s0 <= s <= s1:
+            return w0 + (w1 - w0) * (s - s0) / max(s1 - s0, 1e-6)
+    return profile[-1][1]
+
+
+def tail_bay(mb, detail, rows, hw, power):
+    """Engine bay at the hull tail: a dark ribbed cap, a metal ring and a glowing core (as on COMET)."""
+    _s, y_t, cz_t, hw_t, hh_t = rows[0]
+    seg = 24 if detail else 10
+    C.loft(mb, [(y_t - 0.05, 0.0, cz_t, hw_t * 0.82, hh_t * 0.82), (y_t, 0.0, cz_t, hw_t, hh_t)], len_ring(detail), power, "dark", cap_start=True, cap_end=False, strip="ribbed")
+    C.torus_ring(mb, 0.0, y_t - 0.06, cz_t, min(hw_t, hh_t) * 0.62, 0.04, seg, 6 if detail else 4, "metal", strip="ribbed")
+    C.disc(mb, 0.0, y_t - 0.07, cz_t, min(hw_t, hh_t) * 0.58, seg, "glow", strip="flat")
+
+
+def len_ring(detail):
+    return 40 if detail else 16
+
+
+# ---------------------------------------------------------------------------------------------------- DART
+# assets/reference/ships/dart/chosen.jpg: an orange tube fuselage behind a long thin needle spike, dark carbon
+# panels (the livery secondary: dark on the factory livery), an exposed dark lattice truss along the lower
+# mid-fuselage, small orange canards near the nose, long slim pods on carbon pylons with dark intakes and amber
+# nozzle rings, dark swept wings outboard of the pods and tall swept twin fins with orange tips. The spike counts
+# toward length, so the body is shorter than v1's.
+DART = dict(hullHW=0.44, hullTop=0.08, podX=0.92, podR=0.195, podZ0=-0.55, podZ1=2.2, noseZ=-1.9, tailZ=2.1, tipZ=-2.85, halfW=1.3)
+DART_PROFILE = [
+    (0.0, 0.32, -0.24, -0.1),
+    (0.04, 0.45, -0.28, -0.06),
+    (0.12, 0.6, -0.33, -0.01),
+    (0.25, 0.75, -0.37, 0.03),
+    (0.4, 0.86, -0.39, 0.07),
+    (0.55, 0.94, -0.4, 0.09),
+    (0.68, 0.97, -0.39, 0.085),
+    (0.8, 0.95, -0.37, 0.07),
+    (0.9, 0.85, -0.33, 0.04),
+    (1.0, 0.7, -0.28, 0.0),
+]
+
+
+def dart_paint(s, t):
+    if s < 0.035:
+        return "dark", "brushed"  # spike collar
+    if abs(t - 0.75) < 0.12:
+        return "livery_secondary", "carbon"  # belly
+    if 0.2 < s < 0.62 and (0.52 < t < 0.63 or 0.87 < t < 0.98):
+        return "livery_secondary", "carbon"  # truss bay band
+    if s > 0.6 and abs(t - 0.25) < 0.11:
+        return "livery_secondary", "panel"  # dark rear deck between the fins
+    return "livery_primary", "panel"
+
+
+def build_dart(lod_level, bounds):
+    d = DART
+    detail = lod_level == 0
+    mb = C.MeshBuilder(f"dart_LOD{lod_level}")
+    hw, top = d["hullHW"], d["hullTop"]
+    rows = hull_rows(DART_PROFILE, hw, d["noseZ"], d["tailZ"], detail)
+    comet_loft(mb, rows, len_ring(detail), 2.5, dart_paint, 4)
+    tail_bay(mb, detail, rows, hw, 2.5)
+    # the needle spike (metal), from a dark collar; LOD1 is a 4-sided cone
+    _s, y_n, cz_n, hw_n, hh_n = rows[-1]
+    C.loft(mb, [(y_n - 0.02, 0.0, cz_n, hw_n, hh_n), (y_n + 0.1, 0.0, cz_n, hw_n * 0.45, hh_n * 0.5)], len_ring(detail), 2.5, "dark", cap_start=False, cap_end=True, strip="brushed")
+    m = 6 if detail else 1
+    tip = y_of(d["tipZ"])
+    spike = [(y_n + 0.05 + (tip - y_n - 0.05) * i / m, 0.0, cz_n, 0.045 * (1 - i / m) + 0.003, 0.045 * (1 - i / m) + 0.003) for i in range(m + 1)]
+    C.loft(mb, spike, 10 if detail else 4, 2.0, "metal", cap_start=True, cap_end=False, strip="brushed", panels=2)
+    canopy(mb, detail, top, 0.3, 0.24, 1.05, -0.12, frame_role="livery_secondary", frame_strip="panel")
+
+    def body_x(tz):
+        s = (tz - d["noseZ"]) / (d["tailZ"] - d["noseZ"])
+        return profile_width(DART_PROFILE, s) * hw
+
+    for sign in (-1, 1):
+        # exposed lattice truss along the lower mid-fuselage (LOD1: a flat dark slab)
+        za, zb = -0.33, -0.15
+        z_from, z_to = -1.05, 0.45
+        if detail:
+            n = 6
+            prev = None
+            for i in range(n + 1):
+                tz = z_from + (z_to - z_from) * i / n
+                x = sign * (body_x(tz) + 0.012)
+                y = y_of(tz)
+                if prev is not None:
+                    px_, py_ = prev
+                    beam(mb, (px_, py_, za), (x, y, za), 0.03, 0.03, "dark", "brushed")
+                    beam(mb, (px_, py_, zb), (x, y, zb), 0.03, 0.03, "dark", "brushed")
+                    z0, z1 = (za, zb) if i % 2 else (zb, za)
+                    beam(mb, (px_, py_, z0), (x, y, z1), 0.025, 0.025, "dark", "brushed")
+                prev = (x, y)
+        else:
+            x0 = sign * (body_x(z_from) + 0.012)
+            x1 = sign * (body_x(z_to) + 0.012)
+            slab = [(x0 - 0.01, y_of(z_from)), (x0 + 0.01, y_of(z_from)), (x1 + 0.01, y_of(z_to)), (x1 - 0.01, y_of(z_to))]
+            C.slab(mb, slab if sign > 0 else list(reversed(slab)), za, zb, "dark", strip="vent")
+        # amber pinline along the side, above the truss
+        gx0 = sign * (body_x(-1.35) + 0.004)
+        gx1 = sign * (body_x(0.55) + 0.004)
+        pin = [(gx0 - 0.01, y_of(-1.35)), (gx0 + 0.01, y_of(-1.35)), (gx1 + 0.01, y_of(0.55)), (gx1 - 0.01, y_of(0.55))]
+        C.slab(mb, pin if sign > 0 else list(reversed(pin)), -0.06, -0.03, "glow", strip="flat")
+        # canards near the nose (orange, swept)
+        cx0, cxt = sign * 0.2, sign * 0.62
+        can = [(cx0, y_of(-1.62)), (cxt, y_of(-1.35)), (cxt, y_of(-1.22)), (cx0, y_of(-1.25))]
+        C.slab(mb, mirror_outline(can, sign), -0.17, -0.13, "livery_primary", strip="panel", edge_strip="grip")
+        # pod on a carbon pylon / inner wing
+        px, r = sign * d["podX"], d["podR"]
+        pod(mb, detail, sign, px, r, d["podZ0"], d["podZ1"], collar=("livery_secondary", "carbon"), collar_s=0.16, power=2.3, intake="grille")
+        x_in, x_out = sign * hw * 0.8, sign * (d["podX"] - r * 0.5)
+        inner = [(x_in, y_of(1.75)), (x_out, y_of(1.95)), (x_out, y_of(0.05)), (x_in, y_of(-0.35))]
+        C.slab(mb, mirror_outline(inner, sign), POD_Z - 0.05, POD_Z + 0.02, "livery_secondary", strip="carbon", edge_strip="grip")
+        # dark swept outer wing with an amber tip light
+        xw0, xw1 = sign * (d["podX"] + r * 0.6), sign * 1.3
+        wing = [(xw0, y_of(0.45)), (xw1, y_of(1.45)), (xw1, y_of(1.85)), (xw0, y_of(1.75))]
+        C.slab(mb, mirror_outline(wing, sign), POD_Z - 0.03, POD_Z + 0.01, "livery_secondary", strip="carbon", edge_strip="grip")
+        if detail:
+            tipl = [(xw1 - sign * 0.03, y_of(1.6)), (xw1, y_of(1.6)), (xw1, y_of(1.8)), (xw1 - sign * 0.03, y_of(1.8))]
+            C.slab(mb, mirror_outline(tipl, sign), POD_Z - 0.035, POD_Z + 0.015, "glow", strip="flat")
+        # tall swept twin fins (dark) with orange tips
+        fx = sign * hw * 0.62
+        C.fin(mb, top - 0.04, 0.68, 0.95, 0.32, 0.66, 0.05, "livery_secondary", x=fx, cant=sign * 0.3, strip="panel", y=y_of(1.55))
+        if detail:
+            C.fin(mb, top - 0.04 + 0.6, 0.1, 0.4, 0.3, 0.1, 0.056, "livery_primary", x=fx + sign * math.sin(0.3) * 0.6, cant=sign * 0.3, strip="panel", y=y_of(1.55) - 0.6)
+    # amber band behind the canopy
+    if detail:
+        C.slab(mb, [(-0.13, y_of(0.5)), (0.13, y_of(0.5)), (0.13, y_of(0.44)), (-0.13, y_of(0.44))], top - 0.005, top + 0.012, "glow", strip="flat")
+    return mb.finish(bounds)
+
+
+# chassis -> (builder, socket/bounds parameters); the rest still use build_ship + DESIGNS until V3 replaces them
+COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, noseZ=HULL_NOSE_Z, halfW=1.28)
+GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART)}
 
 
 def ship_bounds(d):
@@ -352,23 +579,33 @@ def ship_bounds(d):
     return (Vector((-half_w, y_of(HULL_TAIL_Z) - 0.1, -0.45)), Vector((half_w, y_of(HULL_NOSE_Z), d["hullTop"] + 0.5)))
 
 
+def grounded_bounds(g):
+    """COLOR_0 body box of a §V chassis: tip of the nose (or spike) to the tail, out to its widest point."""
+    tail = y_of(g.get("tailZ", HULL_TAIL_Z)) - 0.1
+    return (Vector((-g["halfW"], tail, -0.45)), Vector((g["halfW"], y_of(g.get("tipZ", g["noseZ"])), g["hullTop"] + 0.5)))
+
+
 def build(cid, out_dir):
     C.reset_scene()
-    d = DESIGNS[cid]
-    bounds = ship_bounds(d)
+    grounded = cid in GROUNDED
+    if grounded:
+        builder, d = GROUNDED[cid]
+        bounds = grounded_bounds(d)
+    else:
+        d = DESIGNS[cid]
+        bounds = ship_bounds(d)
     root = bpy.data.objects.new(cid, None)
     bpy.context.scene.collection.objects.link(root)
     objs = [root]
     lods = []
     for level in (0, 1):
-        o = GROUNDED[cid](level, bounds) if cid in GROUNDED else build_ship(cid, d, level, bounds)
+        o = builder(level, bounds) if grounded else build_ship(cid, d, level, bounds)
         o.parent = root
         objs.append(o)
         lods.append(o)
-    if cid in GROUNDED:
+    if grounded:
         C.bake_vertex_ao(lods)
-        d = {**d, **COMET} if cid == "comet" else d
-    tail = y_of(HULL_TAIL_Z)
+    tail = y_of(d.get("tailZ", HULL_TAIL_Z))
     pod_tail = y_of(d["podZ1"])
     pod_mid = y_of(d["podZ0"] + 0.62 * (d["podZ1"] - d["podZ0"]))
     edge = d["podX"] + d["podR"]
@@ -386,7 +623,7 @@ def build(cid, out_dir):
         objs.append(C.socket(name, loc, parent=root))
     tris = {o.name: C.triangle_count(o) for o in objs if o.type == "MESH"}
     path = os.path.join(out_dir, f"{cid}.glb")
-    C.export_glb(path, objs, texcoords=cid in GROUNDED)
+    C.export_glb(path, objs, texcoords=grounded)
     print(f"[ships] {cid}: {tris} -> {path}")
 
 
