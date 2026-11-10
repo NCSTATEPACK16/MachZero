@@ -1122,7 +1122,26 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 
 ---
 
-### X2 — Environment effects framework
+### X2 — Environment effects framework — 🚧 IN PROGRESS (branch `v2/x2-envfx`, pushed, no PR yet)
+
+**As built so far (2026-11-10; the session stopped at a usage limit):**
+- **Done and committed:**
+  - `graphics/envfx/EnvFxSpec.ts`: the data format, `ENVFX_QUALITY` per preset, `resolveEnvFx(spec, level, reducedMotion)`, `planDrawCalls`, `flashTime` (pure, 7 tests).
+  - `graphics/envfx/Weather.ts` (one instanced quad mesh in a 90 × 50 × 90 m box round the camera, wrapped in the vertex shader; streaks follow the motion relative to the camera), `FogSheets.ts`, `Shafts.ts`, `SetPieces.ts`, `WetDeck.ts`, and `EnvFx.ts` (the orchestrator; 5 tests on Neon Bay).
+  - Colour grade and the lightning flash are uniforms in the final pass (`shaders/chromatic.ts`, `PostFX.setGrade` / `setFlash`); the grade maths is compiled in only when a world has a grade (`GRADE` define, set at world change, before the warm-up).
+  - Surface particles: `Effects.setSurface` and `emitSurface` in the shared point pool.
+  - `WorldTheme` gained optional `envfx` and `roleMaterial(role)`. `GraphicsSystem` owns one `EnvFx`: `applyTheme` → `setWorld`, `setTrack` → `build`, `update`, and the flash lifts the hemisphere and fill lights.
+  - Neon Bay's set (`themes/neonBay.ts` `envfx`): rain, wet-look deck, sea mist, searchlight shafts, 2 airships (`airship_0` in `build_props.py`; `props.glb` 28 → 36 KB; the other four worlds' GLBs rebuilt byte-identical), far lightning, spray, a cool grade.
+  - Checked in the browser on High: it renders, with no console errors. Rain and wet-deck strength were toned down once after the first look.
+- **Deviation:** height fog is drawn as up to 3 drifting sheets in one instanced draw call, not as a height term in every material's fog (that would mean patching every lit and custom shader).
+- **Not done yet (do these next, in order):**
+  1. Run the full gate (`npm run typecheck && npm test -- --maxWorkers=3 && npm run build && npm run size && npm run smoke -- --workers=1`). Only the envfx tests and typecheck were run after the last change. The smoke test checks for mid-race shader compiles: watch the wet-deck `onBeforeCompile` and the `GRADE` define.
+  2. The after half of the perf table: `npm run build && node scripts/perf-desktop.mjs --quality high,med,low --seconds 25 --audit`. The before half (PR #33 build, same method): 60 fps and p95 16.8 ms on High / Med / Low; grid frame 161 / 161 / 141 draw calls; race median 106 / 107 / 86; triangles 147k / 140k / 126k. Budget: +6 draw calls or fewer, 0 per ship, p95 unchanged.
+  3. Look at Med and Low and at reduced motion in the browser; check the airships, shafts and mist are visible and outside the track corridor; confirm which deck edge gets which neon colour in `WetDeck.ts` (uv.y < 0.5 is assumed to be the left rail).
+  4. A screenshot diff on Sunset Mesa (a theme with no `envfx` must render as before).
+  5. e2e: a race on each preset with effects on and no console errors (extend `e2e/smoke.spec.ts` or the garage spec's race step).
+  6. Before/after screenshots into `docs/v2/shots/x2/`, `npm run codebase`, open the PR on `v2/x1-cups` (#33), bind it, and write the device gate into the body.
+
 
 **Design decisions:**
 - Effects in priority order (impact per frame-time cost): colour grading; weather particles; height fog and fog banks; animated sky layers and lightning flashes; surface reactions; drifting set pieces; wet-look deck; light-shaft cards.
