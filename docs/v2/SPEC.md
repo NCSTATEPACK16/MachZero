@@ -224,3 +224,115 @@ One hand-designed track per world (3 laps, target lap time 30–45 s on Pilot), 
 - 60 fps on High on a desktop GPU; ≥ 30 fps (60 target) on Low on iPhone 12 / iPad 9th gen.
 - Size: app JS ≤ 600 KB gzipped plus the Rapier physics chunk ≤ 1.7 MB gzipped (≤ 1.2 MB if its WASM moves to a separate file); game content ≤ 15 MB, loaded per world; first playable race ≤ 5 s on a 50 Mbps connection.
 - No console errors in the smoke test. Saves survive every milestone's migration.
+
+## 10. 2.1 expansion (agreed 2026-11-10)
+
+> Status: **agreed** (design interview, 2026-11-10). This section adds to 2.0. It does not reopen any decision in §1–§9: the pillars and the non-goals still hold. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) §X has the build plan.
+
+### 10.1 What 2.1 adds, and why
+
+| Direction | What | Why |
+|---|---|---|
+| **New worlds** | Three worlds (6, 7, 8), each with a new track feature | Pillar 3: you remember a track by what it does. Eight worlds also let a second cup mix old and new |
+| **Environment effects** | Weather, atmosphere, light and surface reactions on every world, old and new | The worlds look right but stand still. Motion in the air and on the road makes speed easier to feel (pillar 1) |
+| **Cups** | The single 5-race Grand Prix becomes a list of cups | The cup must not grow by itself when a world is added, and a later championship needs a base |
+| **Upgrades** | Two variants of each part from Mk II up, and a fifth slot (Aero) | More choice for speed, handling and armour without making ships stronger overall |
+
+Out of scope for 2.1: audio (M6), touch and comfort (M7), World Tour, Time Trial and ghosts (M8), online features (a 2.0 non-goal), and anything with real money (never). 2.1 must not block them. In particular every new world has a song entry for M6 (IMPLEMENTATION Appendix B).
+
+### 10.2 New worlds
+
+| # | World | Look (retro × futuristic) | Signature gimmick (a new track feature) | Hazard |
+|---|---|---|---|---|
+| 6 | **Tempest Spire** | A city of art-deco towers above a permanent thunderstorm: rain, lightning rods, searchlights | **Crosswind zones**: gusts push every ship sideways | **Lightning strikes** (energy loss and a boost jam) |
+| 7 | **Cinder Forge** | A chrome foundry in a volcano crater: lava rivers, smelter towers, ember clouds | **The Plunge**: a steep dive into the crater and a climb out, with gravity along the road | **Lava geysers** that erupt in lanes on a timer |
+| 8 | **Abyss Line** | An undersea city of glass domes and brass: kelp forests, light shafts, bubbles | **The Spine**: ride around the outside of a tube | **Pressure jets** that knock ships around the tube |
+
+- **Every gimmick is a new track feature**, not a new skin on an old one: a side force, a steep pitch with gravity, and a convex road. None of the five 2.0 worlds has any of these.
+- **Hazard rules follow §6:** on Rookie AI (and later with No-KO) every new hazard has double the warning time, causes no energy loss, and only slows the ship. There is always a clear way through.
+- **Reduced motion** removes full-screen lightning flashes and camera shakes. The warnings on the road stay.
+- **Locks:** the new worlds are selectable with no unlock gate until M8's World Tour exists, as the 2.0 worlds were. World Tour then decides how worlds 6–8 unlock.
+- **Each world's look comes from an owner-approved concept image** (`docs/v2/WORLD_CONCEPTS.md`), as the ships' looks did.
+- Track rules are unchanged: one hand-designed track per world, 3 laps, a 30–45 s lap, dash plates and a pit strip.
+
+### 10.3 Environment effects
+
+- **The effects**, in order of visual impact for their frame-time cost:
+  1. Per-world colour grading.
+  2. Weather particles: rain, snow, embers, spores, dust, bubbles.
+  3. Height fog and fog banks.
+  4. Animated sky layers and lightning flashes.
+  5. Track-surface reactions behind ships: spray, dust, sparks.
+  6. Drifting set pieces: airships, shuttles, debris.
+  7. A wet-look road: a glossier deck with stretched neon streaks. It is not a real reflection.
+  8. Light-shaft cards (cheap god rays).
+- **Rules for every effect:**
+  - It is data in the world's theme, not code in the renderer.
+  - It scales with the quality preset. Low may drop it. Effects 1–4 run on every preset; effects 5–8 run on Med and High.
+  - Reduced motion turns off flashes and shakes.
+  - It adds no draw calls per ship.
+  - It never changes how the game plays. Wind, lightning, geysers and jets are track features with their own rules (§10.2); the effects only show them.
+- **Budget:** 60 fps on the iPhone and the iPad at the device's own preset, with the 95th-percentile frame time no more than 1 ms above the build before the effect.
+- **Time of day per race is not in 2.1.** The theme data leaves room for it.
+- **The five 2.0 worlds each get a set:**
+
+| World | Effects |
+|---|---|
+| Neon Bay | Light rain, wet-look deck, drifting airships |
+| Sunset Mesa | Blowing dust, light-shaft cards, dust behind ships |
+| Cryo Station | Snowfall, ice glitter, aurora pulses |
+| Jade Ruins | Mist banks, floating spores, light shafts through the canopy |
+| Orbital Ring | Micro-meteor streaks, drifting shuttles, sun glint |
+
+### 10.4 Cups and the championship
+
+This replaces "all five tracks back to back" in §4.2. Everything else in §4.2 still holds.
+
+- **A cup is a named, ordered list of 5 worlds.** The cups:
+
+| Cup | Races |
+|---|---|
+| **Neon Cup** | Neon Bay → Sunset Mesa → Cryo Station → Jade Ruins → Orbital Ring (the 2.0 cup, unchanged) |
+| **Storm Cup** | Sunset Mesa → Tempest Spire → Jade Ruins → Cinder Forge → Abyss Line |
+
+- The Storm Cup appears once world 8 is built.
+- **Trophies** are per cup and per tier. Trophies won before 2.1 belong to the Neon Cup.
+- **Unchanged:** points 10‑8‑6‑5‑4‑3‑2‑1, the tiebreak, the reverse-standings grid from race 2, no restarts, the retire rule, race payouts and the cup bonus (3000 × tier multiplier, per cup).
+- **Unlocks:** every cup is open until World Tour exists (M8).
+- **Championship (designed now, no screen yet):** a season is every cup in order at one tier.
+  - The season score is the sum of the racer's cup points.
+  - Ties break on cups won, then on the best cup finish.
+  - The winner gets a Champion trophy for that tier.
+  - 2.1 builds this as data and tested functions only. The screen and its rewards belong with M8's modes.
+
+### 10.5 Upgrades
+
+This extends §5.2. Tiers, prices and the design rule in §4.4 are unchanged: **stock parts win every Rookie race, and a child playing Rookie never has to grind.**
+
+- **Sidegrades.** From Mk II up, each slot has two variants at the same price. Variant A is the 2.0 part with the same numbers, so every part a player already owns behaves exactly as before.
+
+| Slot | Variant A (the 2.0 part) | Variant B (new) |
+|---|---|---|
+| Engine | **Velocity**: top speed and acceleration in balance | **Sprint**: much more acceleration, less top speed |
+| Booster | **Longburn**: longer, cheaper boosts | **Burst**: a much faster, shorter boost |
+| Stabilizer | **Grip**: more lateral grip | **Agility**: much sharper steering, little extra grip |
+| Hull | **Cell**: more energy | **Plate**: little extra energy, much less damage taken, more weight, pushes rivals harder |
+
+  - Each variant is bought separately. Both stay owned, and refitting an owned part is free.
+  - **Balance rule:** within a slot and tier, neither variant is more than about 1% faster per lap than the other, averaged over every track. A variant is a choice of style, not a better part.
+- **A fifth slot: Aero** (Stock → Mk II → Mk III → Prototype, no variants).
+
+| Slot | Improves | Trade-off |
+|---|---|---|
+| **Aero** | Draft bonus; steering in the air; resistance to wind and jets | − a little top speed |
+
+- **Every new part is its own model** that swaps visibly onto the ship: 12 variant-B parts and 4 Aero parts, 32 parts in total. Aero mounts on a new attachment point near the nose of every chassis.
+- **Rivals** pick variants by personality (aggressive pilots take Sprint, Burst and Plate; steady and precise pilots take variant A). Rookie rivals stay all Stock. Exact fits are in IMPLEMENTATION Appendix A.
+
+### 10.6 Success criteria (2.1 done)
+
+- All eight worlds are playable in single races and in their cups, on desktop, iPhone and iPad, with only a controller.
+- The §9 sim criteria hold on **8 tracks × 4 AI tiers**, with each new gimmick covered by its own hold test, and the §9 balance targets hold on every new track.
+- Each sidegrade pair passes the 1% balance rule in the sims.
+- The device budget in §10.3 holds at every gate. The §9 size budgets hold: app JS ≤ 600 KB gzipped, game content ≤ 15 MB loaded per world.
+- Saves from every earlier version load with nothing lost.

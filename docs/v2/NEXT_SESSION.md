@@ -1,9 +1,24 @@
-# Next-session brief: build MachZero 2.0 (§V V2 #29 and V3 #30 built; waiting on the user's look approval and the iPhone + iPad gate)
+# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; build in progress)
 
-Paste the prompt at the bottom into a fresh Claude Code session (Opus 5.5) opened on
+Paste the prompt at the bottom into a fresh Claude Code session opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-08, end of the V2 + V3 session)
+## Where things stand (2026-11-10, the 2.1 design session)
+
+- **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
+- **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
+- **#31 exists because #30 (V3, the five rebuilt chassis) was merged into `v2/v2-parts` after #29 had already gone into `v2/v23-ships-plan`.** #31 carries exactly #30's 20 files into the stack. Every 2.1 branch starts from its tip.
+- **§V V3's gate is still open and belongs to the user:** look approval of DART, WISP, ARROW, TITAN and BASTION, and the iPhone + iPad readings (steps in #30's body). Don't wait for it and don't mark it done.
+- **Build order (one stacked PR each):** X1 cups groundwork (save v6) → X2 environment effects framework → X3 upgrades (save v7) → X4 Tempest Spire → X5 Cinder Forge → X6 Abyss Line + the Storm Cup → X7 effects on the five 2.0 worlds. The milestone table at the top of IMPLEMENTATION §X shows which are done.
+- **Waiting on the user:**
+  - **World concept images:** `assets/reference/worlds/<id>/chosen.jpg` for `tempest-spire`, `cinder-forge`, `abyss-line`, made in Gemini from `docs/v2/WORLD_CONCEPTS.md`. **Never build a world's look without its `chosen.jpg`.** The track, gimmick, hazard, AI and sims come first on a placeholder theme.
+  - Look approvals: the new parts (X3), each new world (X4–X6), each 2.0 world's effects (X2 for Neon Bay, X7 for the rest).
+  - The device gate of each milestone (IMPLEMENTATION §X "Rules for every X milestone").
+- **New flag:** `expansion` (off on `main`) hides the new worlds, the Storm Cup and the Aero tab and variant picker until their milestone is complete.
+- **Out of scope for 2.1:** M6 audio, M7 touch, M8 (World Tour, Time Trial, ghosts). Each new world has its song row in Appendix B so M6 is not blocked.
+
+## Earlier state (2026-11-08, end of the V2 + V3 session)
+
 
 - **§V V2 parts: PR #29** (`v2/v2-parts`, stacked on #28). **§V V3 chassis: PR #30** (`v2/v3-chassis`, stacked on #29). Both are built, with CI green and the as-built notes in IMPLEMENTATION §V.
 - **Waiting on the user:**
@@ -118,11 +133,12 @@ READ FIRST, in this order, before writing any code:
      contract changes (§3) and milestones M1 → M8 with "done when" criteria and appendices.
   4. docs/TDD.md: v1 architecture, especially §7 (corkscrew physics invariants you must preserve).
 
-GOAL: build §V V2 (the 16 parts, plus the nozzle flare and hover glow) and §V V3 (DART, WISP, ARROW, TITAN,
-BASTION) in this one session, as two stacked PRs, following IMPLEMENTATION.md §V.7 step by step. Start with
-step 0 (baseline) and step 1 (draw-call audit). Look at each assets/reference/ships/<id>/chosen.jpg before you
-model it. Commit after each part slot and each chassis, and push PR A before starting V3. PR B ends at its
-gate: the user approves the looks and reads iPhone AND iPad fps. M6–M8 need the user first.
+GOAL: continue the 2.1 expansion (SPEC §10, IMPLEMENTATION §X). Find the first milestone in §X's table that
+is not marked done, read its section and the "As built" notes of the milestones before it, and build it as one
+stacked PR. Hold sim tests come before each new track feature. Never build a world's look without
+assets/reference/worlds/<id>/chosen.jpg: build the track, gimmick, hazard, AI and sims on a placeholder theme
+and move on. Commit after each meaningful step and push each PR before starting the next. Each milestone ends
+at its gate: the user approves the look and reads iPhone AND iPad fps. M6–M8 need the user first.
 
 HOW TO WORK (agreed with the user; follow exactly):
 - Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play
@@ -167,8 +183,9 @@ AT THE END OF THE SESSION: report the PRs opened (links plus preview URLs), whic
 what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md's milestone headers
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
-Start by confirming the open PRs' state (gh pr list) and that main is green. Branch v2/v2-parts from the newest
-open stack branch (v2/gp-grand-prix while #24 is open, or the plan PR's branch if still open), then branch
-v2/v3-chassis from v2/v2-parts. Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build
-number). No attribution lines in commits or PR bodies.
+Start by confirming the open PRs' state (gh pr list). Branch from the newest open stack branch (the last X
+branch pushed). Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build number). No
+attribution lines in commits or PR bodies. End every PR hand-off with the preview URL, the iOS build command
+for that PR's branch (git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open) and
+the device-test steps.
 ```

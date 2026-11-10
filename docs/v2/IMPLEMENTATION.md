@@ -1,6 +1,6 @@
 # MachZero 2.0 — Implementation Guide (for the Opus 5.5 build sessions)
 
-Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7.
+Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7. The **2.1 expansion** (SPEC §10: cups, environment effects, upgrades, three new worlds) is section **X**, after §V.
 
 ---
 
@@ -1047,6 +1047,302 @@ Commit after each part slot and each chassis, and push PR A before starting V3, 
 
 ---
 
+## X — 2.1 expansion: cups, environment effects, upgrades, three new worlds (planned 2026-11-10)
+
+SPEC §10 says what and why. This section is the how. **Design decisions (grilling session with the user, 2026-11-10; settled, don't re-open)** are listed per milestone below.
+
+**Milestones, in build order. One branch and one PR each, stacked in this order on the §V V3 catch-up PR (#31):**
+
+| # | Milestone | Branch | Save | Needs from the user |
+|---|---|---|---|---|
+| X0 | Design docs (this section, SPEC §10, `WORLD_CONCEPTS.md`) | `v2/x-design-docs` | — | — |
+| X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
+| X2 | Environment effects framework | `v2/x2-envfx` | — | Device gate (fps) |
+| X3 | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
+| X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
+| X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
+| X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
+| X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
+
+**Rules for every X milestone** (in addition to §0):
+- **Scope:** audio (M6), touch (M7), World Tour, Time Trial and ghosts (M8) are not touched. Nothing here may block them.
+- **Flags:** `src/core/features.ts` gains `expansion` (off on `main`). It hides the new worlds' cards, the Storm Cup and the Aero tab and variant picker until their milestone is complete. Each milestone says below what it turns on.
+- **Device gate, the same for every milestone:** on the iPhone 18 Pro Max and the iPad Air 11", at the device's own preset, Settings → Graphics → PERFORMANCE PANEL on, an 8-ship race on the milestone's world (Neon Bay for shared changes), then a screenshot of the end-of-race summary. Pass is 60 fps with p95 no more than 1 ms above the build before the PR.
+- **PR body:** a before/after table (fps, p50/p95/p99, draw calls, triangles) from `scripts/perf-desktop.mjs`, the "done when" list ticked or explained, and a list of any change nobody asked for.
+- **Sims:** every sim file stays under 60 s on CI. An assertion is never loosened to go green.
+- **A world's look is never built without `assets/reference/worlds/<id>/chosen.jpg`.** The track, gimmick, hazard, AI and sims do not need it: they are built first on a placeholder theme (flat sky, the palette's neon, no props). If the image has not arrived when the gameplay half is done, push the PR as a draft with the world still behind `expansion` and start the next milestone.
+
+---
+
+### X1 — Cups groundwork
+
+**Design decisions:**
+- A cup is data: `content/cups.ts` exports `CUPS: readonly CupDef[]`, with `CupDef { id, name, worlds: readonly WorldId[] (5), requires?: … }`.
+  - `neon` — **NEON CUP**: `neon-bay`, `sunset-mesa`, `cryo-station`, `jade-ruins`, `orbital-ring`. This is the §GP cup with its worlds unchanged.
+  - `storm` — **STORM CUP**: `sunset-mesa`, `tempest-spire`, `jade-ruins`, `cinder-forge`, `abyss-line`.
+- A cup is **available** when every one of its worlds is `built` (and, for a cup with a world behind `expansion`, when that flag is on). The Storm Cup therefore appears by itself in X6. Until then the Grand Prix screen shows one cup and looks as it does today.
+- Unlock rules are data (`CupDef.requires`), but every cup is open until M8's World Tour exists, as §GP decided.
+- Points, grid, tiebreak, retire and no-restart rules do not change. The cup bonus is paid per cup.
+- **Trophies are per cup and tier.** Trophies won before save v6 belong to the Neon Cup.
+- **Championship:** designed now, built as data and pure functions only. No screen, no save field, no payout. M8 decides those.
+  - A season is every available cup, in `CUPS` order, at one tier.
+  - Season score = the sum of a racer's cup points. Ties break on cups won, then on the best cup rank, then on ship id (a total, stable order, as in §GP).
+  - The winner earns a Champion trophy for that tier (the function returns it; nothing stores it yet).
+
+**Build steps:**
+1. `content/cups.ts` with `CUPS`, `cupById`, `availableCups(features)`, and a unit test that every cup has 5 distinct known worlds.
+2. `game/modes/GrandPrix.ts`: remove `GP_WORLDS = WORLDS.map(…)` and `GP_RACES`. `CupState` gains `cupId`. `newCup(cupId, tier)`, `cupRaces(cup)`, `cupFinished`, `cupWorld` read the cup's own world list. **This is the fix for the hidden bug: today a sixth world would make the existing cup 6 races long.** Add a regression test that adding a world to `WORLDS` does not change any cup.
+3. Trophies: `Profile.trophies` becomes `Record<cupId, AITier[]>`. `addTrophy(trophies, cupId, tier)`, `hasTrophy`.
+4. Save v6 (`save/schema.ts`, `migrations.ts`): migration 5 → 6 sets `cup.cupId = 'neon'` on a cup in progress and turns `trophies: AITier[]` into `{ neon: [...] }`. The sanitizer drops a saved cup whose `cupId` is unknown or unavailable (the cup ends; nothing else is lost) and drops unknown cup ids from trophies. `SaveStore` tests: the migration, an old v5 save with a cup in progress, a bad `cupId`.
+5. `game/modes/Championship.ts` (pure): `seasonCups`, `seasonStandings(cupResults)`, `seasonChampion`. Unit tests for the sum, each tiebreak and a season with one cup.
+6. UI: `ui/screens/GrandPrix.tsx` lists the available cups (one card each: name, the 5 world chips, the trophies per tier). With one cup it keeps today's layout. `CupStandings.tsx` shows the cup's name and "RACE n OF 5". The pilot card shows trophies grouped by cup. Pad focus and spatial navigation as today.
+7. `App`: `cupRace`, `currentWorld` and `bookCupRace` read the cup through `cupById(cup.cupId)`.
+8. Tests: update `GrandPrix.test.ts`, `grandPrix.sim.test.ts` (five real races of the Neon Cup, reload mid-cup; plus a synthetic second cup made of built worlds, to prove the list is honoured) and `e2e/grandprix.spec.ts`.
+
+**Done when:**
+- [ ] The Neon Cup plays exactly as the §GP cup did (same e2e, same sim).
+- [ ] A v5 save with a cup in progress and trophies loads as v6 with both kept.
+- [ ] Adding a world to `WORLDS` changes no cup (test).
+- [ ] The championship functions are tested; nothing in the UI shows them.
+- [ ] Web and iOS: a pad-only cup start, race, standings, reload, CONTINUE CUP.
+
+**Device check (no fps gate; nothing renders differently in a race):** on iOS with the 8BitDo, start the Neon Cup, finish race 1, close the app on the standings screen, reopen, CONTINUE CUP.
+
+---
+
+### X2 — Environment effects framework
+
+**Design decisions:**
+- Effects in priority order (impact per frame-time cost): colour grading; weather particles; height fog and fog banks; animated sky layers and lightning flashes; surface reactions; drifting set pieces; wet-look deck; light-shaft cards.
+- Every effect is **data in the world's theme**; it scales by preset (Low may drop it); reduced motion turns off flashes and shakes; **no draw calls per ship**; it never changes gameplay.
+- Time of day per race is not built. `EnvFxSpec` is plain data so a later variant can swap it.
+- X2 builds the framework and proves each effect on **Neon Bay only** (light rain, wet-look deck, one drifting airship, a colour grade). The other four 2.0 worlds get their sets in X7; the new worlds get theirs in X4–X6.
+
+**Shape of the code:**
+- `graphics/envfx/EnvFxSpec.ts`: the data a theme declares.
+
+  ```ts
+  export interface EnvFxSpec {
+    grade?: { lift: [r, g, b]; gamma: [r, g, b]; gain: [r, g, b]; saturation: number };
+    weather?: { kind: 'rain' | 'snow' | 'embers' | 'spores' | 'dust' | 'bubbles' | 'meteors';
+                count: number; fall: number; wind: [x, z]; size: number; color: number; streak: number };
+    heightFog?: { base: number; falloff: number; color: number; bankScale?: number; bankSpeed?: number };
+    lightning?: { rate: number; color: number; flash: number };          // visual only; hazard strikes call flash() too
+    surface?: { kind: 'spray' | 'dust' | 'sparks'; color: number };       // behind grounded ships
+    setPieces?: { prop: string; count: number; path: 'orbit' | 'line'; radius: number; height: number; speed: number }[];
+    wetDeck?: { gloss: number; streak: number };
+    shafts?: { count: number; color: number; angle: number; width: number; opacity: number };
+  }
+  ```
+- `WorldTheme` gains `readonly envfx: EnvFxSpec` (empty object = today's behaviour, so the four untouched themes need one line each).
+- `graphics/envfx/EnvFx.ts` owns the runtime for the active theme: `setSpec(spec, track, props)`, `setQuality(q)`, `setReducedMotion(on)`, `update(camera, time, dt, ships)`, `flash(strength)`, `dispose()`. `GraphicsSystem.setWorld()` hands it the theme's spec.
+- **Colour grading:** uniforms in the existing final pass (`ChromaticPass`, which already draws the vignette on every preset since §H). No new pass, no LUT texture.
+- **Weather:** one `THREE.Points` (or one instanced quad mesh for streaks) in a box that follows the camera; positions wrap in the vertex shader from a time uniform, so there is **no per-frame CPU work and one draw call**. Bubbles and embers rise (negative `fall`). The track feature `wind` (X4) can lend its direction to `weather.wind` so the rain slants with the gust.
+- **Height fog:** extend `shaders/fog.ts` (`FOG_GLSL`, `FogUniforms`) with a height term and an optional drifting bank term. Every material that already includes `FOG_GLSL` gets it with no extra pass.
+- **Lightning flash:** scales the hemisphere and fill light and a sky uniform for ~120 ms. With reduced motion the flash is skipped.
+- **Surface reactions:** new emit kinds in the existing `Effects` point pool (`MAX_POINTS` 4096, one draw call already), spawned behind grounded ships above a speed threshold.
+- **Set pieces:** instances of a named prop from the world's `props.glb` on a slow path outside the 80 m corridor (`PropInstancer`, one instanced mesh per role).
+- **Wet-look deck:** a branch in the deck material (lower roughness, plus a streak term that stretches the rail neon along the view direction). No planar reflection, no extra pass.
+- **Light shafts:** a handful of additive, depth-tested cards in one instanced mesh, faded by view angle.
+
+**Quality scaling** (`QualityProfile` gains an `envfx` block; `settings/QualityManager.ts`):
+
+| Effect | Low | Med | High |
+|---|---|---|---|
+| Colour grading | on | on | on |
+| Weather particles (× `weather.count`) | 0.3 | 0.6 | 1 |
+| Height fog | on (no bank motion) | on | on |
+| Sky layers and lightning flash | on | on | on |
+| Surface reactions | player only | all ships, 0.6 | all ships |
+| Set pieces | 1 per kind | all | all |
+| Wet-look deck | off | on | on |
+| Light shafts | off | on (half count) | on |
+
+Reduced motion: no lightning flash, no camera shake from effects, weather streak length halved.
+
+**Budgets:** at most **+6 draw calls per world** for all effects together (weather 1, set pieces ≤ 3, shafts 1, spare 1); 0 per ship. No new render pass. Shader warm-up covers the new materials (no first-rain hitch).
+
+**Build steps** (commit after each): spec and `EnvFx` skeleton with unit tests for quality scaling → colour grading → weather particles → height fog → lightning flash → surface reactions → set pieces → wet-look deck → light shafts → Neon Bay's spec and `perf-desktop` table.
+
+**Done when:**
+- [ ] Each of the 8 effects works from data on Neon Bay at Low, Med and High, and respects reduced motion.
+- [ ] A theme with `envfx: {}` renders as before (screenshot diff on Sunset Mesa).
+- [ ] Draw calls: +6 or fewer on Neon Bay, 0 per ship (`perf-desktop --audit`).
+- [ ] Desktop p95 unchanged on every preset.
+- [ ] e2e: a race on each preset with no console errors.
+- [ ] **Device gate** (8-ship Neon Bay) and the user's look approval of Neon Bay's set.
+
+---
+
+### X3 — Upgrades: sidegrades and the Aero slot
+
+**Design decisions:**
+- **Sidegrades** at Mk II, Mk III and Prototype in the four 2.0 slots. Variant A is the 2.0 part with unchanged numbers; variant B is new. Same price per tier (600 / 1500 / 3200). Each is bought separately; owned parts refit for free; nothing can be sold.
+
+  | Slot | A (2.0 numbers) | B | B's starting numbers (Mk II / Mk III / Prototype); tuned by the sims |
+  |---|---|---|---|
+  | Engine | Velocity | Sprint | topSpeed +1/+2/+4; thrustAccel +6/+11/+15; weight as A |
+  | Booster | Longburn | Burst | boostTopSpeed +8/+15/+22; boostCost 14/13/12; boostTime 1.3/1.35/1.4 |
+  | Stabilizer | Grip | Agility | steer ×1.08/1.15/1.22; lateralGrip +0/+0.2/+0.5; topSpeed −0.5/−1/−1.5 |
+  | Hull | Cell | Plate | energyMax +3/+7/+10; damageTakenScale ×0.85/0.75/0.65; weight +0.05/+0.09/+0.14; ram mass ×1.1/1.2/1.3 |
+
+- **Balance rule:** for each slot and tier, the mean lap-time difference between A and B over every built track (Legend autopilot, other slots Stock) is ≤ 1%. `sim/parts.sim.test.ts` enforces it. Tune B's numbers, never the assertion.
+- **Aero**, a fifth slot, four tiers, no variants, the same prices:
+
+  | Tier | Draft bonus | Push from wind and jets | Steering in the air | topSpeed |
+  |---|---|---|---|---|
+  | Stock / Mk II / Mk III / Prototype | ×1 / 1.15 / 1.3 / 1.5 | ×1 / 0.9 / 0.8 / 0.7 | ×1 / 1.1 / 1.2 / 1.3 | −0 / −0.3 / −0.6 / −1 |
+
+  The wind and jet term has no effect until X4 and X6; the draft and air terms work on every 2.0 world.
+- **Models:** every new part is its own model: 12 variant-B parts and 4 Aero parts (32 in total), built in `blender/parts/build_parts.py` under the §V rules (trim UVs, baked vertex AO, ≤ 1.5k triangles, ≤ 3 primitives, `parts.glb` ≤ 600 KB). B variants must read as different at a glance from their A part (silhouette, not only colour). Node names: `<slot>_t<tier>` stay for A; B is `<slot>_t<tier>b`; Aero is `aero_t0..t3`.
+- **Aero socket:** `socket_aero` near the nose of each of the 6 chassis (per-chassis position in `build_ships.py`, like `hullSock`). This re-exports the six ship GLBs; **the hull meshes must come out byte-identical** apart from the added empty. The §V V3 look approval is not affected.
+- **Rival fits** (Appendix A): variants by personality; Aero Stock on Rookie and Pilot, Mk II on Ace, Mk III on Legend. Rookie stays all Stock, so SPEC §4.4's rule holds.
+- **Save v7.**
+
+**Build steps** (commit after each slot):
+1. Contracts: `PartSlot` gains `'aero'`; `PartVariant = 'a' | 'b'`; `Loadout.variants: Record<PartSlot, PartVariant>`; `ShipStats` gains `draftScale`, `pushScale`, `airSteerScale`, `ramMass` (all 1 at Stock, so every 2.0 test passes unchanged: the same proof as M1's stats parity).
+2. `content/parts.ts`: effects per slot → variant → tier; `PART_VARIANT_NAMES`; `partKey(slot, tier, variant)`. `physics/ShipStatsResolver.ts` reads them. `physics/Drafting.ts` and `ShipController` consume `draftScale` and `airSteerScale`; ship-to-ship push uses `ramMass`.
+3. Save v7: `owned: Record<PartSlot, PartTier[]>` becomes `owned: Record<PartSlot, string[]>` of part keys (`'1a'`, `'2b'`…); migration 6 → 7 maps each owned tier to its A variant, adds `aero: ['0']`, `loadout.parts.aero = 0` and `variants` all `'a'`. Sanitizer and `SaveStore` tests.
+4. `content/economy.ts`: `buyPart` and `equipPart` take the variant.
+5. Blender: one slot per commit (engine B, booster B, stabilizer B, hull B, aero), then `socket_aero` on the six chassis. `check-assets`: the new node names, the socket, the budgets, and a hash check that the hull meshes did not change.
+6. `ShipAssembly`: the Aero part on `socket_aero`; `mergeByMaterial` for rivals already merges every part, so **rival draw calls stay ≤ 6**. The player's ship gains one part (≤ 3 calls) on one ship only.
+7. Garage: an AERO tab; in each slot tab a two-way A/B picker per tier with both stat previews; `ui/garageModel.ts` normalises the bars over the new range. Behind `expansion` until this PR is complete, then on.
+8. `content/pilots.ts` `RIVAL_FITS`: variants by personality, Aero by tier.
+9. Sims: the A/B balance test; the tier matrix on all 5 worlds with the new fits; the SPEC §9 balance targets.
+10. `e2e/garage.spec.ts`: cycle every chassis × slot × tier × variant on Low, Med and High.
+
+**Done when:**
+- [ ] Every 2.0 physics and sim test passes unchanged with all-A, Stock-Aero loadouts.
+- [ ] Each A/B pair is within 1% per lap (sim).
+- [ ] A v6 save loads as v7 with every owned and fitted part kept.
+- [ ] 32 parts pass `check-assets`; `parts.glb` ≤ 600 KB; ship assets ≤ 2 MB; hull meshes unchanged.
+- [ ] Rival draw calls are not up (`perf-desktop --audit`).
+- [ ] Rookie-assisted autopilot on Stock still finishes top 3 on every track.
+- [ ] **The user approves the look of the new parts** (a parts sheet in the PR body) and the **device gate** passes (8-ship Neon Bay, mixed field).
+
+---
+
+### X4 — World 6: Tempest Spire (crosswinds and lightning)
+
+**Design decisions:**
+- **Look:** art-deco towers above a permanent thunderstorm; rain, lightning rods, searchlights. Palette: storm violet / electric yellow / teal. From `assets/reference/worlds/tempest-spire/chosen.jpg`.
+- **Gimmick, crosswind zones.** A new `TrackFeature`: `{ type: 'wind'; dStart; dEnd; dir: 1 | -1; accel; period; phase; duty }`.
+  - Inside the zone a lateral acceleration acts on every grounded ship, across the road, while the gust is on. The gust runs on the hazard clock (`PhysicsSystem.hazardTime`), ramps over 0.5 s, and is identical in every sim run.
+  - Starting numbers: `accel` 7 m/s² × the ship's `pushScale` (Aero), which drifts a hands-off ship about 3 m across a zone. Steering holds the line. Rails catch a ship that does nothing.
+  - No wind on jumps, in the pit, or within 60 m of a corkscrew. The validator checks this.
+  - **Telegraph:** streamers on the rails that point with the gust, and the rain slants with it (`EnvFx` weather wind). A zone is visible from 150 m.
+- **Hazard, lightning.** A new feature: `{ type: 'lightning'; dStart; dEnd; count; period; phase }` places strike points in lanes, always leaving a clear lane (the stone-gate rule).
+  - A strike circle (radius 3 m) glows for 1.5 s × `telegraphScale`, then strikes for 0.2 s.
+  - **Normal rules:** 6 energy × `damageTakenScale` and a 3 s boost jam (reuses `empLock`). A Shield blocks it.
+  - **Rookie rules:** no energy loss, no boost jam, velocity × 0.85.
+  - Reduced motion: no full-screen flash; the circle and the bolt mesh still show.
+- **AI:** counter-steers the gust from the timeline (feed-forward on the known `accel`); avoids strike circles as it avoids mines (`avoidHazards` bands that exist only during the warning and strike).
+- **Other:** `airGravityScale` 1.0; no unlock gate; `expansion` flag until this PR is complete.
+- **Track shape:** about 4.3 km, a 36–40 s lap; three crosswind zones (one on a long straight, one through a fast sweeper pushing outward, one pushing inward before a chicane); two lightning fields; one jump between towers (no wind on it); the pit and two dash plates.
+
+**Build steps** (test first):
+1. `sim/wind.hold.sim.test.ts`, written before the feature: at 70 and 125 m/s, on 3 lines, a steering ship holds its line within 1.5 m through a zone; a hands-off ship drifts 2–4 m and stays inside the rails; Aero Prototype drifts less than Stock; the same run twice is identical.
+2. `track/features/wind.ts` (`buildWinds`, `windAccel(w, t)`), contracts, `ShipController` force, `ship:wind { active, dir }` event.
+3. `track/features/lightning.ts`, `physics` strike test (analytic circle vs hull, like the mines), `hazard:lightning`, `HazardPolicy`, Shield. `sim/hazards.sim.test.ts` cases: normal and Rookie rules, clear lane, determinism.
+4. Authoring: `scripts/track-design.mjs` segments take `wind` and `lightning`; `TrackValidate` rules; `tempest-spire.json`; SVG preview draws both.
+5. AI: gust feed-forward and strike avoidance.
+6. `content/worlds.ts` entry (`WorldId` union, order 6, palette, `built: true`, hidden without `expansion`), `Appendix B` row.
+7. `sim/tempest-spire.sim.test.ts` with the `tierMatrix` (4 tiers, mixed field, Rookie-assisted, Pilot balance), under 60 s.
+8. Placeholder theme, then **(needs `chosen.jpg`)** `graphics/themes/tempestSpire.ts` (storm sky shader with cloud floor and in-cloud lightning, towers, rods, searchlights), `blender/props/build_props.py` `build_tempest_spire`, and its `envfx` (heavy rain, lightning flash, wet-look deck, spray, searchlight shafts, height fog over the cloud floor).
+9. HUD: a wind arrow chip while in a zone; a strike warning uses the existing hazard styling. Audio hooks are events only (M6 adds sound).
+
+**Done when:**
+- [ ] The wind hold test and the hazard tests pass; hazards are deterministic.
+- [ ] The 4-tier sims pass: all 8 ships finish, order roughly follows tier, the SPEC §9 balance targets hold.
+- [ ] `tracks:check` passes; the SVG preview is committed; lap 30–45 s.
+- [ ] World assets ≤ 2.5 MB; `public/game` ≤ 15 MB; effects within X2's budget.
+- [ ] **The user approves the look**, and the **device gate** passes on Tempest Spire.
+
+---
+
+### X5 — World 7: Cinder Forge (the Plunge and lava geysers)
+
+**Design decisions:**
+- **Look:** a chrome foundry in a volcano crater; lava rivers, smelter towers, ember clouds. Palette: ember orange / cobalt blue / basalt black (the blue keeps it apart from Sunset Mesa). From `assets/reference/worlds/cinder-forge/chosen.jpg`.
+- **Gimmick, the Plunge.** A new `TrackFeature`: `{ type: 'plunge'; dStart; dEnd }` over an authored dive of about 55° that drops roughly 90 m, a floor section, and a climb out.
+  - The magnetic lock holds ships on the road as everywhere else. **On a Plunge only, gravity also acts along the road:** `g · sin(pitch) · PLUNGE_GRAVITY` is added to the along-track acceleration, and the top-speed cap rises to 1.2 × top speed (1.2 × boost top while boosting). Ships gain speed on the dive and lose it on the climb.
+  - The road is unbanked and straight in plan over the dive and the climb; the pitch transitions use a vertical radius ≥ 120 m so the hull never leaves hover range. The frames are built about the pitch axis as for the loop (`TrackFrames`), so there is no roll.
+  - Elevation bounds are per world (the validator takes them from the track definition).
+  - The chase camera pitches with the road and keeps the horizon in view on the dive (camera test, as for the loop).
+- **Hazard, lava geysers.** A new feature: `{ type: 'geysers'; dStart; dEnd; count; period; phase }`: vents in fixed lanes, a clear lane always.
+  - A vent glows for 1.5 s × `telegraphScale`, then erupts for 1.2 s (a column of radius 2.5 m).
+  - **Normal rules:** a 10 m/s knock up the road normal plus 8 energy × `damageTakenScale` (the mine's numbers). A Shield blocks it.
+  - **Rookie rules:** no energy loss, velocity × 0.85.
+  - No geysers on the Plunge itself.
+- **AI:** treats the Plunge as a centre section (holds its line, no draft seeking); brakes for the corner after the climb from the higher entry speed; avoids vents from the timeline.
+- **Other:** `airGravityScale` 1.0; no unlock gate; `expansion` flag.
+- **Track shape:** about 4.6 km, a 38–42 s lap; the rim section with two geyser fields; the Plunge; a floor section beside the lava; the climb; one jump over a lava river; the pit and two dash plates.
+
+**Build steps** (test first):
+1. `sim/plunge.hold.sim.test.ts`, before the feature: 4 speeds (40–180 m/s) × 5 lines hold within 1.5 m, height error < 0.6 m, never airborne, no respawn; speed gained on the dive and lost on the climb within stated bounds; the cap holds; the camera keeps a clear sight line.
+2. `track/features/plunge.ts`, frames, `ShipController` along-road gravity and cap, `safeRespawnU` (a respawn on the dive goes to the floor section).
+3. `track/features/geyser.ts`, physics, `hazard:geyser`, policy, Shield, hazard sims.
+4. Authoring (`plunge`, `geysers`, per-track elevation bounds), validator, `cinder-forge.json`, preview.
+5. AI. 6. World entry and Appendix B. 7. `sim/cinder-forge.sim.test.ts` (tier matrix).
+8. Placeholder theme, then **(needs `chosen.jpg`)** `themes/cinderForge.ts`, props, and `envfx` (embers, heat shimmer, a lava-lit height fog, sparks behind ships, drifting crucible gantries, light shafts through smoke).
+
+**Done when:** the same list as X4, with the Plunge hold test in place of the wind test, and the device gate on Cinder Forge.
+
+---
+
+### X6 — World 8: Abyss Line (the Spine and pressure jets), and the Storm Cup
+
+**Design decisions:**
+- **Look:** an undersea city of glass domes and brass; kelp, light shafts, bubbles. Palette: aqua / brass gold / coral pink. From `assets/reference/worlds/abyss-line/chosen.jpg`.
+- **Gimmick, the Spine.** A new `TrackFeature`: `{ type: 'spine'; dStart; dEnd; transition }`. The deck curls **down** around a tube and ships ride its outside, all the way round.
+  - It reuses the full-pipe's `curl` machinery (`track/features/pipe.ts`) with the curl signed: −1 closes the deck around a tube of the same circumference (2W, radius ≈ 4.46 m) below the centreline. `curlPoint`, `uncurlPoint`, `splitByCurl`, `surfacePoint`, `surfaceUp` and `PipeCompensation` must all accept a negative curl. Lateral stays the arc position around the tube; ±W is the bottom seam.
+  - No rails on the closed Spine. The magnetic lock holds a ship at any angle and any speed; a ship cannot fall off. The seam guard eases ships away from the bottom seam before the tube opens, as on the pipe.
+  - The chase camera rolls with the ship and stays outside the tube (camera test).
+  - Collision uses 40 pieces across, as inside the pipe.
+- **Hazard, pressure jets.** A new feature: `{ type: 'jets'; dStart; dEnd; count; period; phase }` places vents on the Spine, a clear lane always.
+  - A bubble stream warns for 1.5 s × `telegraphScale`, then the jet fires for 0.8 s.
+  - **Normal rules:** a 9 m/s knock around the tube (lateral, away from the vent) × `pushScale` plus 5 energy × `damageTakenScale`. A Shield blocks it.
+  - **Rookie rules:** no energy loss, a 5 m/s knock, velocity × 0.85.
+- **AI:** aims at `surfacePoint` on the Spine (as in the pipe), keeps off the seam, avoids vents from the timeline.
+- **Other:** `airGravityScale` 1.0; no unlock gate; `expansion` flag.
+- **Track shape:** about 4.4 km, a 36–41 s lap; a 500 m Spine through a gentle bend (plan radius ≥ 300 m, transitions ≥ 80 m) with two jet fields; a glass-tunnel section through the city; a corkscrew-free, jump-free layout so the Spine is the whole show; the pit and two dash plates.
+- **Storm Cup:** with world 8 built, the `storm` cup becomes available (X1's rule). This PR adds its e2e and a 5-race cup sim.
+- **Flag:** this PR completes the expansion's player-facing surfaces. Whether `expansion` turns on by default here or stays off until X7 is the user's call at this PR's review; the default plan is **on here** (X7 only adds polish to worlds that are already live).
+
+**Build steps** (test first):
+1. `sim/spine.hold.sim.test.ts`, before the feature: 5 lines up to 154° round either side × 70 and 125 m/s, plus a full 360° spiral: height and axis error < 0.6 m, hull aligned, never airborne, no respawn; the pipe hold test still passes unchanged.
+2. Signed curl through geometry, queries, mesh, collision, `PipeCompensation`; `TrackData.spines`.
+3. `track/features/jet.ts`, physics, `hazard:jet`, policy, Shield, hazard sims.
+4. Authoring, validator (as for pipes), `abyss-line.json`, preview. 5. AI. 6. World entry and Appendix B.
+7. `sim/abyss-line.sim.test.ts` (tier matrix); the Storm Cup sim and e2e.
+8. Placeholder theme, then **(needs `chosen.jpg`)** `themes/abyssLine.ts` (water-column sky with a caustic surface far above, kelp, domes), props, and `envfx` (bubbles, a deep-blue grade, height fog as water haze, light shafts from the surface, drifting fish schools as set pieces).
+
+**Done when:** the same list as X4 with the Spine hold test, plus: the Storm Cup plays start to finish by pad on web and iOS; the device gate on Abyss Line.
+
+---
+
+### X7 — Effects polish on the five 2.0 worlds
+
+**Design decisions:** each world gets the set in SPEC §10.3, as `envfx` data plus any theme-specific piece. No gameplay change; any sim diff is a bug.
+
+| World | `envfx` | Theme work |
+|---|---|---|
+| Neon Bay | (done in X2) rain, wet-look deck, airship | Tune after the device reading |
+| Sunset Mesa | dust, shafts (low sun), dust behind ships | Dust devils as set pieces |
+| Cryo Station | snow, a cold grade | Ice glitter on the deck (a sparkle term in the wet-look branch); aurora pulses in the sky shader |
+| Jade Ruins | mist banks (height fog), spores, canopy shafts | The 1,800 fireflies move into the weather system if that saves a draw call |
+| Orbital Ring | meteor streaks, a sun glint | Drifting shuttles as set pieces (new props, ≤ 40 KB) |
+
+**Build steps:** one world per commit, each with a before/after screenshot at Med and Low and a `perf-desktop` row.
+
+**Done when:**
+- [ ] Each world's set runs on Low, Med and High within X2's budget (+6 draw calls or fewer per world, 0 per ship).
+- [ ] Sims and unit tests are unchanged and green.
+- [ ] **The user approves each world's look** on the preview; a rejected world's `envfx` is tuned in a follow-up commit.
+- [ ] **Device gate:** an 8-ship race on Jade Ruins (the heaviest scenery) and on Cryo Station (the pipe), on both devices.
+
+---
+
 ## M6 — Audio: music sequencer + expanded SFX
 
 - Move `game/AudioSystem.ts` → `audio/AudioSystem.ts` (keep its bus subscriptions).
@@ -1139,6 +1435,8 @@ Part deltas per tier (Stock / Mk II / Mk III / Prototype). The effective thrust 
 | Stabilizer | steer ×1/1.04/1.08/1.12; lateralGrip +0/+0.5/+1/+1.5; topSpeed −0/−0.5/−1/−1.5 | 0 |
 | Hull | energyMax +0/+10/+20/+30; damageTakenScale ×1/0.95/0.9/0.85 | +0/+0.03/+0.06/+0.1 |
 
+**2.1 (§X3, planned):** the four rows above are variant A of each slot. Variant B (Sprint, Burst, Agility, Plate) and the Aero slot are in §X3's tables; their final numbers are written here when X3 is built.
+
 Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 
 | Tier | Parts fitted |
@@ -1147,6 +1445,8 @@ Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 | Pilot | 2 × Mk II |
 | Ace | all Mk II + 2 × Mk III |
 | Legend | Mk III, with Prototype engine and booster |
+
+**2.1 rival fits (§X3, planned).** Tiers per slot as above. Variant by personality: aggressive and boost-happy pilots (NOVA BLAZE, REX THUNDER, TURBO TIA) fit Sprint, Burst and Plate; steady, precise and veteran pilots (CAPTAIN ZIGGY, LUNA FROST, OLD SPARKY) fit variant A; PIXEL (erratic) fits Sprint, Longburn, Agility, Cell. Aero: Stock on Rookie and Pilot, Mk II on Ace, Mk III on Legend.
 
 ## Appendix B — Worlds at a glance
 
@@ -1157,6 +1457,9 @@ Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 | Cryo Station | ice blue / white / violet | Aurora night | 110 BPM chiptune-synth (E minor) | Full-pipe | Ice patches | 1.0 |
 | Jade Ruins | jade / gold / UV purple | Misty dusk, fireflies | 128 BPM tribal-synth (G Phrygian) | Split path | Stone gates | 1.0 |
 | Orbital Ring | white / electric blue / red | Space, Earth below | 96 BPM ambient arpeggio (C Lydian) | Loop + low-g jumps | Mines + debris | 0.35 |
+| Tempest Spire (2.1, §X4) | storm violet / electric yellow / teal | Thunderstorm below, rain, lightning | 132 BPM dark synth (F♯ minor) | Crosswind zones | Lightning strikes | 1.0 |
+| Cinder Forge (2.1, §X5) | ember orange / cobalt blue / basalt black | Crater glow, ember clouds | 140 BPM industrial synth (C Phrygian) | The Plunge | Lava geysers | 1.0 |
+| Abyss Line (2.1, §X6) | aqua / brass gold / coral pink | Undersea, light shafts from the surface | 104 BPM dreamy synth (D Mixolydian) | The Spine | Pressure jets | 1.0 |
 
 ## Appendix C — Test matrix added in 2.0
 
