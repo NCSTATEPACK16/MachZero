@@ -6,9 +6,13 @@
 import type { App } from '../../app/App';
 import { RIVALS } from '../../content/pilots';
 import { worldById } from '../../content/worlds';
-import { GP_RACES, cupStandings, cupWorld, racesDone, type CupStanding, type CupState } from '../../game/modes/GrandPrix';
+import { cupById } from '../../content/cups';
+import { cupRaces, cupStandings, cupWorld, racesDone, trophiesOf, type CupStanding, type CupState } from '../../game/modes/GrandPrix';
 import { Screen } from '../components';
 import { QuitCup, TIER_NAMES, Trophies } from './GrandPrix';
+
+/** "NEON CUP · PILOT": which cup, and the CPU tier it runs at. */
+const cupTitle = (cup: CupState) => `${cupById(cup.cupId)?.name ?? 'CUP'} · ${TIER_NAMES[cup.tier]}`;
 
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'ST' : n % 10 === 2 && n !== 12 ? 'ND' : n % 10 === 3 && n !== 13 ? 'RD' : 'TH'}`;
 
@@ -65,19 +69,21 @@ export function CupStandings({ app }: { app: App }) {
   if (final) {
     const { award } = final;
     return (
-      <Screen id="cup" title={award.position === 1 ? 'CUP WON' : 'CUP COMPLETE'} kicker={`${TIER_NAMES[final.cup.tier]} CUP · FINAL STANDINGS`} onBack={toMenu} backLabel="MENU" wide>
+      <Screen id="cup" title={award.position === 1 ? 'CUP WON' : 'CUP COMPLETE'} kicker={`${cupTitle(final.cup)} · FINAL STANDINGS`} onBack={toMenu} backLabel="MENU" wide>
         <div class="mzu-cup" data-cup-final={award.position}>
           <Table cup={final.cup} playerName={p.name} />
           <div class="mzu-cup-side">
             {award.trophy ? (
               <>
-                <p class="mzu-lead gold">You won the {TIER_NAMES[award.trophy]} cup!</p>
+                <p class="mzu-lead gold">
+                  You won the {cupById(final.cup.cupId)?.name ?? 'cup'} on {TIER_NAMES[award.trophy]}!
+                </p>
                 <p class="mzu-note">+{award.bonus.toLocaleString('en-US')} credits cup bonus.</p>
               </>
             ) : (
               <p class="mzu-lead">You finished the cup {ordinal(award.position).toLowerCase()}.</p>
             )}
-            <Trophies won={p.trophies} />
+            <Trophies won={trophiesOf(p.trophies, final.cup.cupId)} />
             <div class="mzu-actions">
               <button type="button" class="mzu-chip go" data-autofocus onClick={toMenu}>
                 DONE
@@ -95,12 +101,12 @@ export function CupStandings({ app }: { app: App }) {
   const done = racesDone(live);
   const next = worldById(cupWorld(live) ?? '');
   return (
-    <Screen id="cup" title="CUP STANDINGS" kicker={`${TIER_NAMES[live.tier]} CUP · ${done === 0 ? 'NO RACES YET' : `AFTER RACE ${done} OF ${GP_RACES}`}`} onBack={toMenu} backLabel="MENU" wide>
+    <Screen id="cup" title="CUP STANDINGS" kicker={`${cupTitle(live)} · ${done === 0 ? 'NO RACES YET' : `AFTER RACE ${done} OF ${cupRaces(live)}`}`} onBack={toMenu} backLabel="MENU" wide>
       <div class="mzu-cup" data-cup-done={done}>
         <Table cup={live} playerName={p.name} />
         <div class="mzu-cup-side">
           <div class="mzu-kicker">
-            RACE {done + 1} OF {GP_RACES}
+            RACE {done + 1} OF {cupRaces(live)}
           </div>
           <p class="mzu-lead">{next?.name ?? ''}</p>
           <p class="mzu-note">{done === 0 ? 'Your normal grid slot for the difficulty.' : 'Reverse grid: the cup leader starts last.'}</p>

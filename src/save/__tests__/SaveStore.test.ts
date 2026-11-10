@@ -93,13 +93,32 @@ describe('SaveStore', () => {
     delete p.cup;
     delete p.trophies;
     const out = migrate({ version: 4, profiles: [p], activeProfileId: p.id, settings: defaultSettings() }) as { version: number; profiles: Array<Record<string, unknown>> };
-    expect(out.version).toBe(5);
-    expect(out.profiles[0]).toMatchObject({ cup: null, trophies: [] });
-    const cup = { tier: 'ace', results: [[2, 1, 3, 4, 5, 6, 7, 8]] };
-    const back = sanitizeSave({ version: 5, profiles: [{ id: 'a', name: 'A', cup, trophies: ['legend', 'rookie', 'boss', 'rookie'] }] });
+    expect(out.version).toBe(SAVE_VERSION);
+    expect(out.profiles[0]).toMatchObject({ cup: null, trophies: {} });
+    const cup = { cupId: 'neon', tier: 'ace', results: [[2, 1, 3, 4, 5, 6, 7, 8]] };
+    const back = sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', cup, trophies: { neon: ['legend', 'rookie', 'boss', 'rookie'] } }] });
     expect(back.profiles[0].cup).toEqual(cup);
-    expect(back.profiles[0].trophies).toEqual(['rookie', 'legend']);
-    expect(sanitizeSave({ version: 5, profiles: [{ id: 'a', name: 'A', cup: { tier: 'ace', results: 'x' } }] }).profiles[0].cup).toBeNull();
+    expect(back.profiles[0].trophies).toEqual({ neon: ['rookie', 'legend'] });
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', cup: { cupId: 'neon', tier: 'ace', results: 'x' } }] }).profiles[0].cup).toBeNull();
+  });
+
+  it('migrates v5: the cup in progress and the trophies become the Neon Cup\'s (IMPLEMENTATION §X1)', () => {
+    const base = { ...createProfile('CUP', 0, 'classic') } as Record<string, unknown>;
+    const results = [[2, 1, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]];
+    const v5 = { ...base, cup: { tier: 'pilot', results }, trophies: ['rookie', 'ace'], credits: 4321 };
+    const storage = new MemStorage();
+    storage.setItem(SAVE_KEY, JSON.stringify({ version: 5, profiles: [v5], activeProfileId: base.id, settings: defaultSettings() }));
+    const p = new SaveStore(storage).load().profiles[0];
+    expect(p.cup).toEqual({ cupId: 'neon', tier: 'pilot', results });
+    expect(p.trophies).toEqual({ neon: ['rookie', 'ace'] });
+    expect(p.credits).toBe(4321);
+    // No cup and no trophies: stays empty.
+    const none = migrate({ version: 5, profiles: [{ ...base, cup: null, trophies: [] }], activeProfileId: base.id, settings: defaultSettings() }) as { version: number; profiles: Array<Record<string, unknown>> };
+    expect(none.version).toBe(SAVE_VERSION);
+    expect(none.profiles[0]).toMatchObject({ cup: null, trophies: {} });
+    // A saved cup that names a cup this build can't play is dropped; the trophies and the rest stay.
+    const odd = sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', credits: 99, cup: { cupId: 'bogus', tier: 'ace', results: [] }, trophies: { neon: ['ace'], bogus: ['ace'] } }] });
+    expect(odd.profiles[0]).toMatchObject({ cup: null, trophies: { neon: ['ace'] }, credits: 99 });
   });
 
   it('corrupt JSON gives safe defaults', () => {

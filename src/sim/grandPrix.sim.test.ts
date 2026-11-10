@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { RACE_SIZE } from '../content/pilots';
-import { GP_RACES, addTrophy, cupAward, cupFinished, cupGridOrder, cupStandings, cupWorld, newCup, recordRace, type CupState } from '../game/modes/GrandPrix';
+import { addTrophy, cupAward, cupFinished, cupGridOrder, cupRaces, cupStandings, cupWorld, newCup, recordRace, type CupState } from '../game/modes/GrandPrix';
 import { SaveStore, type StorageLike } from '../save/SaveStore';
 import { AI_TIERS, createProfile, emptySave } from '../save/schema';
 import { worldById } from '../content/worlds';
@@ -34,13 +34,15 @@ describe('Grand Prix: a whole cup, headless', () => {
     let store = new SaveStore(storage);
     const save = emptySave();
     const profile = createProfile('CUP', 0, 'classic');
-    profile.cup = newCup('pilot');
+    profile.cup = newCup('neon', 'pilot');
+    const races = cupRaces(profile.cup);
+    expect(races).toBe(5);
     save.profiles.push(profile);
     save.activeProfileId = profile.id;
     store.save(save);
 
     const worlds: string[] = [];
-    for (let race = 0; race < GP_RACES; race++) {
+    for (let race = 0; race < races; race++) {
       if (race === 3) store = new SaveStore(storage); // closed and reopened between races 3 and 4
       const data = store.load();
       const p = data.profiles[0];
@@ -61,10 +63,10 @@ describe('Grand Prix: a whole cup, headless', () => {
       p.cup = recordRace(cup, r.results);
       if (cupFinished(p.cup)) {
         const award = cupAward(p.cup)!;
-        if (award.trophy) p.trophies = addTrophy(p.trophies, award.trophy, AI_TIERS);
+        if (award.trophy) p.trophies = addTrophy(p.trophies, p.cup.cupId, award.trophy, AI_TIERS);
         p.credits += award.bonus;
         console.log(`cup over: player ${award.position}, bonus ${award.bonus}; ` + cupStandings(p.cup).map((s) => `${s.id}:${s.points}`).join(' '));
-        expect(cupStandings(p.cup).reduce((a, s) => a + s.points, 0)).toBeLessThanOrEqual(GP_RACES * 39);
+        expect(cupStandings(p.cup).reduce((a, s) => a + s.points, 0)).toBeLessThanOrEqual(races * 39);
         expect(award.trophy !== null).toBe(award.position === 1);
         p.cup = null;
       }

@@ -4,6 +4,7 @@
  * as `{ version: 1, recordLap }` before migrating.
  */
 import { CONFIG } from '../core/config';
+import { DEFAULT_CUP_ID } from '../content/cups';
 import { SAVE_VERSION, createProfile, defaultSettings } from './schema';
 
 type Obj = Record<string, unknown>;
@@ -53,6 +54,23 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
     ...save,
     version: 5,
     profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, cup: null, trophies: [] } : p)) : [],
+  }),
+  // v5 → 6: cups become a list (IMPLEMENTATION §X1). The one cup so far is the Neon Cup: a cup in progress
+  // gains its id, and the trophies (a list of tiers) become that cup's trophies.
+  5: (save) => ({
+    ...save,
+    version: 6,
+    profiles: Array.isArray(save.profiles)
+      ? save.profiles.map((p) => {
+          if (typeof p !== 'object' || p === null) return p;
+          const { cup, trophies } = p as Obj;
+          return {
+            ...p,
+            cup: typeof cup === 'object' && cup !== null ? { ...cup, cupId: DEFAULT_CUP_ID } : null,
+            trophies: Array.isArray(trophies) && trophies.length ? { [DEFAULT_CUP_ID]: trophies } : {},
+          };
+        })
+      : [],
   }),
 };
 

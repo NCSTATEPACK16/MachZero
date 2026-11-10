@@ -7,10 +7,10 @@ import { CHASSIS, chassisById } from '../content/ships';
 import { PART_SLOTS } from '../content/parts';
 import { WORLDS } from '../content/worlds';
 import { type ItemBag, clampBag, emptyBag, itemSlots } from '../content/items';
-import { type CupState, sanitizeCup } from '../game/modes/GrandPrix';
+import { type CupState, type Trophies, sanitizeCup, sanitizeTrophies } from '../game/modes/GrandPrix';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -47,7 +47,7 @@ export interface Profile {
   /** The Grand Prix cup in progress (saved after every race), or null. */
   cup: CupState | null;
   /** Grand Prix cups won, one trophy per CPU tier, in tier order. */
-  trophies: AITier[];
+  trophies: Trophies;
 }
 
 export interface SettingsData {
@@ -161,7 +161,7 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     stats: { races: 0, wins: 0 },
     items: emptyBag(),
     cup: null,
-    trophies: [],
+    trophies: {},
   };
 }
 
@@ -245,7 +245,7 @@ function sanitizeProfile(v: unknown): Profile | null {
     stats,
     items: clampBag(it, itemSlots({ stats })),
     cup: sanitizeCup(v.cup, AI_TIERS),
-    trophies: Array.isArray(v.trophies) ? AI_TIERS.filter((t) => (v.trophies as unknown[]).includes(t)) : [],
+    trophies: sanitizeTrophies(v.trophies, AI_TIERS),
   };
 }
 

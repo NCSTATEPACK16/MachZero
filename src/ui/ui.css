@@ -1541,6 +1541,17 @@ html.mz-pad .mzu-world:focus {
   flex-direction: column;
   gap: 0.8em;
 }
+/* Cup picker (shown once a second cup can be played). */
+.mzu-gp-cups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.mzu-gp-cups .mzu-chip[aria-selected='true'] {
+  border-color: currentColor;
+  box-shadow: 0 0 0 1px currentColor inset;
+}
 .mzu-gp-trophies {
   display: flex;
   flex-direction: column;

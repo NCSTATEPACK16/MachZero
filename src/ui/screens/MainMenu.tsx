@@ -5,7 +5,8 @@ import { Badge } from '../badges';
 import { MenuButton } from '../components';
 import { chassisById } from '../../content/ships';
 import { focusFirst, onUiKeyDown } from '../nav';
-import { GP_RACES, cupWorld, racesDone } from '../../game/modes/GrandPrix';
+import { CUPS, cupById } from '../../content/cups';
+import { cupRaces, cupWorld, racesDone, trophiesOf, trophyCount } from '../../game/modes/GrandPrix';
 import { worldById } from '../../content/worlds';
 import { TIER_NAMES, Trophies } from './GrandPrix';
 import { useRef, useLayoutEffect } from 'preact/hooks';
@@ -69,7 +70,7 @@ export function MainMenu({ app }: { app: App }) {
             autofocus
             icon={Icon.cup}
             label="CONTINUE CUP"
-            sub={`${TIER_NAMES[cup.tier]} CUP · RACE ${racesDone(cup) + 1} OF ${GP_RACES} · ${worldById(cupWorld(cup) ?? '')?.name ?? ''}`}
+            sub={`${cupById(cup.cupId)?.name ?? 'CUP'} · ${TIER_NAMES[cup.tier]} · RACE ${racesDone(cup) + 1} OF ${cupRaces(cup)} · ${worldById(cupWorld(cup) ?? '')?.name ?? ''}`}
             onClick={() => app.openCupStandings()}
           />
         ) : null}
@@ -91,7 +92,7 @@ export function MainMenu({ app }: { app: App }) {
             <span class="mzu-pilot-name">{p.name}</span>
             <span class="mzu-pilot-sub">SWITCH PILOT</span>
           </span>
-          {p.trophies.length ? <Trophies won={p.trophies} small /> : null}
+          {trophyCount(p.trophies) ? CUPS.filter((c) => trophiesOf(p.trophies, c.id).length).map((c) => <Trophies key={c.id} won={trophiesOf(p.trophies, c.id)} cup={c.name} small />) : null}
         </button>
       ) : null}
       <div class="mzu-hints" aria-hidden="true">

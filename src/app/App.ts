@@ -10,6 +10,7 @@ import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, Racer
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
+import { DEFAULT_CUP_ID, cupAvailable, cupById } from '../content/cups';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
@@ -272,11 +273,12 @@ export class App {
   }
 
   /** A new cup at the profile's CPU difficulty, straight into race 1. */
-  startCup(): void {
+  startCup(cupId: string = DEFAULT_CUP_ID): void {
     const p = this.activeProfile.value;
-    if (!p || p.cup) return;
+    const def = cupById(cupId);
+    if (!p || p.cup || !def || !cupAvailable(def)) return;
     this.lastCup.value = null;
-    this.updateProfile((q) => (q.cup = newCup(q.aiTier)));
+    this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
     void this.startCupRace();
   }
 
@@ -327,7 +329,7 @@ export class App {
       award = cupAward(cup);
       done = cup;
       p.cup = null;
-      if (award?.trophy) p.trophies = addTrophy(p.trophies, award.trophy, AI_TIERS);
+      if (award?.trophy) p.trophies = addTrophy(p.trophies, cup.cupId, award.trophy, AI_TIERS);
       p.credits += award?.bonus ?? 0;
     });
     if (!done || !award) return 0;

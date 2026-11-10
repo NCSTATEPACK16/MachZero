@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 interface Debug {
   app: {
-    cup: { tier: string; results: number[][] } | null;
+    cup: { cupId: string; tier: string; results: number[][] } | null;
     createProfile(name: string, badge: number, preset: 'rookie' | 'classic'): void;
     currentWorld: { id: string } | null;
   };
@@ -85,11 +85,11 @@ test('a Grand Prix cup by pad: race 1, standings, reload, CONTINUE CUP, race 2 o
   await padPress(page, PAD.A);
   await expect(screen).toHaveAttribute('data-screen', 'gp');
   await expect(page.locator('[data-gp-start]')).toBeFocused();
-  await expect(page.locator('[data-gp-start]')).toHaveText('START PILOT CUP');
+  await expect(page.locator('[data-gp-start]')).toHaveText('START NEON CUP · PILOT');
   await padPress(page, PAD.A);
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/countdown|racing/);
   expect(await dbg(page, (d) => d.app.currentWorld?.id)).toBe('neon-bay');
-  expect(await dbg(page, (d) => d.app.cup)).toEqual({ tier: 'pilot', results: [] });
+  expect(await dbg(page, (d) => d.app.cup)).toEqual({ cupId: 'neon', tier: 'pilot', results: [] });
 
   // No restarts: the pause panel has RETIRE and no RESTART.
   await padPress(page, PAD.START);

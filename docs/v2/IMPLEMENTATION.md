@@ -1074,7 +1074,19 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 
 ---
 
-### X1 — Cups groundwork
+### X1 — Cups groundwork — ✅ BUILT (PR #33; waiting on the user's pad-only cup check on iOS)
+
+**As built (PR #33)** (read before X2 or M8):
+- **Code:** `content/cups.ts` (`CUPS`, `CupDef { id, name, tagline, worlds }`, `cupById`, `cupAvailable`, `availableCups`, `DEFAULT_CUP_ID` = `neon`). `game/modes/GrandPrix.ts` no longer reads `WORLDS`: `GP_WORLDS` and `GP_RACES` are gone; `CupState` has `cupId`; `newCup(cupId, tier)`, `cupWorlds`, `cupRaces`. Trophies are `Trophies = Record<cupId, AITier[]>` with `trophiesOf`, `trophyCount`, `addTrophy(trophies, cupId, tier, order)` and `sanitizeTrophies`.
+- **Availability:** a cup can be played when every world it names exists in `WORLDS` and is `built`. The Storm Cup is in the data now and stays hidden until `abyss-line` is built (X6). `sanitizeCup` drops a saved cup that is unknown or unavailable.
+- **Save v6:** migration 5 → 6 gives a cup in progress `cupId: 'neon'` and turns the trophy list into `{ neon: [...] }` (an empty list becomes `{}`).
+- **Championship:** `game/modes/Championship.ts` (`seasonCups`, `seasonStandings`, `seasonFinished`, `seasonChampion`). Pure; nothing saves, pays or shows it.
+- **UI:** the Grand Prix screen shows the picked cup (name, tagline, its worlds, its trophies). A row of cup tabs appears only when more than one cup is available, so today the screen has the same layout. The start button reads `START NEON CUP · PILOT`. Standings and the menu's CONTINUE CUP name the cup; the pilot card shows one trophy row per cup won. `App.startCup(cupId = 'neon')`.
+- **Tests:** 458 unit and sim tests in 54 files; e2e 13/13. New: the cups-are-data tests (a sixth world changes no cup), trophies per cup, the v5 → v6 migration through `SaveStore`, and `Championship.test.ts`.
+- **Deviations from the plan:**
+  - No `CupDef.requires` field and no `expansion` flag yet. Every cup is open, and availability already follows the built worlds, so neither has a reader until X3 (flag) and M8 (unlock rules).
+  - The cup sim still runs the five real Neon Cup races. The "second cup is honoured" proof is in the unit tests (a cup's length and worlds come from its own definition), not in a second 5-race sim, which would add about 10 s to CI for no new coverage.
+
 
 **Design decisions:**
 - A cup is data: `content/cups.ts` exports `CUPS: readonly CupDef[]`, with `CupDef { id, name, worlds: readonly WorldId[] (5), requires?: … }`.
