@@ -84,6 +84,8 @@ export interface SetPieceSpec {
   /** m/s along the path. */
   speed: number;
   scale?: number;
+  /** Tint of the prop's neon role (default: white-hot). */
+  neon?: number;
 }
 
 /** A glossier deck with the rail neon stretched along it. Not a real reflection. */
@@ -120,7 +122,7 @@ export interface EnvFxSpec {
 /** No effects: the world renders exactly as it did before §X2. */
 export const NO_ENVFX: EnvFxSpec = Object.freeze({});
 
-export const GRADE_IDENTITY: GradeSpec = Object.freeze({ lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1], saturation: 1 });
+export const GRADE_IDENTITY: GradeSpec = { lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1], saturation: 1 };
 
 /** How each preset scales the effects (IMPLEMENTATION §X2 "Quality scaling"). */
 export interface EnvFxQuality {

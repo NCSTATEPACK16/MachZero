@@ -9,6 +9,7 @@ import { CONFIG, PALETTE } from '../../core/config';
 import type { TrackData } from '../../core/contracts';
 import { Rng } from '../../core/rng';
 import { FOG_GLSL, type FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 import { PropInstancer, nearestTrack, placement, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
@@ -288,6 +289,21 @@ export class NeonBayTheme implements WorldTheme {
   readonly group = new THREE.Group();
   readonly sunDirection = new THREE.Vector3(0.28, 0.1, -0.95).normalize();
   readonly shimmer = 0;
+  /**
+   * A wet midnight (SPEC §10.3): light rain that streaks past at speed, a glossy deck that carries the rail
+   * neon, mist on the grid sea, searchlight shafts among the towers, an advertising airship circling the
+   * bay, far-off sheet lightning and spray behind the ships. A cool grade deepens the blues.
+   */
+  readonly envfx: EnvFxSpec = {
+    grade: { lift: [0, 0, 0.004], gamma: [1, 1, 1.03], gain: [1, 0.98, 1.06], saturation: 1.08 },
+    weather: { kind: 'rain', count: 2600, fall: 38, wind: [3, 1], size: 0.035, color: 0x9fb8ff, streak: 0.03, opacity: 0.36 },
+    heightFog: { base: CONFIG.GROUND_Y + 26, falloff: 30, color: 0x3a1a7a, density: 0.32, bankScale: 700, bankSpeed: 5 },
+    lightning: { rate: 2, color: 0xb9a8ff, flash: 0.16 },
+    surface: { kind: 'spray', color: 0xbfd4ff },
+    setPieces: [{ prop: 'airship_0', count: 2, path: 'orbit', radius: 1150, height: 240, speed: 9, neon: 0xff2bd6 }],
+    wetDeck: { gloss: 0.65, streak: 0.3 },
+    shafts: { count: 10, color: 0x7d5cff, angle: 0.22, width: 26, height: 420, opacity: 0.1 },
+  };
   readonly lighting: ThemeLighting = {
     hemiSky: 0x6a55d8,
     hemiGround: 0x1a0b33,
@@ -495,6 +511,10 @@ export class NeonBayTheme implements WorldTheme {
       [out[i], out[j]] = [out[j], out[i]];
     }
     return out;
+  }
+
+  roleMaterial(role: string): THREE.Material {
+    return this.propMaterial(role);
   }
 
   private propMaterial(role: string): THREE.Material {

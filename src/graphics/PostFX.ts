@@ -11,6 +11,7 @@ import { SpeedBlurShader } from './shaders/speedBlur';
 import { ChromaticShader } from './shaders/chromatic';
 import { HeatShimmerShader } from './shaders/heatShimmer';
 import { bloomLevelTints, bloomOctaveShift } from './bloomSpread';
+import { GRADE_IDENTITY, type GradeSpec } from './envfx/EnvFxSpec';
 
 /**
  * Renders the scene into a private MSAA HalfFloat target, then resolves it into the
@@ -239,6 +240,31 @@ export class PostFX {
     this.aberrationAllowed = q.chromatic;
     // Heat shimmer costs a full-screen pass: Med and High only (the presets that afford aberration).
     this.shimmerAllowed = q.chromatic;
+  }
+
+  /** The world's colour grade (null = none: the grade maths is compiled out). */
+  setGrade(g: GradeSpec | null): void {
+    const u = this.chromaticPass.uniforms;
+    const m = this.chromaticPass.material;
+    const on = g !== null;
+    if ((m.defines.GRADE !== undefined) !== on) {
+      if (on) m.defines.GRADE = '';
+      else delete m.defines.GRADE;
+      m.needsUpdate = true;
+    }
+    const s = g ?? GRADE_IDENTITY;
+    u['uLift'].value = [...s.lift];
+    u['uGamma'].value = [...s.gamma];
+    u['uGain'].value = [...s.gain];
+    u['uSaturation'].value = s.saturation;
+  }
+
+  /** A lightning flash added to the whole frame (linear RGB; zero = none). */
+  setFlash(r: number, g: number, b: number): void {
+    const f = this.chromaticPass.uniforms['uFlash'].value as number[];
+    f[0] = r;
+    f[1] = g;
+    f[2] = b;
   }
 
   /** The world's heat shimmer strength (0 = off). */
