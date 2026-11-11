@@ -5,8 +5,9 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
 
 ## Where things stand (2026-11-10, the 2.1 design session)
 
-- **Resume here:** X0 docs are PR **#32**, X1 cups is PR **#33**, **X2 environment effects is PR #34** (built; waiting on the user's look approval of Neon Bay and the device gate). **Next: X3 upgrades** (IMPLEMENTATION §X3, save v7), branch `v2/x3-upgrades` from `v2/x2-envfx`. Then X4–X6 worlds, then X7.
-- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34.
+- **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #X3PR** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. X4's wind must multiply its push by `ShipStats.pushScale` (the Aero stat from X3).
+- **`expansion` is still off.** Turn it on when the user approves the look of X3's parts.
+- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34 → #X3PR.
 
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
@@ -17,7 +18,7 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
   - **World concept images:** `assets/reference/worlds/<id>/chosen.jpg` for `tempest-spire`, `cinder-forge`, `abyss-line`, made in Gemini from `docs/v2/WORLD_CONCEPTS.md`. **Never build a world's look without its `chosen.jpg`.** The track, gimmick, hazard, AI and sims come first on a placeholder theme.
   - Look approvals: the new parts (X3), each new world (X4–X6), each 2.0 world's effects (X2 for Neon Bay, X7 for the rest).
   - The device gate of each milestone (IMPLEMENTATION §X "Rules for every X milestone").
-- **New flag:** `expansion` (off on `main`) hides the new worlds, the Storm Cup and the Aero tab and variant picker until their milestone is complete.
+- **Flag:** `expansion` (off on `main`, added in X3) hides the new worlds, the Storm Cup and the Aero tab and variant picker until their milestone is complete.
 - **Out of scope for 2.1:** M6 audio, M7 touch, M8 (World Tour, Time Trial, ghosts). Each new world has its song row in Appendix B so M6 is not blocked.
 
 ## Earlier state (2026-11-08, end of the V2 + V3 session)

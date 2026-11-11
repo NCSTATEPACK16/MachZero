@@ -1058,7 +1058,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X0 | Design docs (this section, SPEC §10, `WORLD_CONCEPTS.md`) | `v2/x-design-docs` | — | — |
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
-| X3 | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
+| X3 ✅ built (#X3PR) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
@@ -1220,7 +1220,29 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X3 — Upgrades: sidegrades and the Aero slot
+### X3 — Upgrades: sidegrades and the Aero slot — ✅ BUILT (PR #X3PR; waiting on the user's look approval of the new parts and the device gate)
+
+**As built (PR #X3PR)** (read before X4):
+- **Data:** `content/parts.ts` holds variant A (`PART_EFFECTS`, the 2.0 numbers, unchanged), variant B (`PART_EFFECTS_B`) and `AERO_EFFECTS`. Helpers: `hasVariants(slot, tier)`, `variantOf`, `partKey` / `parsePartKey` (`'0'`, `'1a'`, `'3b'`), `partName` ("Mk III Sprint"), `PART_VARIANT_NAMES`, `STOCK_VARIANTS`. Stock and Aero have one line of parts: their variant is always `'a'`.
+- **Contracts:** `PartSlot` has `'aero'`; `PartVariant = 'a' | 'b'`; `ShipStats` has `draftScale`, `pushScale`, `airSteerScale`, `ramMass` (all 1 on a 2.0 loadout).
+- **Physics:** `ShipStatsResolver` picks each slot's table by variant. `ShipController` multiplies the slipstream by `draftScale` and the air steering by `airSteerScale`. `PhysicsSystem` sets the collider density to `mass × ramMass`. **`pushScale` has no reader yet: X4's wind and X6's jets must multiply their push by it.**
+- **Final B numbers** (Mk II / Mk III / Prototype; two were tuned by the balance sim, see below): Appendix A.
+- **Balance sim:** `sim/partsBalance.sim.test.ts`. A solo Legend autopilot races three laps on each of the five tracks with one part fitted. Each B part is within 1% of its A part (the worst pair is the Prototype booster, 0.82%).
+- **Save v7:** `Profile.owned` is `Record<PartSlot, string[]>` of part keys. Migration 6 → 7 maps every owned tier to its A key, adds `aero: ['0']`, `parts.aero = 0` and all-A `variants`. The sanitizer drops a key the slot cannot have and unfits a part that is not owned in that variant.
+- **Economy:** `owns`, `buyPart` and `equipPart` take a variant (default `'a'`). The two variants of a tier are bought separately at the same price; an owned part refits for free.
+- **Rival fits:** `RIVAL_FITS` gained Aero (Stock, Stock, Mk II, Mk III by tier). `RIVAL_VARIANTS` by personality: aggressive fits Sprint, Burst and Plate; steady fits variant A; erratic fits Sprint and Agility. Rookie rivals stay all Stock.
+- **Assets:** `blender/parts/build_parts.py` builds 32 parts (`<slot>_t<tier>`, `<slot>_t<tier>b`, `aero_t0..3`). `parts.glb` is 296 KB of 600 KB; the largest new part has 564 triangles; every part has 3 primitives or fewer. `build_ships.py` adds `socket_aero` on the nose deck of each chassis (ARROW's sits further back, where the deck is wide enough). The six hull meshes are bit-identical to before: every mesh primitive was hashed before and after the rebuild.
+- **Rendering:** `ShipAssembly.partNodeName` and the `socket_aero` entry. Rivals still merge every part into one mesh per material.
+- **Garage** (behind `expansion`): an AERO tab; in the four 2.0 slots, Stock on its own row and then each tier's A and B parts side by side, each with its stat preview and a one-line trade-off. With `expansion` off the Garage is the 2.0 one.
+- **Desktop perf** (`perf-desktop --audit`, 8-ship Neon Bay; before = the X2 build, #34): 60 fps and p95 16.8 ms on High, Med and Low, before and after. Grid-frame draw calls 166 → 170 on High and Med and 145 → 147 on Low: the player's ship gained the Aero part (2 meshes, drawn again in the shadow pass on High and Med). Rival ships did not change. Race median 112 → 114, 111 → 115, 90 → 92.
+- **Tests (484 in 57 files; e2e 15/15):** unit tests for the data, resolver, economy, migration and sanitizer; `e2e/garage.spec.ts` buys and fits every chassis × tier × variant plus Aero on Low, Med and High.
+- **Deviations from the plan:**
+  - `Loadout.variants` is optional and partial (missing means `'a'`), not a required record. Every 2.0 loadout literal, test and sim then stays valid as written.
+  - Sprint's top speed is +2 / +4 / +7, not +1 / +2 / +4, and the Prototype Burst costs 11 energy, not 12. With the planned numbers Sprint lapped 1.0–1.4% slower than Velocity and the Prototype Burst 1.4% slower than Longburn.
+  - No permanent hash check of the hull meshes in `check-assets`. A pinned hash would fail on every later, intended chassis change. The comparison was run once for this PR.
+  - `expansion` stays **off** in this PR. The plan turns it on when X3 is complete, but the user has not approved the look of the new parts yet. Turn it on in the commit that records that approval. Rivals already use the new parts whatever the flag says.
+  - The Garage has 8 tabs with `expansion` on; at 1280 px they wrap to two rows.
+- **Still open:** the user's look approval of the 16 new parts (`docs/v2/shots/x3/parts-sheet.jpg`), and the device gate.
 
 **Design decisions:**
 - **Sidegrades** at Mk II, Mk III and Prototype in the four 2.0 slots. Variant A is the 2.0 part with unchanged numbers; variant B is new. Same price per tier (600 / 1500 / 3200). Each is bought separately; owned parts refit for free; nothing can be sold.
@@ -1481,7 +1503,25 @@ Part deltas per tier (Stock / Mk II / Mk III / Prototype). The effective thrust 
 | Stabilizer | steer ×1/1.04/1.08/1.12; lateralGrip +0/+0.5/+1/+1.5; topSpeed −0/−0.5/−1/−1.5 | 0 |
 | Hull | energyMax +0/+10/+20/+30; damageTakenScale ×1/0.95/0.9/0.85 | +0/+0.03/+0.06/+0.1 |
 
-**2.1 (§X3, planned):** the four rows above are variant A of each slot. Variant B (Sprint, Burst, Agility, Plate) and the Aero slot are in §X3's tables; their final numbers are written here when X3 is built.
+**2.1 (§X3, as built):** the four rows above are variant A of each slot (Velocity, Longburn, Grip, Cell). Variant B, at Mk II / Mk III / Prototype (Stock is the same part):
+
+| Part | Effect | Weight |
+|---|---|---|
+| Engine, Sprint | topSpeed +2/+4/+7; thrustAccel +6/+11/+15 | as Velocity |
+| Booster, Burst | boostTopSpeed +8/+15/+22; boostCost 14/13/11; boostTime 1.3/1.35/1.4 | 0 |
+| Stabilizer, Agility | steer ×1.08/1.15/1.22; lateralGrip +0/+0.2/+0.5; topSpeed −0.5/−1/−1.5 | 0 |
+| Hull, Plate | energyMax +3/+7/+10; damageTakenScale ×0.85/0.75/0.65; ram mass ×1.1/1.2/1.3 | +0.05/+0.09/+0.14 |
+
+Aero (Stock / Mk II / Mk III / Prototype): draft bonus ×1/1.15/1.3/1.5; push from wind and jets ×1/0.9/0.8/0.7; steering in the air ×1/1.1/1.2/1.3; topSpeed −0/−0.3/−0.6/−1.
+
+Mean lap times of a solo Legend autopilot over the five tracks (`sim/partsBalance.sim.test.ts`; Stock is 33.07 s):
+
+| Slot | Mk II A / B | Mk III A / B | Prototype A / B |
+|---|---|---|---|
+| Engine | 32.54 / 32.60 (+0.19%) | 32.23 / 32.35 (+0.37%) | 31.88 / 32.02 (+0.46%) |
+| Booster | 32.99 / 33.11 (+0.36%) | 32.97 / 33.05 (+0.22%) | 32.56 / 32.83 (+0.82%) |
+| Stabilizer | 33.06 / 33.04 (−0.05%) | 33.07 / 33.04 (−0.09%) | 33.16 / 33.12 (−0.12%) |
+| Hull | 33.21 / 33.23 (+0.06%) | 33.23 / 33.27 (+0.10%) | 33.12 / 33.34 (+0.64%) |
 
 Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 
@@ -1492,7 +1532,7 @@ Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 | Ace | all Mk II + 2 × Mk III |
 | Legend | Mk III, with Prototype engine and booster |
 
-**2.1 rival fits (§X3, planned).** Tiers per slot as above. Variant by personality: aggressive and boost-happy pilots (NOVA BLAZE, REX THUNDER, TURBO TIA) fit Sprint, Burst and Plate; steady, precise and veteran pilots (CAPTAIN ZIGGY, LUNA FROST, OLD SPARKY) fit variant A; PIXEL (erratic) fits Sprint, Longburn, Agility, Cell. Aero: Stock on Rookie and Pilot, Mk II on Ace, Mk III on Legend.
+**2.1 rival fits (§X3, as built).** Tiers per slot as above. Variant by personality: aggressive and boost-happy pilots (NOVA BLAZE, REX THUNDER, TURBO TIA) fit Sprint, Burst and Plate; steady, precise and veteran pilots (CAPTAIN ZIGGY, LUNA FROST, OLD SPARKY) fit variant A; PIXEL (erratic) fits Sprint, Longburn, Agility, Cell. Aero: Stock on Rookie and Pilot, Mk II on Ace, Mk III on Legend.
 
 ## Appendix B — Worlds at a glance
 

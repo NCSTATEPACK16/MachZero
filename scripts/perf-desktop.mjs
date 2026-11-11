@@ -113,7 +113,7 @@ function auditFrame() {
       let kind = 'fx';
       while (p && p !== m.root) {
         if (/_LOD[01]$|_merged_/.test(p.name) || /_merged_/.test(o.name)) kind = 'chassis';
-        else if (/^(engine|booster|stabilizer|hull)_t\d/.test(p.name)) kind = 'parts';
+        else if (/^(engine|booster|stabilizer|hull|aero)_t\d/.test(p.name)) kind = 'parts';
         p = p.parent;
       }
       (kind === 'chassis' ? chassis : kind === 'parts' ? parts : fx).push(o);

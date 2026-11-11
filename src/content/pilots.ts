@@ -44,13 +44,13 @@ export const RIVAL_FITS: Readonly<Record<AITier, Readonly<Record<PartSlot, PartT
 
 /**
  * Which variant of each part a rival fits, by personality (IMPLEMENTATION §X3). It only matters above Stock,
- * so Rookie rivals are unaffected. Aggressive pilots sprint, burst and ram; erratic ones flick and burst;
+ * so Rookie rivals are unaffected. Aggressive pilots sprint, burst and ram; erratic ones sprint and flick;
  * steady ones keep the 2.0 parts.
  */
 export const RIVAL_VARIANTS: Readonly<Record<AIPersonality, Readonly<Record<PartSlot, PartVariant>>>> = {
   aggressive: { engine: 'b', booster: 'b', stabilizer: 'a', hull: 'b', aero: 'a' },
   steady: { engine: 'a', booster: 'a', stabilizer: 'a', hull: 'a', aero: 'a' },
-  erratic: { engine: 'a', booster: 'b', stabilizer: 'b', hull: 'a', aero: 'a' },
+  erratic: { engine: 'b', booster: 'a', stabilizer: 'b', hull: 'a', aero: 'a' },
 };
 
 export function pilotById(id: string | undefined): PilotDef | undefined {
