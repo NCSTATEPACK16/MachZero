@@ -5,6 +5,9 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
 
 ## Where things stand (2026-11-10, the 2.1 design session)
 
+- **Resume here:** X0 docs are PR **#32**, X1 cups is PR **#33**, **X2 environment effects is PR #34** (built; waiting on the user's look approval of Neon Bay and the device gate). **Next: X3 upgrades** (IMPLEMENTATION §X3, save v7), branch `v2/x3-upgrades` from `v2/x2-envfx`. Then X4–X6 worlds, then X7.
+- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34.
+
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
 - **#31 exists because #30 (V3, the five rebuilt chassis) was merged into `v2/v2-parts` after #29 had already gone into `v2/v23-ships-plan`.** #31 carries exactly #30's 20 files into the stack. Every 2.1 branch starts from its tip.

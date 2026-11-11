@@ -351,6 +351,66 @@ def build_palm(name, seed):
     return pb.done()
 
 
+def build_airship(name, length=64.0, radius=8.5):
+    """A drifting advertising airship (IMPLEMENTATION X2 set piece): a faceted dark envelope with neon bands,
+    a gondola and four tail fins. Nose along +Y (glTF -Z), so the runtime can point it along its path."""
+    pb = PropBuilder(name)
+    hull = (0.035, 0.02, 0.07)
+    belly = (0.02, 0.012, 0.04)
+    zc = radius + 4.0  # the gondola hangs below; the prop's base stays on z = 0
+    n = 10
+    stations = 9
+    rings = []
+    for i in range(stations + 1):
+        t = i / stations
+        y = (t - 0.5) * length
+        # Fuller toward the nose (t = 1), tapering to the tail.
+        r = radius * (math.sin(math.pi * (0.04 + 0.96 * t) ** 0.8) ** 0.75)
+        r = max(r, 0.25)
+        rings.append([(r * math.cos(2 * math.pi * k / n), y, zc + r * math.sin(2 * math.pi * k / n)) for k in range(n)])
+    for i in range(stations):
+        band = i in (3, 6)  # two glowing bands round the envelope
+        for k in range(n):
+            a0, a1 = rings[i][k], rings[i][(k + 1) % n]
+            b0, b1 = rings[i + 1][k], rings[i + 1][(k + 1) % n]
+            if band:
+                # A thin neon strip in the middle of the panel, dark either side.
+                m0 = tuple(a0[j] + (b0[j] - a0[j]) * 0.42 for j in range(3))
+                m1 = tuple(a1[j] + (b1[j] - a1[j]) * 0.42 for j in range(3))
+                n0 = tuple(a0[j] + (b0[j] - a0[j]) * 0.58 for j in range(3))
+                n1 = tuple(a1[j] + (b1[j] - a1[j]) * 0.58 for j in range(3))
+                pb.add([a0, a1, m1, m0], [(0, 1, 2, 3)], "dark", hull)
+                pb.add([m0, m1, n1, n0], [(0, 1, 2, 3)], "neon", (1, 1, 1))
+                pb.add([n0, n1, b1, b0], [(0, 1, 2, 3)], "dark", hull)
+            else:
+                lower = (a0[2] + a1[2]) * 0.5 < zc - radius * 0.3
+                pb.add([a0, a1, b1, b0], [(0, 1, 2, 3)], "dark", belly if lower else hull)
+    # End caps.
+    pb.add(rings[0], [tuple(reversed(range(n)))], "dark", hull)
+    pb.add(rings[-1], [tuple(range(n))], "dark", hull)
+    # Gondola with a lit window strip.
+    box(pb, -1.6, 1.6, -2.0, 9.0, 0.0, 2.6, "dark", belly)
+    box(pb, -1.68, 1.68, -1.0, 8.0, 1.2, 1.8, "neon", (1, 1, 1))
+    for (y0, y1) in ((0.0, 0.5), (6.5, 7.0)):
+        box(pb, -0.25, 0.25, y0, y1, 2.6, zc - radius * 0.86, "dark", hull)
+    # Tail fins: four flat plates in a cross.
+    yt = -length * 0.5
+    fin = 7.5
+    for ang in (0.25, 0.75, 1.25, 1.75):
+        c, s_ = math.cos(math.pi * ang), math.sin(math.pi * ang)
+        r0 = radius * 0.35
+        p = [
+            (r0 * c, yt + 11.0, zc + r0 * s_),
+            ((r0 + fin) * c, yt + 4.0, zc + (r0 + fin) * s_),
+            ((r0 + fin) * c, yt + 0.5, zc + (r0 + fin) * s_),
+            (r0 * 0.5 * c, yt + 1.5, zc + r0 * 0.5 * s_),
+        ]
+        pb.add(p, [(0, 1, 2, 3), (3, 2, 1, 0)], "dark", hull)
+        e = [p[1], p[2], (p[2][0] * 1.0, p[2][1] + 0.01, p[2][2] + 0.35), (p[1][0], p[1][1], p[1][2] + 0.35)]
+        pb.add(e, [(0, 1, 2, 3), (3, 2, 1, 0)], "neon", (1, 1, 1))
+    return pb.done()
+
+
 def build_neon_bay(out_dir):
     C.reset_scene()
     objs = [
@@ -361,6 +421,7 @@ def build_neon_bay(out_dir):
         build_palm("palm_0", 131),
         build_palm("palm_1", 137),
         build_palm("palm_2", 149),
+        build_airship("airship_0"),
     ]
     export(out_dir, "neon-bay", objs)
 
