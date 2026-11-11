@@ -101,7 +101,7 @@ export class ShipPreview {
 
   setLoadout(loadout: Loadout, assets: ShipAssets | null): void {
     const procedural = !assets?.ships.has(loadout.chassisId);
-    const key = JSON.stringify([loadout.chassisId, loadout.parts, procedural ? loadout.livery : null]);
+    const key = JSON.stringify([loadout.chassisId, loadout.parts, loadout.variants ?? null, procedural ? loadout.livery : null]);
     if (this.model && key === this.key) {
       this.model.setLivery(loadout.livery);
       return;

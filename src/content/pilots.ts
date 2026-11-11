@@ -2,8 +2,9 @@
  * The 7 rival pilots (SPEC §5.3) and the race-field builder: player loadout + 7 rivals at
  * tier-appropriate parts → 8 ShipDefinitions with resolved stats.
  */
-import type { AIPersonality, AITier, Loadout, PartSlot, PartTier, ShipDefinition, ShipId, ShipLivery } from '../core/contracts';
+import type { AIPersonality, AITier, Loadout, PartSlot, PartTier, PartVariant, ShipDefinition, ShipId, ShipLivery } from '../core/contracts';
 import { resolveStats } from '../physics/ShipStatsResolver';
+import { STOCK_PARTS, STOCK_VARIANTS } from './parts';
 import { chassisById } from './ships';
 
 /** Emblem on a pilot's helmet portrait (game/pilotPortrait.ts). */
@@ -35,10 +36,21 @@ export const RIVALS: readonly PilotDef[] = [
 
 /** Parts fitted to rivals per AI tier (Appendix A). */
 export const RIVAL_FITS: Readonly<Record<AITier, Readonly<Record<PartSlot, PartTier>>>> = {
-  rookie: { engine: 0, booster: 0, stabilizer: 0, hull: 0 },
-  pilot: { engine: 1, booster: 0, stabilizer: 1, hull: 0 },
-  ace: { engine: 2, booster: 2, stabilizer: 1, hull: 1 },
-  legend: { engine: 3, booster: 3, stabilizer: 2, hull: 2 },
+  rookie: { engine: 0, booster: 0, stabilizer: 0, hull: 0, aero: 0 },
+  pilot: { engine: 1, booster: 0, stabilizer: 1, hull: 0, aero: 0 },
+  ace: { engine: 2, booster: 2, stabilizer: 1, hull: 1, aero: 1 },
+  legend: { engine: 3, booster: 3, stabilizer: 2, hull: 2, aero: 2 },
+};
+
+/**
+ * Which variant of each part a rival fits, by personality (IMPLEMENTATION §X3). It only matters above Stock,
+ * so Rookie rivals are unaffected. Aggressive pilots sprint, burst and ram; erratic ones flick and burst;
+ * steady ones keep the 2.0 parts.
+ */
+export const RIVAL_VARIANTS: Readonly<Record<AIPersonality, Readonly<Record<PartSlot, PartVariant>>>> = {
+  aggressive: { engine: 'b', booster: 'b', stabilizer: 'a', hull: 'b', aero: 'a' },
+  steady: { engine: 'a', booster: 'a', stabilizer: 'a', hull: 'a', aero: 'a' },
+  erratic: { engine: 'a', booster: 'b', stabilizer: 'b', hull: 'a', aero: 'a' },
 };
 
 export function pilotById(id: string | undefined): PilotDef | undefined {
@@ -78,7 +90,7 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
   const rivals = RIVALS.map((p, i): ShipDefinition => {
     chassisById(p.chassisId); // validates the id
     const tier = opts.rivalTiers?.[i] ?? opts.tier;
-    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...RIVAL_FITS[tier] }, livery: { ...p.livery, decal: i % 6 } };
+    const loadout: Loadout = { chassisId: p.chassisId, parts: { ...RIVAL_FITS[tier] }, variants: { ...RIVAL_VARIANTS[p.personality] }, livery: { ...p.livery, decal: i % 6 } };
     return {
       id: i + 1,
       name: p.name,
@@ -98,5 +110,5 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
 /** Stock COMET in its factory colours: the default loadout of a new profile. */
 export function defaultLoadout(): Loadout {
   const c = chassisById('comet');
-  return { chassisId: c.id, parts: { engine: 0, booster: 0, stabilizer: 0, hull: 0 }, livery: { ...c.livery, decal: 0 } };
+  return { chassisId: c.id, parts: { ...STOCK_PARTS }, variants: { ...STOCK_VARIANTS }, livery: { ...c.livery, decal: 0 } };
 }

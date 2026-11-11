@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CLASSIC_STATS } from '../../core/config';
 import { CHASSIS, CLASS_STATS } from '../../content/ships';
 import { RIVAL_FITS, buildRaceField, defaultLoadout } from '../../content/pilots';
-import { partsAt, resolveStats } from '../ShipStatsResolver';
+import { PART_EFFECTS, PART_EFFECTS_B, PART_PRICES, hasVariants, parsePartKey, partKey, partName } from '../../content/parts';
+import { partsAt, resolveStats, variantsAt } from '../ShipStatsResolver';
 
 describe('resolveStats', () => {
   it('Balanced Stock equals v1 CONFIG exactly (stats parity)', () => {
@@ -54,6 +55,89 @@ describe('resolveStats', () => {
       expect(s.steerRate).toBeGreaterThan(prev.steerRate);
       prev = s;
     }
+  });
+});
+
+describe('sidegrades and the Aero slot (IMPLEMENTATION §X3)', () => {
+  it('a loadout with no variants, all-A variants or no Aero entry resolves exactly as in 2.0', () => {
+    for (const c of CHASSIS) {
+      for (const t of [0, 1, 2, 3] as const) {
+        const plain = resolveStats({ chassisId: c.id, parts: partsAt(t) });
+        expect(resolveStats({ chassisId: c.id, parts: partsAt(t), variants: variantsAt('a') })).toEqual(plain);
+        const { aero: _aero, ...four } = partsAt(t);
+        expect(resolveStats({ chassisId: c.id, parts: four as ReturnType<typeof partsAt> })).toEqual(plain);
+        expect(plain.draftScale).toBe(1);
+        expect(plain.pushScale).toBe(1);
+        expect(plain.airSteerScale).toBe(1);
+        expect(plain.ramMass).toBe(1);
+      }
+    }
+  });
+
+  it('Stock is the same part in both variants', () => {
+    expect(resolveStats({ chassisId: 'comet', parts: partsAt(0), variants: variantsAt('b') })).toEqual(CLASSIC_STATS);
+    for (const slot of ['engine', 'booster', 'stabilizer', 'hull'] as const) {
+      for (const [stat, a] of Object.entries(PART_EFFECTS[slot])) expect((PART_EFFECTS_B[slot] as Record<string, readonly number[]>)[stat][0]).toBe(a[0]);
+    }
+  });
+
+  it('each B part trades differently from its A part', () => {
+    for (const t of [1, 2, 3] as const) {
+      const a = resolveStats({ chassisId: 'comet', parts: partsAt(t) });
+      const sprint = resolveStats({ chassisId: 'comet', parts: partsAt(t), variants: { engine: 'b' } });
+      expect(sprint.topSpeed).toBeLessThan(a.topSpeed);
+      expect(sprint.thrustAccel).toBeGreaterThan(a.thrustAccel);
+      const burst = resolveStats({ chassisId: 'comet', parts: partsAt(t), variants: { booster: 'b' } });
+      expect(burst.boostTopSpeed).toBeGreaterThan(a.boostTopSpeed);
+      expect(burst.boostTime).toBeLessThan(a.boostTime);
+      const agility = resolveStats({ chassisId: 'comet', parts: partsAt(t), variants: { stabilizer: 'b' } });
+      expect(agility.steerRate).toBeGreaterThan(a.steerRate);
+      expect(agility.lateralGrip).toBeLessThan(a.lateralGrip);
+      const plate = resolveStats({ chassisId: 'comet', parts: partsAt(t), variants: { hull: 'b' } });
+      expect(plate.energyMax).toBeLessThan(a.energyMax);
+      expect(plate.damageTakenScale).toBeLessThan(a.damageTakenScale);
+      expect(plate.ramMass).toBeGreaterThan(1);
+      expect(plate.mass).toBeGreaterThan(a.mass);
+    }
+  });
+
+  it('Aero trades a little top speed for slipstream, wind resistance and air steering', () => {
+    const stock = resolveStats({ chassisId: 'comet', parts: partsAt(0) });
+    const s = resolveStats({ chassisId: 'comet', parts: { ...partsAt(0), aero: 3 } });
+    expect(s.draftScale).toBe(1.5);
+    expect(s.pushScale).toBe(0.7);
+    expect(s.airSteerScale).toBe(1.3);
+    expect(s.topSpeed).toBe(stock.topSpeed - 1);
+    // Aero has one line of parts: a stray 'b' changes nothing.
+    expect(resolveStats({ chassisId: 'comet', parts: { ...partsAt(0), aero: 3 }, variants: { aero: 'b' } })).toEqual(s);
+  });
+
+  it('part keys, names and prices', () => {
+    expect(partKey('engine', 0, 'b')).toBe('0');
+    expect(partKey('engine', 2, 'b')).toBe('2b');
+    expect(partKey('engine', 2)).toBe('2a');
+    expect(partKey('aero', 3, 'b')).toBe('3a');
+    expect(parsePartKey('2b')).toEqual({ tier: 2, variant: 'b' });
+    expect(parsePartKey('0')).toEqual({ tier: 0, variant: 'a' });
+    for (const bad of ['4a', '0b', 'a2', '', 2, null, '2c']) expect(parsePartKey(bad)).toBeNull();
+    expect(hasVariants('hull', 0)).toBe(false);
+    expect(hasVariants('hull', 1)).toBe(true);
+    expect(hasVariants('aero', 3)).toBe(false);
+    expect(partName('engine', 2, 'b')).toBe('Mk III Sprint');
+    expect(partName('engine', 0, 'b')).toBe('Stock');
+    expect(partName('aero', 3)).toBe('Prototype');
+    expect(PART_PRICES).toEqual({ 0: 0, 1: 600, 2: 1500, 3: 3200 });
+  });
+
+  it('rival fits: Rookie is all Stock; variants follow personality; Aero rises with the tier', () => {
+    expect(Object.values(RIVAL_FITS.rookie).every((t) => t === 0)).toBe(true);
+    expect([RIVAL_FITS.rookie.aero, RIVAL_FITS.pilot.aero, RIVAL_FITS.ace.aero, RIVAL_FITS.legend.aero]).toEqual([0, 0, 1, 2]);
+    const rookie = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier: 'rookie' });
+    for (const d of rookie) expect(d.stats).toEqual(CLASS_STATS[CHASSIS.find((c) => c.id === d.loadout!.chassisId)!.cls]);
+    const legend = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier: 'legend' });
+    const variantsUsed = new Set(legend.slice(1).map((d) => JSON.stringify(d.loadout!.variants)));
+    expect(variantsUsed.size).toBe(3);
+    for (const d of legend.slice(1)) expect(d.stats.draftScale).toBe(1.3);
   });
 });
 

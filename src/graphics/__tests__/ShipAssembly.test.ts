@@ -48,7 +48,7 @@ function stats(obj: THREE.Object3D) {
 
 const loadout = (chassisId: string, t: 0 | 1 | 2 | 3): Loadout => ({
   chassisId,
-  parts: { engine: t, booster: t, stabilizer: t, hull: t },
+  parts: { engine: t, booster: t, stabilizer: t, hull: t, aero: t },
   livery: { primary: 0x2266ff, secondary: 0xffffff, glow: 0x22ffff, decal: 0 },
 });
 

@@ -162,6 +162,10 @@ export const CLASSIC_STATS: Readonly<ShipStats> = Object.freeze({
   energyMax: CONFIG.ENERGY_MAX,
   damageTakenScale: 1,
   mass: 1,
+  draftScale: 1,
+  pushScale: 1,
+  airSteerScale: 1,
+  ramMass: 1,
 });
 
 /** v1's 4-ship roster (all Balanced Stock). Kept for the v1 tests and sims; races use content/pilots. */

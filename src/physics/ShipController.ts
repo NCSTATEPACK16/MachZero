@@ -364,7 +364,7 @@ export class ShipController {
       const lowSpeed = clamp01(Math.abs(f) / TUNING.STEER_FULL_AUTHORITY_SPEED);
       const steerIn = clamp(c.steer, -1, 1);
       const airbrakeYaw = (clamp01(c.airbrakeRight) - clamp01(c.airbrakeLeft)) * CONFIG.AIRBRAKE_YAW;
-      const yawRate = (steerIn * steerRate + airbrakeYaw) * lowSpeed * (grounded ? 1 : TUNING.AIR_STEER_FACTOR);
+      const yawRate = (steerIn * steerRate + airbrakeYaw) * lowSpeed * (grounded ? 1 : TUNING.AIR_STEER_FACTOR * this.stats.airSteerScale);
       this.yaw(-yawRate * dt);
 
       // Re-express velocity in the rotated frame (velocity itself does not rotate: momentum).
@@ -377,7 +377,8 @@ export class ShipController {
       const throttle = finished ? Math.min(rawThrottle, 0.6) : rawThrottle;
       const brake = clamp01(c.brake);
       // Slipstream (physics/Drafting.ts): a higher top speed, more thrust and less coast drag.
-      const draft = s.drafting;
+      // Aero parts make the slipstream worth more (draftScale is 1 on a 2.0 loadout).
+      const draft = s.drafting * this.stats.draftScale;
       const topSpeed = this.stats.topSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
       const boostTop = this.stats.boostTopSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
       const thrustAccel = this.stats.thrustAccel * (1 + DRAFT.ACCEL_BONUS * draft);

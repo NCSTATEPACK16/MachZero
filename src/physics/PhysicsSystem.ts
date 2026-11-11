@@ -188,7 +188,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     );
     const collider = this.world.createCollider(
       RAPIER.ColliderDesc.cuboid((CONFIG.SHIP_WIDTH * scale) / 2, (CONFIG.SHIP_HEIGHT * scale) / 2, (CONFIG.SHIP_LENGTH * scale) / 2)
-        .setDensity(def.stats.mass)
+        .setDensity(def.stats.mass * def.stats.ramMass)
         .setCollisionGroups(COLLISION.SHIP)
         .setFriction(0)
         .setRestitution(0.3)

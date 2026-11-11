@@ -5,9 +5,9 @@
  */
 import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
 import type { App } from '../../app/App';
-import type { Loadout, PartSlot, PartTier } from '../../core/contracts';
+import type { Loadout, PartSlot, PartTier, PartVariant } from '../../core/contracts';
 import { owns, partPrice } from '../../content/economy';
-import { PART_EFFECTS, PART_SLOTS, PART_TIERS, SLOT_BLURBS, SLOT_NAMES, TIER_NAMES } from '../../content/parts';
+import { AERO_EFFECTS, PART_SLOTS, PART_TIERS, PART_VARIANT_BLURBS, SLOT_BLURBS, SLOT_NAMES, STOCK_VARIANTS, hasVariants, partEffects, partName, variantOf } from '../../content/parts';
 import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES, ITEM_PRICES, SHIELD_TIME, bagTotal, itemSlots, nextItemSlotAt, type ItemKind } from '../../content/items';
 import { CHASSIS, CLASS_LABEL, chassisById } from '../../content/ships';
 import { CONFIG } from '../../core/config';
@@ -15,32 +15,49 @@ import { focusFirst, onUiKeyDown } from '../nav';
 import { statBars } from '../garageModel';
 
 type Tab = 'ship' | PartSlot | 'paint' | 'items';
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+/** The Aero tab and the B variants belong to the 2.1 expansion (feature `expansion`). */
+const tabsFor = (expansion: boolean): ReadonlyArray<{ id: Tab; label: string }> => [
   { id: 'ship', label: 'SHIP' },
-  ...PART_SLOTS.map((s) => ({ id: s as Tab, label: SLOT_NAMES[s].toUpperCase() })),
+  ...PART_SLOTS.filter((s) => expansion || s !== 'aero').map((s) => ({ id: s as Tab, label: SLOT_NAMES[s].toUpperCase() })),
   { id: 'paint', label: 'PAINT' },
   { id: 'items', label: 'ITEMS' },
 ];
 
+/** A part on sale: a tier and, where the slot has two lines of parts, which one. */
+interface Offer {
+  tier: PartTier;
+  variant: PartVariant;
+}
+
+/** Stock, then each tier (both variants side by side when the slot has them and the expansion is on). */
+function offersFor(slot: PartSlot, expansion: boolean): Offer[] {
+  return PART_TIERS.flatMap((tier): Offer[] => (expansion && hasVariants(slot, tier) ? [{ tier, variant: 'a' }, { tier, variant: 'b' }] : [{ tier, variant: 'a' }]));
+}
+
 const fmt = (n: number) => n.toLocaleString('en-US');
 
-/** What a tier adds, in words a kid can scan. */
-function effectText(slot: PartSlot, t: PartTier): string {
+const pct = (scale: number) => Math.round(Math.abs(scale - 1) * 100);
+
+/** What a part adds, in words a kid can scan. */
+function effectText(slot: PartSlot, t: PartTier, variant: PartVariant = 'a'): string {
   if (t === 0) return 'Factory fit';
+  const fx = partEffects(variantOf(slot, t, variant));
   switch (slot) {
     case 'engine':
-      return `+${PART_EFFECTS.engine.topSpeed[t]} speed · +${PART_EFFECTS.engine.thrustAccel[t]} accel`;
+      return `+${fx.engine.topSpeed[t]} speed · +${fx.engine.thrustAccel[t]} accel`;
     case 'booster':
-      return `+${PART_EFFECTS.booster.boostTopSpeed[t]} boost speed · ${PART_EFFECTS.booster.boostTime[t]} s boosts`;
+      return `+${fx.booster.boostTopSpeed[t]} boost speed · ${fx.booster.boostTime[t]} s boosts`;
     case 'stabilizer':
-      return `+${Math.round((PART_EFFECTS.stabilizer.steerScale[t] - 1) * 100)}% steering · more grip`;
+      return `+${pct(fx.stabilizer.steerScale[t])}% steering · ${fx.stabilizer.lateralGrip[t] > 0 ? `+${fx.stabilizer.lateralGrip[t]} grip` : 'stock grip'}`;
     case 'hull':
-      return `+${PART_EFFECTS.hull.energyMax[t]} energy · −${Math.round((1 - PART_EFFECTS.hull.damageScale[t]) * 100)}% damage`;
+      return `+${fx.hull.energyMax[t]} energy · −${pct(fx.hull.damageScale[t])}% damage${fx.hull.ramMass[t] > 1 ? ` · +${pct(fx.hull.ramMass[t])}% shove` : ''}`;
+    case 'aero':
+      return `+${pct(AERO_EFFECTS.draftScale[t])}% slipstream · −${pct(AERO_EFFECTS.pushScale[t])}% wind push · +${pct(AERO_EFFECTS.airSteerScale[t])}% air steering`;
   }
 }
 
-function withPart(l: Loadout, slot: PartSlot, tier: PartTier): Loadout {
-  return { ...l, parts: { ...l.parts, [slot]: tier } };
+function withPart(l: Loadout, slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): Loadout {
+  return { ...l, parts: { ...l.parts, [slot]: tier }, variants: { ...STOCK_VARIANTS, ...l.variants, [slot]: variantOf(slot, tier, variant) } };
 }
 
 function Credits({ value }: { value: number }) {
@@ -114,17 +131,21 @@ function ShipTab({ app, loadout, setPreview }: { app: App; loadout: Loadout; set
   );
 }
 
-function PartTab(props: { app: App; slot: PartSlot; setPreview: (l: Loadout | null) => void; onBuy: (slot: PartSlot, tier: PartTier) => void }) {
+function PartTab(props: { app: App; slot: PartSlot; setPreview: (l: Loadout | null) => void; onBuy: (slot: PartSlot, offer: Offer) => void }) {
   const { app, slot, setPreview, onBuy } = props;
   const p = app.activeProfile.value!;
-  const fitted = p.loadout.parts[slot];
+  const fitted = p.loadout.parts[slot] ?? 0;
+  const fittedVariant = variantOf(slot, fitted, p.loadout.variants?.[slot]);
+  const expansion = app.features.expansion;
   return (
     <>
       <p class="mzu-note">{SLOT_BLURBS[slot]}</p>
       <div class="mzu-choices" role="radiogroup" aria-label={SLOT_NAMES[slot]}>
-        {PART_TIERS.map((t) => {
-          const have = owns(p, slot, t);
-          const on = fitted === t;
+        {offersFor(slot, expansion).map((offer) => {
+          const { tier: t, variant } = offer;
+          const paired = expansion && hasVariants(slot, t);
+          const have = owns(p, slot, t, variant);
+          const on = fitted === t && fittedVariant === variant;
           const price = partPrice(t);
           const short = !have && p.credits < price;
           let state: string;
@@ -137,24 +158,26 @@ function PartTab(props: { app: App; slot: PartSlot; setPreview: (l: Loadout | nu
               type="button"
               role="radio"
               aria-checked={on}
-              class={`mzu-choice tier-${t}${on ? ' on' : ''}${short ? ' locked' : ''}`}
+              data-part={`${t}${variant}`}
+              class={`mzu-choice tier-${t}${paired ? ` variant-${variant}` : ''}${on ? ' on' : ''}${short ? ' locked' : ''}`}
               onClick={() => {
                 if (on) return;
-                if (have) app.equipPart(slot, t);
+                if (have) app.equipPart(slot, t, variant);
                 else if (short) app.toast(`Win races to earn ${fmt(price - p.credits)} more credits.`, 'info');
-                else onBuy(slot, t);
+                else onBuy(slot, offer);
               }}
-              {...previewProps(setPreview, withPart(p.loadout, slot, t))}
+              {...previewProps(setPreview, withPart(p.loadout, slot, t, variant))}
             >
               <span class="mzu-choice-head">
-                <span class="mzu-choice-name">{TIER_NAMES[t].toUpperCase()}</span>
+                <span class="mzu-choice-name">{(paired ? partName(slot, t, variant) : partName(slot, t)).toUpperCase()}</span>
                 {short ? (
                   <svg class="mzu-lock" viewBox="0 0 24 24" aria-label="Locked">
                     <path d="M7 11 V8 A5 5 0 0 1 17 8 V11 M5 11 H19 V21 H5 Z" fill="none" stroke="currentColor" stroke-width="2" />
                   </svg>
                 ) : null}
               </span>
-              <span class="mzu-choice-sub">{effectText(slot, t)}</span>
+              <span class="mzu-choice-sub">{effectText(slot, t, variant)}</span>
+              {paired ? <span class="mzu-choice-sub dim">{PART_VARIANT_BLURBS[slot][variant]}</span> : null}
               <span class="mzu-choice-state">{state}</span>
             </button>
           );
@@ -318,7 +341,7 @@ function ItemsTab({ app }: { app: App }) {
   );
 }
 
-function ConfirmBuy({ slot, tier, credits, onYes, onNo }: { slot: PartSlot; tier: PartTier; credits: number; onYes: () => void; onNo: () => void }) {
+function ConfirmBuy({ slot, tier, variant, credits, onYes, onNo }: { slot: PartSlot; tier: PartTier; variant: PartVariant; credits: number; onYes: () => void; onNo: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus();
@@ -329,9 +352,9 @@ function ConfirmBuy({ slot, tier, credits, onYes, onNo }: { slot: PartSlot; tier
       <div ref={ref} class="mzu-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mzu-buy-title">
         <div class="mzu-kicker">BUY PART</div>
         <h2 id="mzu-buy-title" class="mzu-dialog-title">
-          {SLOT_NAMES[slot].toUpperCase()} · {TIER_NAMES[tier].toUpperCase()}
+          {SLOT_NAMES[slot].toUpperCase()} · {partName(slot, tier, variant).toUpperCase()}
         </h2>
-        <p class="mzu-note">{effectText(slot, tier)}</p>
+        <p class="mzu-note">{effectText(slot, tier, variant)}</p>
         <p class="mzu-dialog-price">
           {fmt(price)} credits <span>· {fmt(credits - price)} left after</span>
         </p>
@@ -353,7 +376,7 @@ export function Garage({ app }: { app: App }) {
   const stage = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>('ship');
   const [preview, setPreview] = useState<Loadout | null>(null);
-  const [buying, setBuying] = useState<{ slot: PartSlot; tier: PartTier } | null>(null);
+  const [buying, setBuying] = useState<{ slot: PartSlot; tier: PartTier; variant: PartVariant } | null>(null);
   const r = app.route.value;
   const fromCup = r.name === 'garage' && r.back === 'cup';
   /** The card that opened the buy dialog gets focus back when it closes. */
@@ -413,8 +436,8 @@ export function Garage({ app }: { app: App }) {
   const c = chassisById(shown!.chassisId);
   const confirmBuy = () => {
     if (!buying) return;
-    const r = app.buyPart(buying.slot, buying.tier);
-    if (r === 'bought') app.toast(`${TIER_NAMES[buying.tier]} ${SLOT_NAMES[buying.slot].toLowerCase()} fitted!`, 'good');
+    const r = app.buyPart(buying.slot, buying.tier, buying.variant);
+    if (r === 'bought') app.toast(`${partName(buying.slot, buying.tier, buying.variant)} ${SLOT_NAMES[buying.slot].toLowerCase()} fitted!`, 'good');
     else if (r === 'short') app.toast('Not enough credits yet.', 'warn');
     setBuying(null);
     setPreview(null);
@@ -444,7 +467,7 @@ export function Garage({ app }: { app: App }) {
         </div>
         <div class="mzu-garage-panel">
           <div class="mzu-tabs" role="tablist">
-            {TABS.map((t) => (
+            {tabsFor(app.features.expansion).map((t) => (
               <button type="button" role="tab" aria-selected={tab === t.id} class={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
                 {t.label}
               </button>
@@ -454,14 +477,14 @@ export function Garage({ app }: { app: App }) {
             {tab === 'ship' ? <ShipTab app={app} loadout={loadout} setPreview={setPreview} /> : null}
             {tab === 'paint' ? <PaintTab app={app} /> : null}
             {tab === 'items' ? <ItemsTab app={app} /> : null}
-            {tab !== 'ship' && tab !== 'paint' && tab !== 'items' ? <PartTab app={app} slot={tab} setPreview={setPreview} onBuy={(slot, tier) => {
+            {tab !== 'ship' && tab !== 'paint' && tab !== 'items' ? <PartTab app={app} slot={tab} setPreview={setPreview} onBuy={(slot, offer) => {
                   opener.current = document.activeElement as HTMLElement | null;
-                  setBuying({ slot, tier });
+                  setBuying({ slot, ...offer });
                 }} /> : null}
           </div>
         </div>
       </div>
-      {buying ? <ConfirmBuy slot={buying.slot} tier={buying.tier} credits={p.credits} onYes={confirmBuy} onNo={() => setBuying(null)} /> : null}
+      {buying ? <ConfirmBuy slot={buying.slot} tier={buying.tier} variant={buying.variant} credits={p.credits} onYes={confirmBuy} onNo={() => setBuying(null)} /> : null}
     </section>
   );
 }

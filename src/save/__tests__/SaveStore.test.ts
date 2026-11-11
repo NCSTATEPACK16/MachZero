@@ -121,6 +121,47 @@ describe('SaveStore', () => {
     expect(odd.profiles[0]).toMatchObject({ cup: null, trophies: { neon: ['ace'] }, credits: 99 });
   });
 
+  it('migrates v6: owned tiers become variant-A part keys; the loadout gains Stock Aero (IMPLEMENTATION §X3)', () => {
+    const base = { ...createProfile('PARTS', 0, 'classic') } as Record<string, unknown>;
+    const livery = { primary: 0x112233, secondary: 0x445566, glow: 0x778899, decal: 2 };
+    const v6 = {
+      ...base,
+      credits: 777,
+      owned: { engine: [0, 1, 3], booster: [0, 2], stabilizer: [0], hull: [0, 1] },
+      loadout: { chassisId: 'titan', parts: { engine: 3, booster: 2, stabilizer: 0, hull: 1 }, livery },
+    };
+    const storage = new MemStorage();
+    storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, profiles: [v6], activeProfileId: base.id, settings: defaultSettings() }));
+    const p = new SaveStore(storage).load().profiles[0];
+    expect(p.owned).toEqual({ engine: ['0', '1a', '3a'], booster: ['0', '2a'], stabilizer: ['0'], hull: ['0', '1a'], aero: ['0'] });
+    expect(p.loadout).toEqual({
+      chassisId: 'titan',
+      parts: { engine: 3, booster: 2, stabilizer: 0, hull: 1, aero: 0 },
+      variants: { engine: 'a', booster: 'a', stabilizer: 'a', hull: 'a', aero: 'a' },
+      livery,
+    });
+    expect(p.credits).toBe(777);
+  });
+
+  it('v7 parts: a fitted part must be owned in that variant; bad keys are dropped', () => {
+    const p = sanitizeSave({
+      version: SAVE_VERSION,
+      profiles: [
+        {
+          id: 'a',
+          name: 'A',
+          owned: { engine: ['0', '2b', '9z', 2, '2b'], booster: ['1a'], hull: ['3b'], aero: ['1a', '2b'] },
+          loadout: { chassisId: 'comet', parts: { engine: 2, booster: 1, stabilizer: 1, hull: 3, aero: 2 }, variants: { engine: 'b', booster: 'b', hull: 'b', aero: 'b' } },
+        },
+      ],
+    }).profiles[0];
+    expect(p.owned).toEqual({ engine: ['0', '2b'], booster: ['0', '1a'], stabilizer: ['0'], hull: ['0', '3b'], aero: ['0', '1a'] });
+    // engine 2b is owned and stays; booster 1b is not owned (1a is) → Stock; stabilizer 1 is not owned → Stock;
+    // hull 3b stays; Aero Mk III is not owned → Stock.
+    expect(p.loadout.parts).toEqual({ engine: 2, booster: 0, stabilizer: 0, hull: 3, aero: 0 });
+    expect(p.loadout.variants).toEqual({ engine: 'b', booster: 'a', stabilizer: 'a', hull: 'b', aero: 'a' });
+  });
+
   it('corrupt JSON gives safe defaults', () => {
     const mem = new MemStorage();
     mem.map.set(SAVE_KEY, '{"version":2,"profiles":[{"id":');
@@ -152,7 +193,9 @@ describe('SaveStore', () => {
     expect(p.aiTier).toBe('rookie');
     expect(p.loadout.chassisId).toBe('comet');
     expect(p.loadout.parts.engine).toBe(0); // not owned → stock
-    expect(p.owned.engine).toEqual([0]);
+    expect(p.owned.engine).toEqual(['0']);
+    expect(p.owned.aero).toEqual(['0']);
+    expect(p.loadout.parts.aero).toBe(0);
     expect(p.records.classic).toEqual({});
     expect(d.activeProfileId).toBeNull();
     expect(d.settings.masterVolume).toBe(1);

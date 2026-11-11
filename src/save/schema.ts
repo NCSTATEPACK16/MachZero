@@ -2,15 +2,15 @@
  * Save-file shape (localStorage key `machzero.save`) and defensive parsing. Everything read from storage
  * goes through `sanitizeSave`, so hand-edited, truncated or foreign data always yields a usable save.
  */
-import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartTier } from '../core/contracts';
+import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartTier, PartVariant } from '../core/contracts';
 import { CHASSIS, chassisById } from '../content/ships';
-import { PART_SLOTS } from '../content/parts';
+import { PART_SLOTS, STOCK_PARTS, STOCK_VARIANTS, parsePartKey, partKey, variantOf } from '../content/parts';
 import { WORLDS } from '../content/worlds';
 import { type ItemBag, clampBag, emptyBag, itemSlots } from '../content/items';
 import { type CupState, type Trophies, sanitizeCup, sanitizeTrophies } from '../game/modes/GrandPrix';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -35,8 +35,8 @@ export interface Profile {
   aiTier: AITier;
   credits: number;
   loadout: Loadout;
-  /** Part tiers owned per slot (Stock is always owned). */
-  owned: Record<PartSlot, PartTier[]>;
+  /** Parts owned per slot, as part keys ('0' Stock, then tier + variant: '1a', '2b'). Stock is always owned. */
+  owned: Record<PartSlot, string[]>;
   /** World picked last on the world select (the menu's RACE goes there). */
   world: string;
   /** Per track key: 'classic' (the v1 track), 'bonus-<seed>', or a world's track id. */
@@ -154,8 +154,8 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     assists: { ...(preset === 'rookie' ? ROOKIE_ASSISTS : NO_ASSISTS) },
     aiTier: preset === 'rookie' ? 'rookie' : 'pilot',
     credits: 0,
-    loadout: { chassisId: c.id, parts: { engine: 0, booster: 0, stabilizer: 0, hull: 0 }, livery: { ...c.livery, decal: 0 } },
-    owned: { engine: [0], booster: [0], stabilizer: [0], hull: [0] },
+    loadout: { chassisId: c.id, parts: { ...STOCK_PARTS }, variants: { ...STOCK_VARIANTS }, livery: { ...c.livery, decal: 0 } },
+    owned: { engine: ['0'], booster: ['0'], stabilizer: ['0'], hull: ['0'], aero: ['0'] },
     world: WORLDS[0].id,
     records: {},
     stats: { races: 0, wins: 0 },
@@ -178,6 +178,7 @@ function clampInt(v: unknown, lo: number, hi: number, d: number): number {
 const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
 const oneOf = <T extends string>(v: unknown, list: readonly T[], d: T): T => (typeof v === 'string' && (list as readonly string[]).includes(v) ? (v as T) : d);
 const tier = (v: unknown): PartTier => clampInt(v, 0, 3, 0) as PartTier;
+const variant = (v: unknown): PartVariant => (v === 'b' ? 'b' : 'a');
 const color = (v: unknown, d: number): number => clampInt(v, 0, 0xffffff, d);
 
 function sanitizeAssists(v: unknown): Assists {
@@ -196,9 +197,11 @@ function sanitizeLoadout(v: unknown): Loadout {
   const factory = chassisById(chassisId).livery;
   const p = isObj(o.parts) ? o.parts : {};
   const l = isObj(o.livery) ? o.livery : {};
+  const vr = isObj(o.variants) ? o.variants : {};
   return {
     chassisId,
-    parts: { engine: tier(p.engine), booster: tier(p.booster), stabilizer: tier(p.stabilizer), hull: tier(p.hull) },
+    parts: { engine: tier(p.engine), booster: tier(p.booster), stabilizer: tier(p.stabilizer), hull: tier(p.hull), aero: tier(p.aero) },
+    variants: { engine: variant(vr.engine), booster: variant(vr.booster), stabilizer: variant(vr.stabilizer), hull: variant(vr.hull), aero: 'a' },
     livery: {
       primary: color(l.primary, factory.primary),
       secondary: color(l.secondary, factory.secondary),
@@ -210,15 +213,25 @@ function sanitizeLoadout(v: unknown): Loadout {
 
 function sanitizeProfile(v: unknown): Profile | null {
   if (!isObj(v) || typeof v.id !== 'string' || v.id === '') return null;
-  const owned = {} as Record<PartSlot, PartTier[]>;
+  const owned = {} as Record<PartSlot, string[]>;
   const ow = isObj(v.owned) ? v.owned : {};
   for (const slot of PART_SLOTS) {
-    const list = Array.isArray(ow[slot]) ? (ow[slot] as unknown[]).filter((t) => clampInt(t, 0, 3, -1) >= 0) : [];
-    owned[slot] = [...new Set<PartTier>([0, ...(list as PartTier[])])].sort();
+    const keys = new Set<string>(['0']);
+    for (const raw of Array.isArray(ow[slot]) ? (ow[slot] as unknown[]) : []) {
+      const k = parsePartKey(raw);
+      // A key the slot cannot have (a B Aero part) is dropped: re-keying it would not match what was bought.
+      if (k && partKey(slot, k.tier, k.variant) === raw) keys.add(raw as string);
+    }
+    owned[slot] = [...keys].sort();
   }
   const loadout = sanitizeLoadout(v.loadout);
-  // Only owned parts can be fitted.
-  for (const slot of PART_SLOTS) if (!owned[slot].includes(loadout.parts[slot])) loadout.parts[slot] = 0;
+  // Only owned parts can be fitted; a slot's variant is 'a' wherever it has no choice.
+  const variants = { ...STOCK_VARIANTS, ...loadout.variants };
+  for (const slot of PART_SLOTS) {
+    if (!owned[slot].includes(partKey(slot, loadout.parts[slot], variants[slot]))) loadout.parts[slot] = 0;
+    variants[slot] = variantOf(slot, loadout.parts[slot], variants[slot]);
+  }
+  loadout.variants = variants;
   const records: Record<string, TrackRecord> = {};
   if (isObj(v.records)) {
     for (const [k, r] of Object.entries(v.records)) {

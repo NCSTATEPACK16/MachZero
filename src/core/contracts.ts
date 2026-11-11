@@ -15,9 +15,14 @@ export type ShipId = number;
 // ---------------------------------------------------------------------------
 
 export type ShipClass = 'light' | 'balanced' | 'heavy';
-export type PartSlot = 'engine' | 'booster' | 'stabilizer' | 'hull';
+export type PartSlot = 'engine' | 'booster' | 'stabilizer' | 'hull' | 'aero';
 /** 0 = Stock, 1 = Mk II, 2 = Mk III, 3 = Prototype. */
 export type PartTier = 0 | 1 | 2 | 3;
+/**
+ * A sidegrade of a part (2.1, IMPLEMENTATION §X3): 'a' is the 2.0 part, 'b' the alternative with the same
+ * price and a different trade-off. Stock parts and the Aero slot have no variants (always 'a').
+ */
+export type PartVariant = 'a' | 'b';
 export type AITier = 'rookie' | 'pilot' | 'ace' | 'legend';
 
 /** Per-ship handling, resolved once from a loadout (physics/ShipStatsResolver). Balanced Stock = v1 CONFIG. */
@@ -43,6 +48,14 @@ export interface ShipStats {
   damageTakenScale: number;
   /** Relative mass (1 = v1): collider density for ship–ship pushes. */
   mass: number;
+  /** Multiplies the slipstream bonuses (Aero parts). 1 = 2.0. */
+  draftScale: number;
+  /** Multiplies the push from wind and jets (Aero parts; the 2.1 worlds' hazards). 1 = full push. */
+  pushScale: number;
+  /** Multiplies steering authority in the air (Aero parts). 1 = 2.0. */
+  airSteerScale: number;
+  /** Multiplies the collider density on top of `mass` (Plate hulls): heavier in ship-to-ship contact only. */
+  ramMass: number;
 }
 
 /** Player assists (per profile). Stored from M1; physics applies them from M7. */
@@ -57,6 +70,8 @@ export interface Assists {
 export interface Loadout {
   chassisId: string;
   parts: Record<PartSlot, PartTier>;
+  /** Which variant of each fitted part. Absent, or absent for a slot, means 'a' (every 2.0 loadout). */
+  variants?: Partial<Record<PartSlot, PartVariant>>;
   livery: ShipLivery & { decal: number };
 }
 

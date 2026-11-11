@@ -6,7 +6,7 @@
 import { batch, computed, effect, signal } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
-import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, RacerStanding, ShipId } from '../core/contracts';
+import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
@@ -385,15 +385,15 @@ export class App {
   }
 
   /** Buy (pay, own and fit) a part for the active profile. */
-  buyPart(slot: PartSlot, tier: PartTier): PurchaseResult {
+  buyPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): PurchaseResult {
     let result: PurchaseResult = 'invalid';
-    this.updateProfile((p) => (result = buyPart(p, slot, tier)), () => result === 'bought');
+    this.updateProfile((p) => (result = buyPart(p, slot, tier, variant)), () => result === 'bought');
     return result;
   }
 
-  equipPart(slot: PartSlot, tier: PartTier): boolean {
+  equipPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): boolean {
     let ok = false;
-    this.updateProfile((p) => (ok = equipPart(p, slot, tier)), () => ok);
+    this.updateProfile((p) => (ok = equipPart(p, slot, tier, variant)), () => ok);
     return ok;
   }
 

@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import type { Loadout, PartSlot } from '../core/contracts';
+import type { Loadout, PartSlot, PartTier, PartVariant } from '../core/contracts';
+import { variantOf } from '../content/parts';
 import type { ShipAssets, TrimMaps } from '../assets/AssetLoader';
 
 /** Where v1's procedural effects attach, measured from the GLB sockets (ship-local, unscaled). */
@@ -170,7 +171,13 @@ const PART_SOCKET: Record<PartSlot, string[]> = {
   booster: ['socket_booster_R', 'socket_booster_L'],
   stabilizer: ['socket_stabilizer'],
   hull: ['socket_hull'],
+  aero: ['socket_aero'],
 };
+
+/** Node name of a part in parts.glb: `<slot>_t<tier>` for variant A, `<slot>_t<tier>b` for variant B. */
+export function partNodeName(slot: PartSlot, tier: PartTier, variant: PartVariant | undefined): string {
+  return `${slot}_t${tier}${variantOf(slot, tier, variant) === 'b' ? 'b' : ''}`;
+}
 
 export interface AssembleOptions {
   /** Cheaper materials (rivals on the Low preset, §V.2): no normal map or clearcoat. */
@@ -299,7 +306,7 @@ export function assembleShip(assets: ShipAssets, loadout: Loadout, lod: 0 | 1, o
 
   const parts: THREE.Object3D[] = [];
   for (const slot of Object.keys(PART_SOCKET) as PartSlot[]) {
-    const src = assets.parts.scene.getObjectByName(`${slot}_t${loadout.parts[slot]}`);
+    const src = assets.parts.scene.getObjectByName(partNodeName(slot, loadout.parts[slot] ?? 0, loadout.variants?.[slot]));
     if (!src) continue;
     for (const socketName of PART_SOCKET[slot]) {
       const m = sockets.get(socketName);
