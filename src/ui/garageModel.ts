@@ -2,8 +2,8 @@
  * Garage stat bars: five kid-readable numbers from ShipStats, each normalised over every class and part
  * combination, so a bar's length means the same thing on every ship. Pure (no Preact) for tests.
  */
-import type { Loadout, PartSlot, PartTier, ShipClass, ShipStats } from '../core/contracts';
-import { PART_SLOTS, PART_TIERS } from '../content/parts';
+import type { Loadout, PartSlot, PartTier, PartVariant, ShipClass, ShipStats } from '../core/contracts';
+import { PART_SLOTS, PART_TIERS, VARIANT_SLOTS } from '../content/parts';
 import { CHASSIS } from '../content/ships';
 import { resolveStats } from '../physics/ShipStatsResolver';
 
@@ -28,15 +28,22 @@ export const METRICS: readonly Metric[] = [
 /** Shortest bar (so a minimum still shows). */
 const FLOOR = 0.12;
 
-function everyLoadout(): Pick<Loadout, 'chassisId' | 'parts'>[] {
+type StatLoadout = Pick<Loadout, 'chassisId' | 'parts' | 'variants'>;
+
+/** One chassis per class × every tier in every slot × every A/B choice (about 49,000 loadouts, resolved once). */
+function everyLoadout(): StatLoadout[] {
   const byClass = new Map<ShipClass, string>();
   for (const c of CHASSIS) if (!byClass.has(c.cls)) byClass.set(c.cls, c.id);
-  const out: Pick<Loadout, 'chassisId' | 'parts'>[] = [];
+  const out: StatLoadout[] = [];
   for (const chassisId of byClass.values()) {
     for (let code = 0; code < 4 ** PART_SLOTS.length; code++) {
       const parts = {} as Record<PartSlot, PartTier>;
       PART_SLOTS.forEach((slot, i) => (parts[slot] = PART_TIERS[Math.floor(code / 4 ** i) % 4]));
-      out.push({ chassisId, parts });
+      for (let vc = 0; vc < 2 ** VARIANT_SLOTS.length; vc++) {
+        const variants: Partial<Record<PartSlot, PartVariant>> = {};
+        VARIANT_SLOTS.forEach((slot, i) => (variants[slot] = (vc >> i) & 1 ? 'b' : 'a'));
+        out.push({ chassisId, parts, variants });
+      }
     }
   }
   return out;
@@ -66,7 +73,7 @@ export interface StatBar {
   value: number;
 }
 
-export function statBars(loadout: Pick<Loadout, 'chassisId' | 'parts'>): StatBar[] {
+export function statBars(loadout: StatLoadout): StatBar[] {
   const s = resolveStats(loadout);
   return METRICS.map((m) => {
     const [lo, hi] = rangeOf(m.key);

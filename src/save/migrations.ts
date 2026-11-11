@@ -72,6 +72,31 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
         })
       : [],
   }),
+  // v6 → 7: sidegrades and the Aero slot (IMPLEMENTATION §X3). Owned parts become part keys: every tier owned
+  // so far is the A variant ('1a'), Stock is '0'. The loadout gains Stock Aero and variant A everywhere.
+  6: (save) => ({
+    ...save,
+    version: 7,
+    profiles: Array.isArray(save.profiles)
+      ? save.profiles.map((p) => {
+          if (typeof p !== 'object' || p === null) return p;
+          const { owned, loadout } = p as Obj;
+          const ow = typeof owned === 'object' && owned !== null ? (owned as Obj) : {};
+          const keys: Obj = { aero: ['0'] };
+          for (const slot of ['engine', 'booster', 'stabilizer', 'hull']) {
+            const list = Array.isArray(ow[slot]) ? (ow[slot] as unknown[]) : [];
+            keys[slot] = list.filter((t) => t === 0 || t === 1 || t === 2 || t === 3).map((t) => (t === 0 ? '0' : `${t}a`));
+          }
+          const lo = typeof loadout === 'object' && loadout !== null ? (loadout as Obj) : {};
+          const parts = typeof lo.parts === 'object' && lo.parts !== null ? (lo.parts as Obj) : {};
+          return {
+            ...p,
+            owned: keys,
+            loadout: { ...lo, parts: { ...parts, aero: 0 }, variants: { engine: 'a', booster: 'a', stabilizer: 'a', hull: 'a', aero: 'a' } },
+          };
+        })
+      : [],
+  }),
 };
 
 /** Version of a raw save (missing or invalid → 0, treated as unreadable by the caller). */

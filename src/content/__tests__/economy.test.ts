@@ -56,7 +56,7 @@ describe('garage rules', () => {
     const g = garage(2000);
     expect(buyPart(g, 'engine', 2)).toBe('bought');
     expect(g.credits).toBe(500);
-    expect(g.owned.engine).toEqual([0, 2]);
+    expect(g.owned.engine).toEqual(['0', '2a']);
     expect(g.loadout.parts.engine).toBe(2);
   });
 
@@ -64,7 +64,7 @@ describe('garage rules', () => {
     const g = garage(599);
     expect(buyPart(g, 'booster', 1)).toBe('short');
     expect(g.credits).toBe(599);
-    expect(g.owned.booster).toEqual([0]);
+    expect(g.owned.booster).toEqual(['0']);
     expect(g.loadout.parts.booster).toBe(0);
   });
 
@@ -85,6 +85,37 @@ describe('garage rules', () => {
     expect(owns(g, 'stabilizer', 1)).toBe(true);
     expect(equipPart(g, 'stabilizer', 1)).toBe(true);
     expect(g.loadout.parts.stabilizer).toBe(1);
+  });
+
+  it('the two variants of a tier are bought separately at the same price, and refit for free (§X3)', () => {
+    const g = garage(3000);
+    expect(buyPart(g, 'engine', 2, 'b')).toBe('bought');
+    expect(g.credits).toBe(1500);
+    expect(g.loadout.parts.engine).toBe(2);
+    expect(g.loadout.variants?.engine).toBe('b');
+    expect(owns(g, 'engine', 2, 'b')).toBe(true);
+    expect(owns(g, 'engine', 2, 'a')).toBe(false);
+    expect(equipPart(g, 'engine', 2, 'a')).toBe(false);
+    expect(buyPart(g, 'engine', 2, 'a')).toBe('bought');
+    expect(g.credits).toBe(0);
+    expect(g.owned.engine).toEqual(['0', '2a', '2b']);
+    expect(g.loadout.variants?.engine).toBe('a');
+    expect(equipPart(g, 'engine', 2, 'b')).toBe(true);
+    expect(g.loadout.variants?.engine).toBe('b');
+    expect(g.credits).toBe(0);
+    // Back to Stock: the variant resets with it.
+    expect(equipPart(g, 'engine', 0)).toBe(true);
+    expect(g.loadout.variants?.engine).toBe('a');
+  });
+
+  it('Aero is a fifth slot with one line of parts; Stock has no variant B', () => {
+    const g = garage(5000);
+    expect(buyPart(g, 'aero', 1, 'b')).toBe('invalid');
+    expect(buyPart(g, 'hull', 0, 'b')).toBe('invalid');
+    expect(buyPart(g, 'aero', 1)).toBe('bought');
+    expect(g.owned.aero).toEqual(['0', '1a']);
+    expect(g.loadout.parts.aero).toBe(1);
+    expect(g.credits).toBe(4400);
   });
 
   it('chassis are free; parts and livery carry over; unknown ids are refused', () => {

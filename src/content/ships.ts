@@ -20,6 +20,10 @@ export const CLASS_STATS: Readonly<Record<ShipClass, Readonly<ShipStats>>> = {
     energyMax: 85,
     damageTakenScale: 1.15,
     mass: 0.8,
+    draftScale: 1,
+    pushScale: 1,
+    airSteerScale: 1,
+    ramMass: 1,
   },
   balanced: {
     topSpeed: 140,
@@ -35,6 +39,10 @@ export const CLASS_STATS: Readonly<Record<ShipClass, Readonly<ShipStats>>> = {
     energyMax: 100,
     damageTakenScale: 1,
     mass: 1,
+    draftScale: 1,
+    pushScale: 1,
+    airSteerScale: 1,
+    ramMass: 1,
   },
   heavy: {
     topSpeed: 146,
@@ -50,6 +58,10 @@ export const CLASS_STATS: Readonly<Record<ShipClass, Readonly<ShipStats>>> = {
     energyMax: 120,
     damageTakenScale: 0.85,
     mass: 1.3,
+    draftScale: 1,
+    pushScale: 1,
+    airSteerScale: 1,
+    ramMass: 1,
   },
 };
 

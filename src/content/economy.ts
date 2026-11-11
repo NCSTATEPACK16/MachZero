@@ -3,8 +3,8 @@
  * rules (buy = pay + own + equip; equip only what you own; no selling). Pure; the App applies these to the
  * active profile inside a save update.
  */
-import type { AITier, Loadout, PartSlot, PartTier, RacerStanding } from '../core/contracts';
-import { PART_PRICES, PART_SLOTS, PART_TIERS } from './parts';
+import type { AITier, Loadout, PartSlot, PartTier, PartVariant, RacerStanding } from '../core/contracts';
+import { PART_PRICES, PART_SLOTS, PART_TIERS, PART_VARIANTS, STOCK_VARIANTS, hasVariants, partKey, variantOf } from './parts';
 import { CHASSIS } from './ships';
 
 /** Credits by finishing position (index 0 = 1st), at Rookie. */
@@ -46,31 +46,42 @@ export function partPrice(tier: PartTier): number {
 export interface Garage {
   credits: number;
   loadout: Loadout;
-  owned: Record<PartSlot, PartTier[]>;
+  /** Part keys owned per slot (content/parts `partKey`: '0', '1a', '2b'…). Stock is always owned. */
+  owned: Record<PartSlot, string[]>;
 }
 
-export function owns(g: Garage, slot: PartSlot, tier: PartTier): boolean {
-  return tier === 0 || g.owned[slot].includes(tier);
+export function owns(g: Garage, slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): boolean {
+  return tier === 0 || g.owned[slot].includes(partKey(slot, tier, variant));
+}
+
+function fit(g: Garage, slot: PartSlot, tier: PartTier, variant: PartVariant): void {
+  g.loadout.parts[slot] = tier;
+  g.loadout.variants = { ...STOCK_VARIANTS, ...g.loadout.variants, [slot]: variantOf(slot, tier, variant) };
 }
 
 export type PurchaseResult = 'bought' | 'owned' | 'short' | 'invalid';
 
-/** Buy a part and fit it. Mutates `g` only on 'bought'. */
-export function buyPart(g: Garage, slot: PartSlot, tier: PartTier): PurchaseResult {
-  if (!PART_SLOTS.includes(slot) || !PART_TIERS.includes(tier)) return 'invalid';
-  if (owns(g, slot, tier)) return 'owned';
+/**
+ * Buy a part and fit it. Mutates `g` only on 'bought'. The two variants of a tier are bought separately, at
+ * the same price; a variant the slot does not have (Aero, or Stock) is 'invalid'.
+ */
+export function buyPart(g: Garage, slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): PurchaseResult {
+  if (!PART_SLOTS.includes(slot) || !PART_TIERS.includes(tier) || !PART_VARIANTS.includes(variant)) return 'invalid';
+  if (variant === 'b' && !hasVariants(slot, tier)) return 'invalid';
+  if (owns(g, slot, tier, variant)) return 'owned';
   const price = partPrice(tier);
   if (g.credits < price) return 'short';
   g.credits -= price;
-  g.owned[slot] = [...g.owned[slot], tier].sort((a, b) => a - b);
-  g.loadout.parts[slot] = tier;
+  g.owned[slot] = [...g.owned[slot], partKey(slot, tier, variant)].sort();
+  fit(g, slot, tier, variant);
   return 'bought';
 }
 
-/** Fit an owned part. Returns false (and changes nothing) if it isn't owned. */
-export function equipPart(g: Garage, slot: PartSlot, tier: PartTier): boolean {
-  if (!PART_SLOTS.includes(slot) || !owns(g, slot, tier)) return false;
-  g.loadout.parts[slot] = tier;
+/** Fit an owned part (free). Returns false (and changes nothing) if it isn't owned. */
+export function equipPart(g: Garage, slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): boolean {
+  if (!PART_SLOTS.includes(slot) || !PART_TIERS.includes(tier) || !owns(g, slot, tier, variant)) return false;
+  if (variant === 'b' && !hasVariants(slot, tier)) return false;
+  fit(g, slot, tier, variant);
   return true;
 }
 

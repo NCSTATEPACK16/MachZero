@@ -11,6 +11,7 @@ export const FEATURE_NAMES = [
   'music', // M6: music sequencer + expanded SFX
   'touch', // M7: touch / tilt controls, comfort settings
   'modes', // M8: World Tour, Grand Prix, Time Trial + ghosts
+  'expansion', // 2.1 (IMPLEMENTATION §X): part variants and the Aero slot (X3), the new worlds (X4–X6)
 ] as const;
 
 export type FeatureName = (typeof FEATURE_NAMES)[number];
@@ -25,6 +26,7 @@ export const FEATURE_DEFAULTS: FeatureSet = {
   music: false,
   touch: false,
   modes: false,
+  expansion: false,
 };
 
 const isFeature = (s: string): s is FeatureName => (FEATURE_NAMES as readonly string[]).includes(s);

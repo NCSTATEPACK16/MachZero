@@ -14,8 +14,17 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { MeshoptDecoder } from 'meshoptimizer';
 
 export const CHASSIS = ['dart', 'wisp', 'comet', 'arrow', 'titan', 'bastion'];
-export const SOCKETS = ['socket_engine', 'socket_booster_L', 'socket_booster_R', 'socket_stabilizer', 'socket_hull', 'socket_exhaust_L', 'socket_exhaust_R'];
+export const SOCKETS = ['socket_engine', 'socket_booster_L', 'socket_booster_R', 'socket_stabilizer', 'socket_hull', 'socket_aero', 'socket_exhaust_L', 'socket_exhaust_R'];
 export const PART_SLOTS = ['engine', 'booster', 'stabilizer', 'hull'];
+/**
+ * Every part node in parts.glb (IMPLEMENTATION §X3): the 16 variant-A parts, the 12 variant-B sidegrades
+ * (Mk II, Mk III, Prototype) and the 4 Aero parts.
+ */
+export const PART_NAMES = [
+  ...PART_SLOTS.flatMap((slot) => [0, 1, 2, 3].map((t) => `${slot}_t${t}`)),
+  ...PART_SLOTS.flatMap((slot) => [1, 2, 3].map((t) => `${slot}_t${t}b`)),
+  ...[0, 1, 2, 3].map((t) => `aero_t${t}`),
+];
 export const ROLES = ['livery_primary', 'livery_secondary', 'glow', 'metal', 'glass', 'dark'];
 export const BUDGET = {
   lod0: 12000,
@@ -168,9 +177,8 @@ export async function checkAssets(root = resolve(import.meta.dirname, '..')) {
     const bytes = statSync(partsFile).size;
     if (bytes > BUDGET.partsBytes) problems.push(`parts.glb: ${(bytes / 1024).toFixed(0)} KB > ${BUDGET.partsBytes / 1024} KB`);
     const nodes = new Map(doc.getRoot().listNodes().map((n) => [n.getName(), n]));
-    for (const slot of PART_SLOTS) {
-      for (let t = 0; t < 4; t++) {
-        const name = `${slot}_t${t}`;
+    {
+      for (const name of PART_NAMES) {
         const node = nodes.get(name);
         if (!node) {
           problems.push(`parts.glb: missing part "${name}"`);

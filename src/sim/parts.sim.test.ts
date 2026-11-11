@@ -43,7 +43,7 @@ async function run(loadout: Loadout): Promise<{ maxSpeed: number; lap1: number }
 describe('parts change race behaviour', () => {
   it('a Prototype engine raises top speed and lap pace over stock', async () => {
     const stock = await run(defaultLoadout());
-    const proto = await run({ ...defaultLoadout(), parts: { engine: 3, booster: 0, stabilizer: 0, hull: 0 } });
+    const proto = await run({ ...defaultLoadout(), parts: { engine: 3, booster: 0, stabilizer: 0, hull: 0, aero: 0 } });
     console.log(`stock: vmax=${stock.maxSpeed.toFixed(1)} lap1=${stock.lap1.toFixed(2)} | prototype engine: vmax=${proto.maxSpeed.toFixed(1)} lap1=${proto.lap1.toFixed(2)}`);
     expect(Number.isFinite(stock.lap1) && Number.isFinite(proto.lap1)).toBe(true);
     expect(proto.maxSpeed).toBeGreaterThan(stock.maxSpeed + 3);

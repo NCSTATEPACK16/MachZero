@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 interface Debug {
   app: {
     route: { value: { name: string } };
-    activeProfile: { value: { credits: number; owned: Record<string, number[]>; loadout: { chassisId: string; parts: Record<string, number>; livery: { primary: number; decal: number } } } | null };
+    activeProfile: { value: { credits: number; owned: Record<string, string[]>; loadout: { chassisId: string; parts: Record<string, number>; livery: { primary: number; decal: number } } } | null };
     graphics: { preview: { model: unknown } | null; previewEl: unknown };
     createProfile(name: string, badge: number, preset: 'rookie' | 'classic'): void;
     selectChassis(id: string): void;
@@ -95,7 +95,7 @@ test('buy and fit a part, paint the ship, persist, race with it', async ({ page 
   await page.reload();
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await expect(page.getByRole('button', { name: /^GARAGE/ })).toContainText('BASTION · 500 CREDITS');
-  expect((await profile(page)).owned.engine).toEqual([0, 2]);
+  expect((await profile(page)).owned.engine).toEqual(['0', '2a']);
 
   // The race uses the garage loadout.
   await page.getByRole('button', { name: /^RACE/ }).click();
@@ -134,36 +134,53 @@ test('cycling ships on the turntable does not grow GPU memory', async ({ page })
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-// §V V2: every chassis × slot × tier renders (the Garage turntable draws LOD0 with full materials), and a race
-// on each preset builds its rivals (merged parts, LOD1 and lite materials on Low) without a console error.
+// §V V2 and §X3: every chassis × slot × tier × variant renders (the Garage turntable draws LOD0 with full
+// materials), including the Aero slot, and a race on each preset builds its rivals (merged parts, LOD1 and lite
+// materials on Low) without a console error.
 for (const quality of ['low', 'med', 'high'] as const) {
-  test(`every chassis and part tier renders on ${quality}`, async ({ page }) => {
+  test(`every chassis, part tier and variant renders on ${quality}`, async ({ page }) => {
     const errors = collectErrors(page);
-    await page.goto(`/?features=profiles&debug=1&quality=${quality}`);
+    await page.goto(`/?features=profiles,expansion&debug=1&quality=${quality}`);
     await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
     await page.evaluate(() => {
-      const d = (window as unknown as { __machzero: Debug & { app: { buyPart(s: string, t: number): string; equipPart(s: string, t: number): boolean } } }).__machzero;
+      const d = (window as unknown as { __machzero: Debug & { app: { buyPart(s: string, t: number, v?: string): string } } }).__machzero;
       d.app.createProfile('PARTS', 2, 'classic');
-      d.grantCredits(100_000);
-      for (const s of ['engine', 'booster', 'stabilizer', 'hull']) for (const t of [1, 2, 3]) d.app.buyPart(s, t);
+      d.grantCredits(200_000);
+      for (const t of [1, 2, 3]) {
+        for (const s of ['engine', 'booster', 'stabilizer', 'hull']) for (const v of ['a', 'b']) d.app.buyPart(s, t, v);
+        d.app.buyPart('aero', t);
+      }
     });
+    const owned = (await profile(page)).owned;
+    for (const s of ['engine', 'booster', 'stabilizer', 'hull']) expect(owned[s]).toEqual(['0', '1a', '1b', '2a', '2b', '3a', '3b']);
+    expect(owned.aero).toEqual(['0', '1a', '2a', '3a']);
     await page.getByRole('button', { name: /^GARAGE/ }).click();
     await expect(screen(page)).toHaveAttribute('data-screen', 'garage');
     const frames = () => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
     for (const id of ['dart', 'wisp', 'comet', 'arrow', 'titan', 'bastion']) {
       for (const tier of [0, 1, 2, 3]) {
-        await page.evaluate(
-          ([c, t]) => {
-            const d = (window as unknown as { __machzero: { app: { selectChassis(c: string): void; equipPart(s: string, t: number): boolean } } }).__machzero;
-            d.app.selectChassis(c as string);
-            for (const s of ['engine', 'booster', 'stabilizer', 'hull']) d.app.equipPart(s, t as number);
-          },
-          [id, tier] as const,
-        );
-        await frames();
+        for (const variant of tier === 0 ? ['a'] : ['a', 'b']) {
+          const fitted = await page.evaluate(
+            ([c, t, v]) => {
+              const d = (window as unknown as { __machzero: { app: { selectChassis(c: string): void; equipPart(s: string, t: number, v?: string): boolean } } }).__machzero;
+              d.app.selectChassis(c as string);
+              const ok = ['engine', 'booster', 'stabilizer', 'hull'].map((s) => d.app.equipPart(s, t as number, v as string));
+              return [...ok, d.app.equipPart('aero', t as number)].every(Boolean);
+            },
+            [id, tier, variant] as const,
+          );
+          expect(fitted, `${id} tier ${tier} variant ${variant} fits`).toBe(true);
+          await frames();
+        }
       }
       await expect(page.locator('.mzu-stage-label')).toContainText(id.toUpperCase());
     }
+    // The Aero tab and both lines of parts are on screen with the expansion on.
+    await page.getByRole('tab', { name: 'AERO' }).click();
+    await expect(page.getByRole('radio', { name: /^PROTOTYPE/ })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('tab', { name: 'ENGINE' }).click();
+    await expect(page.getByRole('radio', { name: /^MK II SPRINT/ })).toBeVisible();
+    await expect(page.getByRole('radio', { name: /^PROTOTYPE SPRINT/ })).toHaveAttribute('aria-checked', 'true');
     expect(await dbg(page, (d) => Boolean(d.app.graphics.preview?.model))).toBe(true);
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: /^RACE/ }).click();
