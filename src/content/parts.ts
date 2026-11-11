@@ -121,14 +121,14 @@ export const PART_EFFECTS: SlotEffects = {
 export const PART_EFFECTS_B: SlotEffects = {
   // Sprint: gets to speed sooner, tops out lower.
   engine: {
-    topSpeed: [0, 1, 2, 4],
+    topSpeed: [0, 2, 4, 7],
     thrustAccel: [0, 6, 11, 15],
     weight: [0, 0.02, 0.04, 0.07],
   },
   // Burst: a short, hard kick.
   booster: {
     boostTopSpeed: [0, 8, 15, 22],
-    boostCost: [14, 14, 13, 12],
+    boostCost: [14, 14, 13, 11],
     boostTime: [1.6, 1.3, 1.35, 1.4],
   },
   // Agility: turns in harder, holds the line less.
