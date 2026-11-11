@@ -300,7 +300,7 @@ export class NeonBayTheme implements WorldTheme {
     heightFog: { base: CONFIG.GROUND_Y + 26, falloff: 30, color: 0x3a1a7a, density: 0.32, bankScale: 700, bankSpeed: 5 },
     lightning: { rate: 2, color: 0xb9a8ff, flash: 0.16 },
     surface: { kind: 'spray', color: 0xbfd4ff },
-    setPieces: [{ prop: 'airship_0', count: 2, path: 'orbit', radius: 1150, height: 240, speed: 9, neon: 0xff2bd6 }],
+    setPieces: [{ prop: 'airship_0', count: 2, path: 'orbit', radius: 1150, height: 130, speed: 9, neon: 0xff2bd6 }],
     wetDeck: { gloss: 0.65, streak: 0.3 },
     shafts: { count: 10, color: 0x7d5cff, angle: 0.22, width: 26, height: 420, opacity: 0.1 },
   };

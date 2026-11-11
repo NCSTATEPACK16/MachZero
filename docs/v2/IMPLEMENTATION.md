@@ -1057,7 +1057,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 |---|---|---|---|---|
 | X0 | Design docs (this section, SPEC §10, `WORLD_CONCEPTS.md`) | `v2/x-design-docs` | — | — |
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
-| X2 | Environment effects framework | `v2/x2-envfx` | — | Device gate (fps) |
+| X2 ✅ built (#PRNUM) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
@@ -1122,25 +1122,40 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 
 ---
 
-### X2 — Environment effects framework — 🚧 IN PROGRESS (branch `v2/x2-envfx`, pushed, no PR yet)
+### X2 — Environment effects framework — ✅ BUILT (PR #PRNUM; waiting on the user's look approval of Neon Bay and the device gate)
 
-**As built so far (2026-11-10; the session stopped at a usage limit):**
-- **Done and committed:**
+**As built (PR #PRNUM)** (read before X4 or X7):
+- **Code:**
   - `graphics/envfx/EnvFxSpec.ts`: the data format, `ENVFX_QUALITY` per preset, `resolveEnvFx(spec, level, reducedMotion)`, `planDrawCalls`, `flashTime` (pure, 7 tests).
   - `graphics/envfx/Weather.ts` (one instanced quad mesh in a 90 × 50 × 90 m box round the camera, wrapped in the vertex shader; streaks follow the motion relative to the camera), `FogSheets.ts`, `Shafts.ts`, `SetPieces.ts`, `WetDeck.ts`, and `EnvFx.ts` (the orchestrator; 5 tests on Neon Bay).
-  - Colour grade and the lightning flash are uniforms in the final pass (`shaders/chromatic.ts`, `PostFX.setGrade` / `setFlash`); the grade maths is compiled in only when a world has a grade (`GRADE` define, set at world change, before the warm-up).
+  - Colour grade and the lightning flash are uniforms in the final pass (`shaders/chromatic.ts`, `PostFX.setGrade` / `setFlash`). The grade maths is compiled in only when a world has a grade (`GRADE` define, set at world change, before the warm-up).
   - Surface particles: `Effects.setSurface` and `emitSurface` in the shared point pool.
   - `WorldTheme` gained optional `envfx` and `roleMaterial(role)`. `GraphicsSystem` owns one `EnvFx`: `applyTheme` → `setWorld`, `setTrack` → `build`, `update`, and the flash lifts the hemisphere and fill lights.
-  - Neon Bay's set (`themes/neonBay.ts` `envfx`): rain, wet-look deck, sea mist, searchlight shafts, 2 airships (`airship_0` in `build_props.py`; `props.glb` 28 → 36 KB; the other four worlds' GLBs rebuilt byte-identical), far lightning, spray, a cool grade.
-  - Checked in the browser on High: it renders, with no console errors. Rain and wet-deck strength were toned down once after the first look.
-- **Deviation:** height fog is drawn as up to 3 drifting sheets in one instanced draw call, not as a height term in every material's fog (that would mean patching every lit and custom shader).
-- **Not done yet (do these next, in order):**
-  1. Run the full gate (`npm run typecheck && npm test -- --maxWorkers=3 && npm run build && npm run size && npm run smoke -- --workers=1`). Only the envfx tests and typecheck were run after the last change. The smoke test checks for mid-race shader compiles: watch the wet-deck `onBeforeCompile` and the `GRADE` define.
-  2. The after half of the perf table: `npm run build && node scripts/perf-desktop.mjs --quality high,med,low --seconds 25 --audit`. The before half (PR #33 build, same method): 60 fps and p95 16.8 ms on High / Med / Low; grid frame 161 / 161 / 141 draw calls; race median 106 / 107 / 86; triangles 147k / 140k / 126k. Budget: +6 draw calls or fewer, 0 per ship, p95 unchanged.
-  3. Look at Med and Low and at reduced motion in the browser; check the airships, shafts and mist are visible and outside the track corridor; confirm which deck edge gets which neon colour in `WetDeck.ts` (uv.y < 0.5 is assumed to be the left rail).
-  4. A screenshot diff on Sunset Mesa (a theme with no `envfx` must render as before).
-  5. e2e: a race on each preset with effects on and no console errors (extend `e2e/smoke.spec.ts` or the garage spec's race step).
-  6. Before/after screenshots into `docs/v2/shots/x2/`, `npm run codebase`, open the PR on `v2/x1-cups` (#33), bind it, and write the device gate into the body.
+- **Neon Bay's set** (`themes/neonBay.ts` `envfx`): rain, wet-look deck, sea mist, searchlight shafts, 2 airships (`airship_0` in `build_props.py`; `props.glb` 28 → 36 KB; the other four worlds' GLBs rebuilt byte-identical), far lightning, spray, a cool grade.
+- **Checks made:**
+  - Every effect sits outside the track corridor: shafts 94 m or more from the centre line, airships 390 m or more.
+  - The wet-deck streak colours match their rails (the deck's v coordinate is 0 at the left rail, 1 at the right).
+  - The airships were lowered from 240 m to 130 m above the track centre. At 240 m they were above the chase camera's view; at 130 m one is in view for about a third of a lap.
+  - Low drops the shafts and the wet deck and draws 1 fog sheet; Med draws half the shafts and 2 sheets. Reduced motion stops the flash and halves the streaks.
+  - Sunset Mesa (no `envfx`) is unchanged: an empty effects group, the same 41 shader programs, the same 104 draw calls, an untouched deck material. Shots: `docs/v2/shots/x2/sunset-mesa-before.jpg` and `-after.jpg`.
+  - The smoke test now runs one race per preset (High, Med, Low) and fails on a console error or a shader compiled mid-race.
+- **Desktop perf** (`scripts/perf-desktop.mjs --quality high,med,low --seconds 25 --audit`, 8-ship Neon Bay):
+
+  | Preset | fps | p50 / p95 / p99 ms | Grid-frame draw calls | Race median draw calls | Triangles |
+  |---|---|---|---|---|---|
+  | High, before (#33) | 60 | — / 16.8 / — | 161 | 106 | 147k |
+  | High, after | 60.0 | 16.7 / 16.8 / 16.8 | 166 (+5) | 112 | 153k |
+  | Med, before | 60 | — / 16.8 / — | 161 | 107 | 140k |
+  | Med, after | 59.9 | 16.7 / 16.8 / 16.8 | 166 (+5) | 111 | 144k |
+  | Low, before | 60 | — / 16.8 / — | 141 | 86 | 126k |
+  | Low, after | 59.9 | 16.7 / 16.7 / 16.8 | 145 (+4) | 90 | 128k |
+
+  The effects group costs 5 draw calls (4 on Low) against a budget of 6. Ship draw calls are unchanged (113 on the grid frame at High and Med, 93 at Low).
+- **Tests:** 470 unit and sim tests in 56 files; e2e 15/15.
+- **Deviations from the plan:**
+  - Height fog is drawn as up to 3 drifting sheets in one instanced draw call, not as a height term in every material's fog. A height term would mean patching every lit and custom shader.
+  - The Sunset Mesa check is structural (programs, draw calls, materials) plus a pair of shots, not a pixel diff. The sky and speed lines animate on the wall clock, so two runs never match pixel for pixel.
+- **Still open:** the user's look approval of Neon Bay's set, and the device gate (iPhone and iPad, 8-ship Neon Bay).
 
 
 **Design decisions:**
