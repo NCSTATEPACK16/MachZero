@@ -1059,7 +1059,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
-| X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
+| X4 ⏭ next | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
@@ -1290,7 +1290,35 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X4 — World 6: Tempest Spire (crosswinds and lightning)
+### X4 — World 6: Tempest Spire (crosswinds and lightning) — ⏭ NEXT (not started; plan checked against the code on 2026-11-10)
+
+**Start here.** Branch `v2/x4-tempest-spire` from `v2/x3-upgrades` (PR #35). The design decisions and build steps below are settled. The build notes come first: they are facts about the code as it stands after X1–X3 that the steps rely on.
+
+**Build notes from X1–X3 as built (read before step 1):**
+- **What exists and is ready to use:**
+  - `ShipStats.pushScale` (Aero, X3). **Nothing reads it yet.** The wind force in `ShipController` must multiply by it; step 1's hold test proves it (Aero Prototype drifts less than Stock).
+  - `EnvFx.setWeatherWind(x, z)` and `EnvFx.flashNow(strength, color)` (X2). **`GraphicsSystem` does not expose them yet.** Add two pass-through methods there and call them from `RaceSession` on `ship:wind` (the player's ship only) and `hazard:lightning`. `flashNow` already does nothing with reduced motion on.
+  - `PhysicsSystem.hazardTime` is the deterministic hazard clock; the gate hazard is the model for a timed hazard (`track/features/gate.ts`, `gateVisual.ts`, the `hazard:gate` event, `HazardPolicy.telegraphScale`, `damage` and `hitSpeedScale` in `core/hazards.ts`).
+  - `ShipState.empLock` is the boost jam; `ItemSystem` owns the Shield. A strike must go through the same "is this ship shielded" check as a mine hit.
+  - `AIDriver` already takes `{ hazardClock, liveMines }` and has `avoidHazards`. `sim/worldRace.ts` and `sim/tierMatrix.ts` run a world's races: `describeTierMatrix('tempest-spire')` is all step 7 needs beyond the file's own Rookie and Legend races.
+  - The rival fits now include B parts and Aero (X3). Tier-matrix results on the new track are therefore measured with those fits.
+- **What does not exist yet and X4 must add:**
+  - **A way to hide a built world.** Today a world shows as soon as `built` is true, and a cup is available when all its worlds are `built` (`content/cups.ts` `cupAvailable`). Add `WorldDef.expansion?: true` and one helper, `worldsFor(features)`, that drops expansion worlds when the flag is off. `WorldSelect`, `MainMenu` and `availableCups` read the helper. `?world=tempest-spire` keeps working for QA whatever the flag says. The save sanitizer has no feature set: it keeps a saved world that is `built`, which is correct.
+  - **A placeholder theme.** `graphics/themes/index.ts` `createTheme` falls back to Neon Bay's theme for an unknown world. Add `themes/placeholder.ts` (flat sky, the world's palette, no props, no `envfx`) and register it under `tempest-spire` until `chosen.jpg` arrives. Do not let the new world fall back to Neon Bay's look.
+  - `WorldId` is a closed union and `content/worlds.ts` says "the five worlds": widen both. Tests that pin counts will fail and must be updated with the reason in a comment, as X2 did for the prop count: `src/assets/__tests__/assets.test.ts` (report keys, once the world has props) and any world-count assertion `tsc` or the tests point to.
+  - `scripts/perf-desktop.mjs` always races Neon Bay. Add a `--world <id>` argument so the PR's perf table is measured on Tempest Spire.
+- **Rules learned the hard way in X2 and X3:**
+  - The smoke test fails on any shader compiled after the lights go out. Every new material (streamers, strike circles, bolts) must exist before the warm-up: build them in `setTrack`, hidden, never on first use.
+  - `?seed=N` switches the game to a generated Neon Bay track. Do not put it in screenshot or perf URLs.
+  - On this Mac run `npm test -- --maxWorkers=3` and `npm run smoke -- --workers=1`. The full gate takes about 12 minutes; run it in the background.
+  - Wind on the hazard clock means an identical force in every run. The hold test's "same run twice is identical" case guards that; do not seed anything from `Math.random` or wall time.
+
+**Commit points** (push after each; open the PR as a draft after the fourth):
+1. The wind hold sim (failing), then the wind feature until it passes.
+2. The lightning feature with its hazard sim cases.
+3. Authoring support, `tempest-spire.json`, the validator rules and the SVG preview.
+4. AI, the world entry behind `expansion`, the placeholder theme and `sim/tempest-spire.sim.test.ts` with the tier matrix. **This is the gameplay half: open the PR as a draft here.**
+5. Only with `assets/reference/worlds/tempest-spire/chosen.jpg` present: the real theme, props, effect set, HUD chip, perf table and shots; then mark the PR ready. Without the image, leave the draft and start X5's gameplay half on a branch stacked on this one.
 
 **Design decisions:**
 - **Look:** art-deco towers above a permanent thunderstorm; rain, lightning rods, searchlights. Palette: storm violet / electric yellow / teal. From `assets/reference/worlds/tempest-spire/chosen.jpg`.
