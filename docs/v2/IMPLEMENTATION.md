@@ -1057,7 +1057,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 |---|---|---|---|---|
 | X0 | Design docs (this section, SPEC §10, `WORLD_CONCEPTS.md`) | `v2/x-design-docs` | — | — |
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
-| X2 ✅ built (#PRNUM) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
+| X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
@@ -1122,9 +1122,9 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 
 ---
 
-### X2 — Environment effects framework — ✅ BUILT (PR #PRNUM; waiting on the user's look approval of Neon Bay and the device gate)
+### X2 — Environment effects framework — ✅ BUILT (PR #34; waiting on the user's look approval of Neon Bay and the device gate)
 
-**As built (PR #PRNUM)** (read before X4 or X7):
+**As built (PR #34)** (read before X4 or X7):
 - **Code:**
   - `graphics/envfx/EnvFxSpec.ts`: the data format, `ENVFX_QUALITY` per preset, `resolveEnvFx(spec, level, reducedMotion)`, `planDrawCalls`, `flashTime` (pure, 7 tests).
   - `graphics/envfx/Weather.ts` (one instanced quad mesh in a 90 × 50 × 90 m box round the camera, wrapped in the vertex shader; streaks follow the motion relative to the camera), `FogSheets.ts`, `Shafts.ts`, `SetPieces.ts`, `WetDeck.ts`, and `EnvFx.ts` (the orchestrator; 5 tests on Neon Bay).
