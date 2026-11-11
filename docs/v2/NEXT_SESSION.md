@@ -7,7 +7,7 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
 
 - **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #35** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. **Read §X4's "Build notes from X1–X3 as built" and its commit points before step 1**: they list what the code already offers, what X4 must add (a way to hide a built world, a placeholder theme, a `--world` argument for the perf script) and where to open the draft PR.
 - **`expansion` is still off.** Turn it on when the user approves the look of X3's parts.
-- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34 → #35.
+- **Merge order now (2026-11-10):** **#36** (one PR into `main` that combines #21–#34; #34 was merged into `v2/x1-cups`), then **#35** (X3, base `main`). After #36 merges, close #24, #28, #31, #32 and #33 by hand: their content is in `main`. New work branches from `v2/x3-upgrades`.
 
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
