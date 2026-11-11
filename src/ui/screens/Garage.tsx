@@ -140,7 +140,7 @@ function PartTab(props: { app: App; slot: PartSlot; setPreview: (l: Loadout | nu
   return (
     <>
       <p class="mzu-note">{SLOT_BLURBS[slot]}</p>
-      <div class="mzu-choices" role="radiogroup" aria-label={SLOT_NAMES[slot]}>
+      <div class={`mzu-choices${expansion && hasVariants(slot, 1) ? ' paired' : ''}`} role="radiogroup" aria-label={SLOT_NAMES[slot]}>
         {offersFor(slot, expansion).map((offer) => {
           const { tier: t, variant } = offer;
           const paired = expansion && hasVariants(slot, t);

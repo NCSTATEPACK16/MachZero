@@ -1114,6 +1114,14 @@ html.mz-pad .mzu-card-del:focus {
   gap: 0.5em;
   margin-top: 0.5em;
 }
+/* A slot with two lines of parts (2.1 sidegrades): Stock on its own row, then each tier's A and B side by side. */
+.mzu-choices.paired {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.mzu-choices.paired .mzu-choice.tier-0 {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
 .mzu-choice {
   display: flex;
   flex-direction: column;
