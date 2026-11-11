@@ -263,16 +263,22 @@ const FLAME_VERT = /* glsl */ `
   uniform float uRad;
   uniform float uPodX;
   uniform float uNy;
+  uniform float uFlare;
+  attribute float aFlare;
   varying vec2 vUv;
   varying vec3 vN;
   varying vec3 vV;
+  varying float vFlare;
   void main() {
     vUv = uv;
+    vFlare = aFlare;
     vec3 p = position;
     float cx = sign(p.x) * uPodX;
-    p.z = uBaseZ + (p.z - uBaseZ) * uLen;
-    p.x = cx + (p.x - cx) * uRad;
-    p.y = uNy + (p.y - uNy) * uRad;
+    // aFlare = 1: the nozzle flare quad (§V.2), sized by uFlare and not stretched with the flame
+    float k = mix(uRad, uFlare, aFlare);
+    p.z = mix(uBaseZ + (p.z - uBaseZ) * uLen, p.z, aFlare);
+    p.x = cx + (p.x - cx) * k;
+    p.y = uNy + (p.y - uNy) * k;
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     vN = normalize(normalMatrix * normal);
     vV = normalize(-mv.xyz);
@@ -285,10 +291,22 @@ const FLAME_FRAG = /* glsl */ `
   uniform vec3 uCore;
   uniform float uIntensity;
   uniform float uTime;
+  uniform float uFlare;
   varying vec2 vUv;
   varying vec3 vN;
   varying vec3 vV;
+  varying float vFlare;
   void main() {
+    if (vFlare > 0.5) {
+      // nozzle flare: a hot core with a horizontal streak and a weaker vertical one
+      vec2 q = (vUv - 0.5) * 2.0;
+      float r = length(q);
+      float core = exp(-r * r * 9.0);
+      float streak = exp(-abs(q.y) * 26.0) * (1.0 - abs(q.x)) + 0.5 * exp(-abs(q.x) * 30.0) * (1.0 - abs(q.y));
+      float fa = clamp((core + 0.6 * streak) * min(uFlare * 1.6, 1.0), 0.0, 1.0);
+      gl_FragColor = vec4(mix(uCore, uColor, smoothstep(0.05, 0.6, r)) * 2.2, fa);
+      return;
+    }
     float along = vUv.y;
     float fres = abs(dot(normalize(vN), normalize(vV)));
     float flick = 0.88 + 0.12 * sin(uTime * 60.0 + along * 9.0);
@@ -310,13 +328,19 @@ const POOL_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uIntensity;
   uniform float uTime;
+  uniform float uPad;
+  uniform vec2 uPadPos;
   varying vec2 vUv;
   void main() {
     vec2 p = (vUv - 0.5) * 2.0;
     float r = length(p);
     float a = pow(clamp(1.0 - r, 0.0, 1.0), 2.0);
     float rings = 0.85 + 0.15 * sin(r * 14.0 - uTime * 8.0);
-    gl_FragColor = vec4(uColor * uIntensity * (0.5 + 0.9 * a) * rings, a * clamp(uIntensity, 0.0, 1.0));
+    // hover pads (§V.2): four hot spots under the hull, pulsing with the bob and fading with speed (uPad)
+    vec2 d = (abs(vUv - 0.5) - uPadPos) / vec2(0.045, 0.06);
+    float pads = exp(-dot(d, d) * 1.4) * uPad;
+    vec3 col = uColor * uIntensity * (0.5 + 0.9 * a) * rings + mix(uColor, vec3(1.0), 0.35) * pads * 1.8;
+    gl_FragColor = vec4(col, clamp(a * clamp(uIntensity, 0.0, 1.0) + pads, 0.0, 1.0));
   }
 `;
 
@@ -343,6 +367,54 @@ const SHIELD_FRAG = /* glsl */ `
     gl_FragColor = vec4(uColor * 2.2 * band, f * uOpacity);
   }
 `;
+
+/** The Shield item's bubble: a glowing hexagon lattice over a fresnel rim; `uCrack` (0..1) is the block flash. */
+const ITEM_SHIELD_VERT = /* glsl */ `
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vP;
+  void main() {
+    vP = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vN = normalize(normalMatrix * normal);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const ITEM_SHIELD_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  uniform float uTime;
+  uniform float uCrack;
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vP;
+  // Distance to the nearest hexagon edge in a hex grid of unit cells.
+  float hexEdge(vec2 p) {
+    const vec2 r = vec2(1.0, 1.7320508);
+    vec2 a = mod(p, r) - r * 0.5;
+    vec2 b = mod(p - r * 0.5, r) - r * 0.5;
+    vec2 g = dot(a, a) < dot(b, b) ? a : b;
+    vec2 q = abs(g);
+    return 0.5 - max(dot(q, normalize(vec2(1.0, 1.7320508))), q.x);
+  }
+  void main() {
+    vec3 d = normalize(vP);
+    vec2 uv = vec2(atan(d.x, d.z) * 2.6, asin(clamp(d.y, -1.0, 1.0)) * 2.6);
+    float edge = hexEdge(uv * 2.2 + vec2(0.0, uTime * 0.35));
+    float lattice = 1.0 - smoothstep(0.0, 0.07 + 0.25 * uCrack, edge);
+    float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+    float hum = 0.8 + 0.2 * sin(uTime * 9.0 + d.y * 6.0);
+    float a = (0.03 + 0.4 * lattice + 0.45 * rim) * hum + uCrack * (0.5 + lattice);
+    gl_FragColor = vec4(mix(uColor, vec3(1.0), uCrack) * 0.9, a * uOpacity);
+  }
+`;
+
+/** Seconds of the Shield item's crack-and-flash when it blocks a hit. */
+const SHIELD_CRACK_TIME = 0.45;
+/** The bubble blinks over the shield's last seconds, so the player sees it running out. */
+const SHIELD_WARN_TIME = 1.5;
 
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const NOZZLE_Y = POD_Y;
@@ -385,6 +457,15 @@ export class ShipModel {
   private readonly flameMat: THREE.ShaderMaterial;
   private readonly poolMat: THREE.ShaderMaterial;
   private readonly shieldMat: THREE.ShaderMaterial;
+  /** The Shield item's bubble (ShipState.shield), and its block flash. */
+  private readonly itemShield: THREE.Mesh;
+  private readonly itemShieldMat: THREE.ShaderMaterial;
+  private crackTime = 0;
+  /** Rivals on Low (§V.2): no nozzle flare or hover-pad glow. */
+  private readonly fxLite: boolean;
+  private wasBoosting = false;
+  /** Nozzle flare burst at boost start, decaying (0..1). */
+  private flareKick = 0;
   private readonly disposables: { dispose(): void }[] = [];
   /** Class size (content/ships CLASS_SCALE), matching the physics collider. */
   private readonly scale: number;
@@ -396,9 +477,10 @@ export class ShipModel {
   private poseInit = false;
 
   /** `assembled`: a GLB ship from ShipAssembly; without it the v1 procedural ship is built (fallback). */
-  constructor(ship: ShipState, assembled: AssembledShip | null = null) {
+  constructor(ship: ShipState, assembled: AssembledShip | null = null, opts: { fxLite?: boolean } = {}) {
     this.ship = ship;
     this.assembled = assembled;
+    this.fxLite = opts.fxLite === true;
     // v1 roster (no loadout): the four original designs by id.
     const loadout = ship.def.loadout;
     const variant = loadout ? (CHASSIS_DESIGN[loadout.chassisId] ?? 0) : ship.def.id % 4;
@@ -594,7 +676,13 @@ export class ShipModel {
       cone.translate(0, 0.5, 0);
       cone.rotateX(Math.PI / 2);
       cone.translate(sign * lay.podX, lay.nozzleY, lay.podZ1 + 0.02);
+      cone.setAttribute('aFlare', new THREE.Float32BufferAttribute(new Float32Array(cone.attributes.position.count), 1));
       coneGeos.push(cone);
+      // nozzle flare quad, facing the rear (+Z); its size is uFlare (0 = hidden)
+      const flare = new THREE.PlaneGeometry(lay.podR * 6.5, lay.podR * 3.6);
+      flare.translate(sign * lay.podX, lay.nozzleY, lay.podZ1 + 0.06);
+      flare.setAttribute('aFlare', new THREE.Float32BufferAttribute(new Float32Array(flare.attributes.position.count).fill(1), 1));
+      coneGeos.push(flare);
     }
     const flameGeo = mergeGeometries(coneGeos)!;
     for (const g of coneGeos) g.dispose();
@@ -611,6 +699,7 @@ export class ShipModel {
         uRad: { value: 1 },
         uPodX: { value: lay.podX },
         uNy: { value: lay.nozzleY },
+        uFlare: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -645,7 +734,14 @@ export class ShipModel {
     this.poolMat = new THREE.ShaderMaterial({
       vertexShader: POOL_VERT,
       fragmentShader: POOL_FRAG,
-      uniforms: { uColor: { value: glow.clone() }, uIntensity: { value: 1 }, uTime: { value: 0 } },
+      uniforms: {
+        uColor: { value: glow.clone() },
+        uIntensity: { value: 1 },
+        uTime: { value: 0 },
+        uPad: { value: 0 },
+        // pad centres in pool UV, from the pool centre: under the hull sides, fore and aft
+        uPadPos: { value: new THREE.Vector2((lay.hullHW * 0.72) / (3.6 * (0.9 + lay.hullHW * 0.2)), 1.25 / 6.4) },
+      },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -674,6 +770,22 @@ export class ShipModel {
     this.shield.visible = false;
     this.bankGroup.add(this.shield);
     this.disposables.push(shieldGeo, this.shieldMat);
+
+    // ---------------- Shield item bubble ----------------
+    this.itemShieldMat = new THREE.ShaderMaterial({
+      vertexShader: ITEM_SHIELD_VERT,
+      fragmentShader: ITEM_SHIELD_FRAG,
+      uniforms: { uColor: { value: new THREE.Color(0x7dffd0) }, uOpacity: { value: 0 }, uTime: { value: 0 }, uCrack: { value: 0 } },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    this.itemShield = new THREE.Mesh(shieldGeo, this.itemShieldMat);
+    this.itemShield.scale.set(2.0, 1.05, 3.15);
+    this.itemShield.visible = false;
+    this.bankGroup.add(this.itemShield);
+    this.disposables.push(this.itemShieldMat);
 
     this.nozzleLocal = [
       new THREE.Vector3(-lay.podX, lay.nozzleY, lay.podZ1 + 0.12).multiplyScalar(this.scale),
@@ -729,6 +841,21 @@ export class ShipModel {
     this.root.visible = show;
     if (!show) return;
 
+    // Shield item: steady while up, blinking over its last seconds; a crack and flash when it blocks a hit.
+    if (this.crackTime > 0) this.crackTime = Math.max(0, this.crackTime - dt);
+    const up = s.shield > 0;
+    const crack = this.crackTime / SHIELD_CRACK_TIME;
+    this.itemShield.visible = up || crack > 0;
+    if (this.itemShield.visible) {
+      const u = this.itemShieldMat.uniforms;
+      const blink = up && s.shield < SHIELD_WARN_TIME ? (Math.floor(s.shield * 8) % 2 === 0 ? 1 : 0.35) : 1;
+      u.uOpacity.value = up ? blink : crack * 1.4;
+      u.uCrack.value = up ? 0 : 1 - crack;
+      u.uTime.value = time;
+      const swell = 1 + (up ? 0.03 * Math.sin(time * 9) : 0.25 * (1 - crack));
+      this.itemShield.scale.set(2.0 * swell, 1.05 * swell, 3.15 * swell);
+    }
+
     const throttle = live ? clamp01(controls.throttle) : 0;
     const target = s.boosting ? 2.3 : 0.42 + 0.58 * throttle + (live ? 0.1 : 0);
     this.engine = damp(this.engine, target, 9, dt);
@@ -742,6 +869,11 @@ export class ShipModel {
     fu.uLen.value = 0.35 + 1.1 * throttle + 3.4 * boostK + Math.sin(time * 40 + this.phase) * 0.06;
     fu.uRad.value = 1 + 0.5 * boostK;
     fu.uTime.value = time;
+    // nozzle flare: a burst when a boost starts, then a steady flare while it lasts
+    if (s.boosting && !this.wasBoosting) this.flareKick = 1;
+    this.wasBoosting = s.boosting;
+    this.flareKick = Math.max(0, this.flareKick - dt * 2.2);
+    fu.uFlare.value = this.fxLite || !live ? 0 : Math.max(0.6 * boostK, this.flareKick);
     (fu.uColor.value as THREE.Color).copy(this.glowColor);
     (fu.uCore.value as THREE.Color).setRGB(1, 0.95 - 0.2 * boostK, 0.85 - 0.4 * boostK);
 
@@ -751,6 +883,11 @@ export class ShipModel {
     this.pool.visible = lift > 0.02;
     this.poolMat.uniforms.uIntensity.value = pulse * lift * (0.75 + 0.35 * Math.min(1.5, this.engine));
     this.poolMat.uniforms.uTime.value = time;
+    // hover pads: brightest at the bottom of the bob, fading as speed builds
+    const t0 = time + this.phase;
+    const bob = Math.sin(t0 * 2.1) * 0.025 + Math.sin(t0 * 5.3) * 0.01;
+    const slow = 1 - 0.75 * clamp01(Math.abs(s.speed) / 90);
+    this.poolMat.uniforms.uPad.value = this.fxLite ? 0 : lift * slow * (0.6 + 0.4 * clamp01(0.5 - bob / 0.07));
 
     // air-brake flaps
     this.openL = damp(this.openL, clamp01(controls.airbrakeLeft), 14, dt);
@@ -779,12 +916,21 @@ export class ShipModel {
     this.flickerTime = duration;
   }
 
+  /** The Shield item blocked a hit: crack and flash the bubble as it drops. */
+  shieldBlocked(): void {
+    this.crackTime = SHIELD_CRACK_TIME;
+  }
+
   /** Clear destroyed/flicker state (race restart). */
   reset(): void {
     this.destroyed = false;
     this.flickerTime = 0;
     this.shield.visible = false;
+    this.crackTime = 0;
+    this.itemShield.visible = false;
     this.engine = 0.4;
+    this.flareKick = 0;
+    this.wasBoosting = false;
     this.openL = 0;
     this.openR = 0;
     this.poseInit = false;

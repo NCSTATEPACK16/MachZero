@@ -5,6 +5,7 @@ import type {
   AITier,
   ControlInput,
   IAIDriver,
+  MineView,
   ShipId,
   ShipState,
   TrackData,
@@ -13,22 +14,22 @@ import type {
 import { neutralControls } from '../core/controls';
 import { clamp, damp, inLoopRange, loopDelta, wrap01, wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
+import { tierDef, type TierDef } from '../content/tiers';
 import { TrackRoute } from '../track/TrackRoute';
 import { type BuiltGate, buildGates, gateBand, gateBlocksDuring } from '../track/features/gate';
 import { buildMines, MINE_RADIUS, minePose, type TrackMine } from '../track/features/mine';
 import { type BuiltDebris, buildDebris, debrisHalfAcross, debrisLateral } from '../track/features/debris';
 
-/**
- * Chance of taking a split path's shortcut on each approach, by tier (SPEC: Rookie never, Pilot ≈ 30%, Ace ≈ 60%,
- * Legend always unless its gate will be closed). PIXEL (erratic) flips a coin; aggressive pilots lean toward it.
- * M5's tier tuning replaces this table.
- */
-const SHORTCUT_ODDS: Record<AITier, number> = { rookie: 0, pilot: 0.3, ace: 0.6, legend: 1 };
+/** Aggressive pilots lean toward a split path's shortcut by this much over their tier's odds. */
 const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
 /** Metres before a fork where the route for that approach is chosen. */
 const ROUTE_DECIDE = 300;
 /** Metres before a fork over which a driver taking the shortcut moves to its side of the road. */
 const FORK_APPROACH = 160;
+/** …or this many seconds at the ship's speed, if longer (a drafting Legend at 150 m/s needs more than 1 s to cross). */
+const FORK_APPROACH_TIME = 1.6;
+/** Margin (m) kept inside the shortcut's deck edges while lining up for its fork. */
+const FORK_DECK_MARGIN = 3.5;
 /** Stone gates: metres ahead the driver plans for, the arrival window (s) it wants clear, the margin (m) from a
  *  shut slab's edge, and the slowest it will crawl to time a shut gate. */
 const GATE_LOOKAHEAD = 240;
@@ -43,16 +44,23 @@ const HAZARD_LOOKAHEAD_TIME = 2.6;
 const HAZARD_LOOKAHEAD_MIN = 120;
 const HAZARD_NEAR = 0.6;
 const HAZARD_WINDOW = 0.25;
-const HAZARD_MARGIN = 1.2;
-const HAZARD_MARGIN_ROOKIE = 2.5;
+// The clearance kept from mines and debris, and the dropped-mine look-ahead, are per tier (content/tiers.ts).
+/** Clearance (m) kept from a dropped mine at every tier. Wider than HAZARD_MARGIN: on a gentle bend the hull settles
+ *  up to ~1.3 m short of its target lateral (items.sim), and a still mine gives no drift to make up for that. */
+const DROPPED_MARGIN = 2.5;
 
 export interface AIDriverOptions {
   /** Physics seconds since the race reset (the stone gates' timeline); default: the driver's own clock. */
   hazardClock?: () => number;
+  /** Every mine in physics this step (PhysicsSystem.mines): the driver steers round the dropped ones (owner set),
+   *  which hold still. Track mines come from its own timeline copy, so the sims stay deterministic. */
+  liveMines?: () => readonly MineView[];
 }
 
+/** Chance of taking a split path's shortcut on each approach (SPEC: Rookie never, Pilot ≈ 30%, Ace ≈ 60%, Legend
+ *  always unless its gate will be closed). PIXEL (erratic) flips a coin; aggressive pilots lean toward it. */
 export function shortcutOdds(tier: AITier, personality: AIPersonality): number {
-  const base = SHORTCUT_ODDS[tier];
+  const base = tierDef(tier).shortcutOdds;
   if (base === 0 || base === 1) return base;
   if (personality === 'erratic') return 0.5;
   return Math.min(1, base + (personality === 'aggressive' ? SHORTCUT_AGGRESSIVE_LEAN : 0));
@@ -80,7 +88,7 @@ interface Profile {
   lookScale: number;
 }
 
-const PROFILES: Record<AIPersonality, Profile> = {
+export const PROFILES: Readonly<Record<AIPersonality, Readonly<Profile>>> = {
   aggressive: {
     latBudget: 112,
     yawFactor: 0.94,
@@ -116,6 +124,23 @@ const PROFILES: Record<AIPersonality, Profile> = {
   },
 };
 
+/** A personality's profile within a tier's ceiling (content/tiers.ts). Legend leaves it unchanged. */
+export function tunedProfile(personality: AIPersonality, tier: AITier | undefined): Profile {
+  const p = PROFILES[personality];
+  const t = tierDef(tier);
+  return {
+    latBudget: p.latBudget * t.drive.latBudget,
+    yawFactor: p.yawFactor * t.drive.yawFactor,
+    brakeDecel: p.brakeDecel * t.drive.brakeDecel,
+    overspeedTol: p.overspeedTol * t.drive.overspeedTol,
+    boostEnergy: p.boostEnergy + t.boost.energyOffset,
+    boostCooldown: p.boostCooldown * t.boost.cooldownScale,
+    pitEnergy: p.pitEnergy + t.pitEnergyOffset,
+    laneBias: p.laneBias,
+    lookScale: p.lookScale * t.drive.lookScale,
+  };
+}
+
 // --- geometry / control constants ---
 const MIN_LOOKAHEAD = 25;
 const SCAN_RANGE = 260; // m scanned for braking
@@ -134,6 +159,19 @@ const AVOID_LANE = 4.2; // m lateral overlap that triggers avoidance
 const AVOID_OFFSET = 4.6; // m beside the rival we aim for
 const AVOID_HOLD = 1.2; // s the chosen side is kept
 
+// Tier behaviour (content/tiers.ts): drafting, blocking and yielding to a rival behind, small mistakes.
+const DRAFT_SEEK_MIN = 15; // m: closer than this the avoidance takes over (the slingshot pass)
+const DRAFT_SEEK_MAX = 34; // m: a little beyond the 30 m draft reach, to line up in time
+const DRAFT_SEEK_LANE = 7; // m lateral gap within which a ship ahead is worth tucking in behind
+const DRAFT_SEEK_CURV = 0.003; // max |κ| over the line scan: only on straights
+const REAR_RANGE = 12; // m behind within which a rival is blocked (Ace, Legend) or given room (Rookie)
+const REAR_LANE = 5; // m lateral gap that counts as "on our line"
+const BLOCK_WEIGHT = 0.4; // fraction of the way toward a following rival's lateral when blocking
+const YIELD_OFFSET = 2; // m a Rookie moves aside for a rival on its tail
+const RAM_MARGIN = 5; // energy a rammer must have over its target (aggressive personality, full aggression)
+const RAM_MARGIN_ANY = 25; // energy margin at which a full-aggression tier rams with any personality
+const MISTAKE_LIFT = 0.45; // throttle cap during a tier mistake (a lift)
+
 const BOOST_STRAIGHT_CURV = 0.0028; // max |κ| allowed over the boost scan
 const BOOST_STRAIGHT_LEN = 200; // m
 const BOOST_MAX_STEER = 0.3;
@@ -143,6 +181,13 @@ const ICE_MARGIN = 2.5; // m kept from a patch's edge when going round it
 const ICE_GRIP_PLAN = 0.5; // lateral budget multiplier the driver assumes for curves on ice
 const ICE_LATERAL_RATE = 1.5; // 1/s target-lateral smoothing on ice (hold a straight line)
 const PIPE_MAX_LAT = 9; // m: lines inside a pipe stay well off the top seam
+
+// Loops: the deck carries a hull along its line (physics/LoopCompensation.ts), so the AI holds its lateral there
+// with the loop hold test's gains instead of aiming at a point ahead (which the loop's side shift puts metres to the
+// side), and the loop's curvature is no bend to brake or steer for.
+const LOOP_STEER_KP = 0.15; // steer per metre of lateral error
+const LOOP_STEER_KD = 0.06; // steer per m/s of lateral speed
+const LOOP_PAD = 40; // m before and after a loop driven near the centre
 
 const PIT_APPROACH = 400; // m
 const JUMP_APPROACH = 160; // m before a jump lip where the line straightens toward the centre
@@ -178,9 +223,17 @@ export class AIDriver implements IAIDriver {
   private readonly mines: TrackMine[];
   private readonly debris: BuiltDebris[];
   private readonly hazardMargin: number;
+  private readonly tier: Readonly<TierDef>;
+  /** Stream for the tier's small mistakes (separate, so they don't shift the personality's random choices). */
+  private readonly mistakeRng: Rng;
+  private nextTierMistake = Infinity;
+  private tierMistakeUntil = 0;
   private readonly bands: [number, number][] = [];
   private readonly minePos = { d: 0, lateral: 0 };
   private readonly hazardClock: () => number;
+  private readonly liveMines: (() => readonly MineView[]) | null;
+  /** Fraction of the hazard lookahead used for dropped mines. */
+  private readonly droppedReach: number;
 
   private readonly out: ControlInput = neutralControls();
   private readonly fwd = new Vector3();
@@ -193,6 +246,8 @@ export class AIDriver implements IAIDriver {
   private tLat = 0;
   private steer = 0;
   private prevAngle = 0;
+  private prevLat = 0;
+  private hasLat = false;
   private dAngle = 0;
   private hasPrev = false;
 
@@ -232,7 +287,8 @@ export class AIDriver implements IAIDriver {
     this.ship = ship;
     this.track = track;
     this.personality = personality;
-    this.profile = PROFILES[personality];
+    this.tier = tierDef(ship.def.tier ?? 'rookie');
+    this.profile = tunedProfile(personality, this.tier.id);
     this.rivals = rivals;
     this.rng = new Rng(rngSeed);
     this.length = track.length;
@@ -244,6 +300,7 @@ export class AIDriver implements IAIDriver {
     this.centreRanges = [
       ...corks.map(([a, b]): [number, number] => [wrap01(a - pad), wrap01(b + pad)]),
       ...track.jumps.map((j): [number, number] => [wrap01((j.dTakeoff - JUMP_APPROACH) / L), wrap01((j.dLanding + 30) / L)]),
+      ...track.loops.map((l): [number, number] => [wrap01(l.uStart - LOOP_PAD / L), wrap01(l.uEnd + LOOP_PAD / L)]),
     ];
 
     this.ice = track.features.flatMap((f) => (f.type === 'ice' ? [f] : []));
@@ -253,8 +310,10 @@ export class AIDriver implements IAIDriver {
     this.gates = buildGates(track);
     this.mines = buildMines(track);
     this.debris = buildDebris(track);
-    this.hazardMargin = (ship.def.tier ?? 'rookie') === 'rookie' ? HAZARD_MARGIN_ROOKIE : HAZARD_MARGIN;
+    this.hazardMargin = this.tier.hazardMargin;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
+    this.liveMines = opts.liveMines ?? null;
+    this.droppedReach = this.tier.droppedLookahead;
 
     this.laneOffset = this.rng.range(-1, 1) * this.profile.laneBias;
     this.phaseA = this.rng.range(0, Math.PI * 2);
@@ -266,9 +325,21 @@ export class AIDriver implements IAIDriver {
     // does not change the AI's other random choices on tracks without them.
     this.odds = shortcutOdds(ship.def.tier ?? 'rookie', personality);
     this.routeRng = new Rng(rngSeed ^ 0x5eed);
+    this.mistakeRng = new Rng(rngSeed ^ 0x7e1e5);
+    if (this.tier.mistakeRate > 0 && personality !== 'erratic') this.nextTierMistake = this.rollTierMistake(8);
+  }
+
+  /** Seconds of racing until the next tier mistake, from `after` on (a Poisson process at mistakeRate per minute). */
+  private rollTierMistake(after: number): number {
+    return after - (60 / this.tier.mistakeRate) * Math.log(1 - this.mistakeRng.next() * 0.999);
   }
 
   private readonly routeRng: Rng;
+
+  /** On the main road with a split path's shortcut chosen: the line belongs to the route (its side of the road). */
+  private get headingForShortcut(): boolean {
+    return this.route.branch !== null && this.ship.path === null;
+  }
 
   /** The route currently planned (for tests and debugging). */
   get plannedPath(): string | null {
@@ -288,6 +359,7 @@ export class AIDriver implements IAIDriver {
       out.airbrakeLeft = 0;
       out.airbrakeRight = 0;
       this.hasPrev = false;
+      this.hasLat = false;
       this.steer = 0;
       return out;
     }
@@ -342,7 +414,7 @@ export class AIDriver implements IAIDriver {
     const kFar = kFarN > 0 ? kFarSum / kFarN : 0;
     const inside = clamp(kSteer / CURV_REF, -1, 1);
     const setup = clamp(kFar / CURV_REF, -1, 1);
-    let lineLat = maxLat * (0.8 * inside - 0.4 * setup * (1 - Math.abs(inside)));
+    let lineLat = maxLat * (0.8 * inside - 0.4 * setup * (1 - Math.abs(inside))) * (1 - this.tier.lineInset);
 
     // Corkscrews and jumps are driven near the centre: the frame rolls a full turn / the rails end.
     const inCork = targetMainU !== null && this.inCentreSection(targetMainU);
@@ -362,7 +434,7 @@ export class AIDriver implements IAIDriver {
     }
     let desired = lineLat + bias;
     // Taking a shortcut: over the last metres before its fork, move to its side of the road.
-    if (route.branch && route.pathAt(targetR) === null && route.length - targetR < FORK_APPROACH) desired = route.offset;
+    if (route.branch && route.pathAt(targetR) === null && route.length - targetR < Math.max(FORK_APPROACH, speed * FORK_APPROACH_TIME)) desired = route.offset;
     // Inside a pipe the line stays off the top seam (it opens again at the exit).
     const inPipe = (ship.path === null && this.inPipe(u)) || (targetMainU !== null && this.inPipe(targetMainU));
     if (inPipe) desired = clamp(desired, -PIPE_MAX_LAT, PIPE_MAX_LAT);
@@ -398,7 +470,14 @@ export class AIDriver implements IAIDriver {
       }
     }
 
-    // --- rival avoidance / ramming ---
+    // --- tier mistakes: a short lift off the throttle, never in a corkscrew or a jump approach ---
+    if (this.time >= this.nextTierMistake && !inCork) {
+      this.tierMistakeUntil = this.time + this.mistakeRng.range(0.3, 0.7);
+      this.nextTierMistake = this.rollTierMistake(this.tierMistakeUntil);
+    }
+    if (this.time < this.tierMistakeUntil) throttleCap = Math.min(throttleCap, MISTAKE_LIFT);
+
+    // --- rival avoidance / ramming / drafting / blocking ---
     let ram = false;
     if (this.mistakeKind !== 'rail') {
       let nearest: ShipState | null = null;
@@ -418,7 +497,7 @@ export class AIDriver implements IAIDriver {
         }
       }
       if (nearest) {
-        if (this.personality === 'aggressive' && ship.energy > nearest.energy + 5) {
+        if (this.wantsRam(nearest)) {
           desired = nearestLat;
           ram = true;
         } else {
@@ -432,8 +511,9 @@ export class AIDriver implements IAIDriver {
           }
           desired = nearestLat + this.avoidSide * AVOID_OFFSET;
         }
-      } else if (this.time >= this.avoidUntil) {
-        this.avoidSide = 0;
+      } else {
+        if (this.time >= this.avoidUntil) this.avoidSide = 0;
+        desired = this.draftOrDefend(u, desired, maxLat, kMaxLine, inCork);
       }
     }
 
@@ -458,6 +538,12 @@ export class AIDriver implements IAIDriver {
 
     const limit = this.mistakeKind === 'rail' ? halfWidth - 1.6 : maxLat;
     desired = clamp(desired, this.pitMode ? -halfWidth + 1.5 : -limit, this.pitMode ? halfWidth - 1.5 : limit);
+    // Over the fork approach a driver bound for the shortcut keeps inside the shortcut's deck whatever it is avoiding:
+    // the main road's edge on that side is the shortcut's outer rail.
+    if (route.branch && ship.path === null && route.length - targetR < Math.max(FORK_APPROACH, speed * FORK_APPROACH_TIME)) {
+      const inner = route.branch.halfWidth - FORK_DECK_MARGIN;
+      desired = clamp(desired, route.offset - inner, route.offset + inner);
+    }
     this.tLat = damp(this.tLat, desired, onIce ? ICE_LATERAL_RATE : ram ? LATERAL_RATE * 1.6 : LATERAL_RATE, dt);
 
     // --- steering: PD on the signed angle to the target point, in the ship's plane ---
@@ -478,7 +564,11 @@ export class AIDriver implements IAIDriver {
     }
     this.prevAngle = angle;
 
-    const wanted = clamp(STEER_KP * angle + STEER_KD * this.dAngle, -1, 1);
+    let wanted = clamp(STEER_KP * angle + STEER_KD * this.dAngle, -1, 1);
+    const latVel = this.hasLat ? (ship.lateral - this.prevLat) / dt : 0;
+    this.prevLat = ship.lateral;
+    this.hasLat = true;
+    if (ship.path === null && this.inLoop(u)) wanted = clamp(LOOP_STEER_KP * (this.tLat - ship.lateral) - LOOP_STEER_KD * latVel, -1, 1);
     const maxStep = STEER_SLEW * dt;
     this.steer += clamp(wanted - this.steer, -maxStep, maxStep);
     out.steer = this.steer;
@@ -573,7 +663,8 @@ export class AIDriver implements IAIDriver {
    * at where each will be on arrival (hazard clock), to the nearest free lateral within ±maxLat.
    */
   private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
-    if (this.mines.length === 0 && this.debris.length === 0) return desired;
+    const live = this.liveMines?.();
+    if (this.mines.length === 0 && this.debris.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
     const here = wrap01(u) * this.length;
     const v = Math.max(speed, 30);
     const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
@@ -610,7 +701,26 @@ export class AIDriver implements IAIDriver {
       if (dist < -b.length || dist > reach) continue;
       block(dist, b.lateral, b.drift, (t) => debrisLateral(b, t), debrisHalfAcross(b.width, b.length));
     }
-    return clearOfBands(desired, bands, maxLat);
+    let out = clearOfBands(desired, bands, maxLat);
+    if (!live) return out;
+    // Dropped mines hold still, so pass each on the side the hull is already on: the band edge nearest the
+    // desired line can be across the mine's path (a driver left of it would cut across it to reach the right).
+    const dropReach = reach * this.droppedReach;
+    const lat = this.ship.lateral;
+    const dropHull = CONFIG.SHIP_WIDTH / 2 + Math.max(this.hazardMargin, DROPPED_MARGIN);
+    for (const m of live) {
+      if (m.owner === null || !m.armed || m.owner === this.ship.def.id) continue;
+      const dist = ahead(m.u * this.length);
+      if (dist < -4 || dist > dropReach) continue;
+      const lo = m.lateral - MINE_RADIUS - dropHull;
+      const hi = m.lateral + MINE_RADIUS + dropHull;
+      bands.push([lo, hi]);
+      if (out > lo && out < hi) {
+        const near = lat < m.lateral ? lo : hi;
+        out = Math.abs(near) <= maxLat ? near : near === lo ? hi : lo;
+      }
+    }
+    return clearOfBands(out, bands, maxLat);
   }
 
   private inCentreSection(u: number): boolean {
@@ -619,12 +729,65 @@ export class AIDriver implements IAIDriver {
   }
 
   private rollBoostEnergy(): number {
-    return Number.isNaN(this.profile.boostEnergy) ? this.rng.range(30, 70) : this.profile.boostEnergy;
+    return Number.isNaN(this.profile.boostEnergy) ? this.rng.range(30, 70) + this.tier.boost.energyOffset : this.profile.boostEnergy;
   }
 
-  /** Signed curvature `d` metres ahead of route metres R. */
+  /** Ram the rival just ahead on our line? Aggressive pilots need less of an energy lead the higher the tier;
+   *  a full-aggression tier (Legend) rams with any personality when far ahead on energy. Rookies never ram. */
+  private wantsRam(target: ShipState): boolean {
+    const a = this.tier.aggression;
+    if (a <= 0 || this.headingForShortcut) return false;
+    const lead = this.ship.energy - target.energy;
+    if (this.personality === 'aggressive') return lead > RAM_MARGIN / a;
+    return a >= 1 && lead > RAM_MARGIN_ANY;
+  }
+
+  /**
+   * With nobody to avoid just ahead: tuck in behind a ship further up the road to draft (Ace, Legend), else
+   * block a rival on our tail (Ace, Legend) or give it room (Rookie). Only on straights, never in a centre section.
+   */
+  private draftOrDefend(u: number, desired: number, maxLat: number, kMaxLine: number, inCork: boolean): number {
+    const t = this.tier;
+    if (inCork || kMaxLine > DRAFT_SEEK_CURV || this.pitMode || this.ship.path !== null || this.headingForShortcut) return desired;
+    const lat = this.ship.lateral;
+    let ahead: number | null = null;
+    let aheadDm = Infinity;
+    let behind: number | null = null;
+    let behindDm = Infinity;
+    for (const r of this.rivals) {
+      if (r.def.id === this.shipId || r.status !== 'racing' || r.path !== null) continue;
+      const dm = loopDelta(u, r.trackU) * this.length;
+      if (t.draftSeeking > 0 && dm >= DRAFT_SEEK_MIN && dm <= DRAFT_SEEK_MAX && Math.abs(r.lateral - lat) < DRAFT_SEEK_LANE && dm < aheadDm) {
+        aheadDm = dm;
+        ahead = r.lateral;
+      } else if (dm < 0 && -dm <= REAR_RANGE && Math.abs(r.lateral - lat) < REAR_LANE && -dm < behindDm) {
+        behindDm = -dm;
+        behind = r.lateral;
+      }
+    }
+    if (ahead !== null) return clamp(desired + (ahead - desired) * t.draftSeeking * 0.8, -maxLat, maxLat);
+    if (behind === null) return desired;
+    if (t.aggression >= 0.5) return desired + (behind - desired) * BLOCK_WEIGHT * t.aggression;
+    if (t.aggression <= 0) {
+      const away = lat >= behind ? 1 : -1;
+      const room = away > 0 ? maxLat - lat : lat + maxLat;
+      return desired + (room >= YIELD_OFFSET ? away : -away) * YIELD_OFFSET;
+    }
+    return desired;
+  }
+
+  /** Signed curvature `d` metres ahead of route metres R (none inside a loop: the deck carries the line). */
   private curvatureAt(R: number, d: number): number {
+    if (this.track.loops.length > 0) {
+      const mu = this.route.mainUAt(R + d);
+      if (mu !== null && this.inLoop(mu)) return 0;
+    }
     return this.route.curvatureAt(R + d);
+  }
+
+  private inLoop(u: number): boolean {
+    for (const l of this.track.loops) if (inLoopRange(u, l.uStart, l.uEnd)) return true;
+    return false;
   }
 
   /**

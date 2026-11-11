@@ -58,6 +58,15 @@ describe('resolveStats', () => {
 });
 
 describe('buildRaceField', () => {
+  it('takes an explicit grid order for every ship (Grand Prix), and ignores a malformed one', () => {
+    const base = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier: 'pilot' });
+    const order = [7, 6, 5, 3, 1, 0, 2, 4];
+    const field = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier: 'pilot', gridOrder: order });
+    for (const d of field) expect(order[d.gridIndex]).toBe(d.id);
+    const bad = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier: 'pilot', gridOrder: [0, 0, 1, 2, 3, 4, 5, 6] });
+    expect(bad.map((d) => d.gridIndex)).toEqual(base.map((d) => d.gridIndex));
+  });
+
   it('builds 8 ships with unique ids and grid slots; the player is id 0', () => {
     for (const tier of ['rookie', 'pilot', 'ace', 'legend'] as const) {
       const field = buildRaceField({ playerName: 'ME', playerLoadout: defaultLoadout(), tier });

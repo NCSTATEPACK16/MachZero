@@ -6,14 +6,17 @@
 import { batch, computed, effect, signal } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
-import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier } from '../core/contracts';
+import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, RacerStanding, ShipId } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
+import { DEFAULT_CUP_ID, cupAvailable, cupById } from '../content/cups';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
-import { buyEmp, type ItemPurchase } from '../content/items';
+import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
+import { addTrophy, cupAward, cupFinished, cupGridOrder, cupWorld, newCup, recordRace, type CupAward, type CupState } from '../game/modes/GrandPrix';
+import { Rumble } from '../game/Rumble';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
@@ -22,7 +25,7 @@ import { WORLDS, worldById, type WorldDef } from '../content/worlds';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { AI_TIERS, MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
@@ -45,6 +48,9 @@ export interface Toast {
 
 const NAV_ACTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right', 'confirm', 'back'];
 const DIRECTIONS: readonly MenuAction[] = ['up', 'down', 'left', 'right'];
+/** Seconds the grid intro card stays up before the countdown (any input skips it). */
+const INTRO_SECONDS = 3;
+const INTRO_SKIP: readonly MenuAction[] = ['confirm', 'back', 'pause', 'restart', 'up', 'down', 'left', 'right'];
 
 const FALLBACK_TEXT: Record<FallbackReason, string> = {
   unavailable: 'This browser is blocking storage, so progress won’t be kept after you close the page.',
@@ -60,6 +66,8 @@ function nextPaint(): Promise<void> {
     setTimeout(resolve, 100);
   });
 }
+
+const NO_ITEMS = Object.freeze(emptyBag());
 
 export class App {
   readonly flags: UrlFlags = readUrlFlags();
@@ -82,6 +90,11 @@ export class App {
   /** Device whose buttons the prompts show (the last one used; a pad as soon as one connects). */
   readonly inputDevice = signal<InputDevice>('keyboard');
 
+  /** True while the race session is a Grand Prix cup race (built from the profile's cup). */
+  readonly cupRace = signal(false);
+  /** The cup just finished (for the final standings screen), with what it earned. */
+  readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
+
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
 
@@ -89,6 +102,8 @@ export class App {
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
   private readonly input = new InputManager(window);
+  /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
+  private readonly rumble = new Rumble((strong, weak, ms) => this.input.rumble(strong, weak, ms));
   private readonly assets = new AssetLoader();
   private readonly loop: GameLoop;
   private session: RaceSession | null = null;
@@ -103,6 +118,9 @@ export class App {
   private readonly dynres: DynamicResolution | null;
   private dynresFeeding = false;
   private simMs = 0;
+  /** performance.now() at which the grid intro card ends (0 = not showing). Wall clock, not sim time: on a slow
+   *  renderer the fixed loop runs behind real time and the card would otherwise stay up for many seconds. */
+  private introUntil = 0;
 
   constructor(private readonly els: AppElements) {
     let pendingFallback: FallbackReason | null = null;
@@ -172,6 +190,15 @@ export class App {
         programs: () => app.graphics.programCount,
         /** Frame stats of the current race (perf checks). */
         perf: () => app.frameStats.summary(),
+        /** Step the race `seconds` with nobody driving: the player's AI drives (cup e2e). */
+        simulate: async (seconds: number) => {
+          app.endIntro();
+          for (let t = 0; t < seconds; t += 5) {
+            for (let i = 0; i < 5 / CONFIG.FIXED_DT; i++) app.session?.fixed(CONFIG.FIXED_DT, null);
+            await new Promise((r) => setTimeout(r, 0));
+            if (app.session?.state === 'results') return;
+          }
+        },
         /** Add credits to the active profile (tests). */
         grantCredits: (n: number) => app.updateProfile((p) => (p.credits += n)),
         /** Dispose the current race and build a fresh one (leak checks). */
@@ -207,13 +234,109 @@ export class App {
     await nextPaint();
     await this.loadWorldAssets();
     const s = await this.ensureSession();
-    s.start();
+    if (this.menus) {
+      // The grid intro card first; the countdown starts when it ends (App.fixed).
+      s.setIntro(true);
+      this.introUntil = performance.now() + INTRO_SECONDS * 1000;
+    } else s.start();
     this.route.value = { name: 'race' };
   }
 
+  /** End the grid intro card and start the countdown. */
+  private endIntro(): void {
+    if (this.introUntil <= 0) return;
+    this.introUntil = 0;
+    this.session?.setIntro(false);
+    this.session?.start();
+  }
+
   quitToMenu(): void {
+    this.introUntil = 0;
+    this.session?.setIntro(false);
+    if (this.cupRace.value) {
+      this.leaveCupRace();
+      return;
+    }
     this.session?.toTitle();
     this.route.value = { name: 'menu' };
+  }
+
+  // ------------------------------------------------------------ Grand Prix
+
+  /** The active profile's cup in progress, or null. */
+  get cup(): CupState | null {
+    return this.activeProfile.value?.cup ?? null;
+  }
+
+  openGrandPrix(): void {
+    this.route.value = { name: 'gp' };
+  }
+
+  /** A new cup at the profile's CPU difficulty, straight into race 1. */
+  startCup(cupId: string = DEFAULT_CUP_ID): void {
+    const p = this.activeProfile.value;
+    const def = cupById(cupId);
+    if (!p || p.cup || !def || !cupAvailable(def)) return;
+    this.lastCup.value = null;
+    this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
+    void this.startCupRace();
+  }
+
+  /** The standings between races (CONTINUE CUP lands here). */
+  openCupStandings(): void {
+    this.route.value = { name: 'cup' };
+  }
+
+  async startCupRace(): Promise<void> {
+    if (!this.cup) return;
+    this.cupRace.value = true;
+    await this.startRace();
+  }
+
+  /** End the cup in progress (confirmed in the UI). */
+  quitCup(): void {
+    this.updateProfile((p) => (p.cup = null));
+    this.cupRace.value = false;
+    this.route.value = { name: 'menu' };
+  }
+
+  /**
+   * Leave a cup race: after the results, to the standings; mid-race, as a retire (0 points for this race, the
+   * rivals scored where they run), since a cup can't be restarted.
+   */
+  private leaveCupRace(): void {
+    const s = this.session;
+    if (s && this.cup && s.state !== 'results' && s.state !== 'title') {
+      this.bookCupRace(s.race.snapshot().standings, s.player.def.id);
+      this.toast('Retired: no points from this race.', 'warn');
+    }
+    this.cupRace.value = false;
+    s?.toTitle();
+    this.route.value = { name: 'cup' };
+  }
+
+  /** Book a cup race in the profile; at the end of the cup, pay the bonus and award the trophy. Returns the bonus. */
+  private bookCupRace(standings: readonly RacerStanding[], retire?: ShipId): number {
+    let award: CupAward | null = null;
+    let done: CupState | null = null;
+    this.updateProfile((p) => {
+      if (!p.cup) return;
+      const cup = recordRace(p.cup, standings, retire);
+      if (!cupFinished(cup)) {
+        p.cup = cup;
+        return;
+      }
+      award = cupAward(cup);
+      done = cup;
+      p.cup = null;
+      if (award?.trophy) p.trophies = addTrophy(p.trophies, cup.cupId, award.trophy, AI_TIERS);
+      p.credits += award?.bonus ?? 0;
+    });
+    if (!done || !award) return 0;
+    const a: CupAward = award;
+    this.lastCup.value = { cup: done, award: a };
+    if (a.bonus > 0) this.toast(`Cup won! +${a.bonus.toLocaleString('en-US')} credits.`, 'good', 6);
+    return a.bonus;
   }
 
   openSettings(back: 'menu' | 'pause'): void {
@@ -244,17 +367,21 @@ export class App {
 
   /** The world the next race is in, or null for the v1 classic / Bonus Track. */
   get currentWorld(): WorldDef | null {
+    const cup = this.cupRace.value ? this.cup : null;
+    const cupWorldId = cup ? cupWorld(cup) : null;
+    if (cupWorldId) return worldById(cupWorldId) ?? WORLDS[0];
     if (!this.features.worlds || this.flags.seed !== null) return null;
     const w = worldById(this.flags.world ?? this.activeProfile.value?.world ?? WORLDS[0].id);
     return w?.built ? w : WORLDS[0];
   }
 
-  openGarage(): void {
-    this.route.value = { name: 'garage' };
+  openGarage(back: 'menu' | 'cup' = 'menu'): void {
+    this.route.value = { name: 'garage', back };
   }
 
   closeGarage(): void {
-    this.route.value = { name: 'menu' };
+    const r = this.route.value;
+    this.route.value = r.name === 'garage' && r.back === 'cup' ? { name: 'cup' } : { name: 'menu' };
   }
 
   /** Buy (pay, own and fit) a part for the active profile. */
@@ -278,10 +405,10 @@ export class App {
     this.updateProfile((p) => (p.loadout.livery = { ...livery }));
   }
 
-  /** Buy one EMP for the active profile. */
-  buyEmp(): ItemPurchase {
+  /** Buy one item of `kind` for the active profile. */
+  buyItem(kind: ItemKind): ItemPurchase {
     let result: ItemPurchase = 'short';
-    this.updateProfile((p) => (result = buyEmp(p)), () => result === 'bought');
+    this.updateProfile((p) => (result = buyItem(p, kind)), () => result === 'bought');
     return result;
   }
 
@@ -297,6 +424,11 @@ export class App {
 
   nudgeShipPreview(radians: number): void {
     this.graphics.nudgePreview(radians);
+  }
+
+  /** Garage orbit from the mouse: turn and tilt (rad), zoom (log steps, + = closer). */
+  orbitShipPreview(yaw: number, pitch: number, zoom: number): void {
+    this.graphics.orbitPreview(yaw, pitch, zoom);
   }
 
   showProfiles(): void {
@@ -408,10 +540,22 @@ export class App {
     if (input.consume('mute')) this.toggleMute();
     const s = this.session;
     const r = this.route.value;
+    if (r.name === 'race' && s && this.introUntil > 0) {
+      let skip = false;
+      for (const a of INTRO_SKIP) if (input.consume(a)) skip = true;
+      const c = input.sample();
+      if (c.throttle > 0.5 || c.brake > 0.5 || c.boost || c.fire || Math.abs(c.steer) > 0.5) skip = true;
+      if (skip || performance.now() >= this.introUntil) this.endIntro();
+      s.fixed(dt, null);
+      return;
+    }
     if (r.name === 'race' && s) {
       if (input.consume('pause')) s.togglePause();
-      if (input.consume('restart') && s.state !== 'title') s.restart();
-      if (this.menus && input.consume('back') && (s.state === 'paused' || s.state === 'results')) {
+      const cup = this.cupRace.value;
+      // No restarts in a cup; Ⓑ on the results goes to the standings, and on the pause panel does nothing
+      // (retiring is the panel's RETIRE button only).
+      if (input.consume('restart') && s.state !== 'title' && !cup) s.restart();
+      if (this.menus && input.consume('back') && (s.state === 'results' || (s.state === 'paused' && !cup))) {
         this.quitToMenu();
         return;
       }
@@ -422,11 +566,17 @@ export class App {
       const focused = overlay !== null && document.activeElement instanceof HTMLElement && overlay.contains(document.activeElement) ? document.activeElement : null;
       if (input.consume('confirm')) {
         if (focused) focused.click();
+        else if (cup && s.state === 'results') this.quitToMenu();
         else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
       s.fixed(dt, input.sample());
       return;
+    }
+    // Garage: the right stick orbits the turntable and the shoulders zoom (§V.3).
+    if (r.name === 'garage') {
+      const o = input.orbitInput();
+      if (o.x !== 0 || o.y !== 0 || o.zoom !== 0) this.graphics.orbitPreview(o.x * 2.4 * dt, o.y * 1.2 * dt, o.zoom * 1.5 * dt);
     }
     // Menu screens: route gamepad / unfocused-keyboard actions to the UI; Escape acts as back.
     for (const a of NAV_ACTIONS) if (input.consume(a)) this.navHandler?.(a);
@@ -500,16 +650,22 @@ export class App {
 
   private raceSetup(): RaceSetup {
     const p = this.menus ? this.activeProfile.value : null;
+    const cup = this.cupRace.value ? (p?.cup ?? null) : null;
+    const tier = cup ? cup.tier : this.raceTier(p);
     const field = buildRaceField({
       playerName: p?.name ?? 'YOU',
       playerLoadout: p?.loadout ?? defaultLoadout(),
-      tier: this.raceTier(p),
+      tier,
+      ...(cup ? { gridOrder: cupGridOrder(cup) ?? undefined } : {}),
     });
-    // Hazards: ?hazards=rookie for QA; M5 sets the Rookie policy from the tier.
-    const hazards = hazardPolicy(this.flags.hazards ?? 'normal');
-    // EMPs come from the live profile; one fired is spent from the save at once (a restart does not refill it).
+    // Hazards: Rookie races telegraph them harder and they only slow you down (SPEC §6); ?hazards= overrides for QA.
+    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' ? 'rookie' : 'normal'));
+    // Items come from the live profile; one used is spent from the save at once (a restart does not refill it).
     const items = p
-      ? { count: () => this.activeProfile.value?.items.emp ?? 0, use: () => this.updateProfile((q) => (q.items.emp = Math.max(0, q.items.emp - 1))) }
+      ? {
+          counts: () => this.activeProfile.value?.items ?? NO_ITEMS,
+          use: (kind: ItemKind) => this.updateProfile((q) => (q.items[kind] = Math.max(0, q.items[kind] - 1))),
+        }
       : undefined;
     const base = { field, autopilot: this.flags.autopilot, hazards, items };
     const world = this.currentWorld;
@@ -536,7 +692,7 @@ export class App {
   /** The race the menu would start now; reuses the current session when nothing relevant changed. */
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, setup.field.map((d) => [d.name, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;
@@ -549,7 +705,7 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
@@ -576,6 +732,7 @@ export class App {
       actions.onMenu = () => this.quitToMenu();
       actions.onSettings = () => this.openSettings('pause');
     }
+    if (this.cupRace.value) actions.cup = { onStandings: () => this.quitToMenu(), onRetire: () => this.quitToMenu() };
     return actions;
   }
 
@@ -590,8 +747,10 @@ export class App {
         const p = d.profiles.find((x) => x.id === profileId);
         if (!p) return;
         pay = settleRace(p, me, s.player.def.tier ?? 'rookie');
-        total = p.credits;
       });
+      // A cup race also books the cup (and, after the last race, pays the cup bonus).
+      if (this.cupRace.value && this.session === s) pay += this.bookCupRace(standings);
+      total = this.activeProfile.value?.credits ?? 0;
       if (pay > 0) s.bus.emit('economy:credits', { delta: pay, total });
     });
   }

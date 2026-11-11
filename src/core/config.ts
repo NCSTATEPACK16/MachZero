@@ -1,4 +1,4 @@
-import type { AITier, ShipDefinition, ShipStats } from './contracts';
+import type { ShipDefinition, ShipStats } from './contracts';
 
 /**
  * Global tunables. Units: metres, seconds, radians, m/s, m/s².
@@ -81,14 +81,20 @@ export const CONFIG = {
   MINE_KNOCK_SIDE: 10,
   MINE_KNOCK_UP: 6,
   MINE_RESPAWN: 6,
+  // --- Drop Mine item: dropped this far (m) behind, armed for LIFE s, harmless to its dropper for GRACE s, at most MAX ---
+  DROP_MINE_BACK: 6,
+  DROP_MINE_LIFE: 20,
+  DROP_MINE_GRACE: 1.5,
+  DROP_MINE_MAX: 6,
+  // --- CPU EMPs: the target sees a warning this long before it lands; one CPU can't EMP the same racer again within ---
+  EMP_WARN_TIME: 0.5,
+  EMP_RETARGET_TIME: 10,
   DASH_IMPULSE: 45, // m/s added along forward
   RAIL_RESTITUTION: 0.35,
 
   // --- AI ---
   AI_LOOKAHEAD_BASE: 22,
   AI_LOOKAHEAD_K: 0.55, // metres of look-ahead per m/s
-  AI_RUBBER_BAND_MIN: 0.97,
-  AI_RUBBER_BAND_MAX: 1.06,
 
   // --- camera / presentation ---
   CAMERA_DISTANCE: 9.5,
@@ -100,18 +106,6 @@ export const CONFIG = {
   BLOOM_RADIUS: 0.55,
   BLOOM_THRESHOLD: 0.8,
 } as const;
-
-/**
- * CPU pace per difficulty: rivals' thrust scale is `base` × a rubber band between `min` (well ahead of the player)
- * and `max` (well behind). Rookie rivals are slower and never speed up to catch the player; the higher tiers are
- * faster through their parts (RIVAL_FITS) and shortcuts, not here.
- */
-export const AI_PACE: Readonly<Record<AITier, { base: number; min: number; max: number }>> = {
-  rookie: { base: 0.9, min: 0.92, max: 1 },
-  pilot: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
-  ace: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
-  legend: { base: 1, min: CONFIG.AI_RUBBER_BAND_MIN, max: CONFIG.AI_RUBBER_BAND_MAX },
-};
 
 /** Rapier collision groups: membership in the high 16 bits, filter in the low 16. */
 export const GROUP_SURFACE = 1 << 0;

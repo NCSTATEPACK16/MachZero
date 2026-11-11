@@ -1,5 +1,5 @@
 /**
- * Garage (feature `garage`): pick a chassis, buy and fit parts, paint the ship, stock up on EMPs. The turntable is WebGL,
+ * Garage (feature `garage`): pick a chassis, buy and fit parts, paint the ship, stock up on items. The turntable is WebGL,
  * drawn by GraphicsSystem into the transparent stage element; hovering or focusing an option previews it on
  * the turntable and as ghost stat bars. Chassis are free, parts cost credits, nothing can be sold.
  */
@@ -8,7 +8,7 @@ import type { App } from '../../app/App';
 import type { Loadout, PartSlot, PartTier } from '../../core/contracts';
 import { owns, partPrice } from '../../content/economy';
 import { PART_EFFECTS, PART_SLOTS, PART_TIERS, SLOT_BLURBS, SLOT_NAMES, TIER_NAMES } from '../../content/parts';
-import { EMP_PRICE, empSlots, nextEmpSlotAt } from '../../content/items';
+import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES, ITEM_PRICES, SHIELD_TIME, bagTotal, itemSlots, nextItemSlotAt, type ItemKind } from '../../content/items';
 import { CHASSIS, CLASS_LABEL, chassisById } from '../../content/ships';
 import { CONFIG } from '../../core/config';
 import { focusFirst, onUiKeyDown } from '../nav';
@@ -263,37 +263,57 @@ function PaintTab({ app }: { app: App }) {
   );
 }
 
+/** What each item does, in words a kid can scan. */
+function itemBlurb(kind: ItemKind): string {
+  switch (kind) {
+    case 'emp':
+      return `Hits the racer directly ahead: ${Math.round((1 - CONFIG.EMP_SLOW) * 100)}% slower for ${CONFIG.EMP_SLOW_TIME} s, no boost for ${CONFIG.EMP_LOCK_TIME} s.`;
+    case 'shield':
+      return `Blocks one EMP or mine, for up to ${SHIELD_TIME} s.`;
+    case 'mine':
+      return `Leaves a mine behind you for ${CONFIG.DROP_MINE_LIFE} s.`;
+  }
+}
+
 function ItemsTab({ app }: { app: App }) {
   const p = app.activeProfile.value!;
-  const slots = empSlots(p);
-  const have = p.items.emp;
-  const full = have >= slots;
-  const short = !full && p.credits < EMP_PRICE;
-  const next = nextEmpSlotAt(p);
-  const buy = () => {
-    const r = app.buyEmp();
-    if (r === 'bought') app.toast(`EMP ready (${have + 1}/${slots}).`, 'good');
-    else if (r === 'full') app.toast('Every EMP slot is full.', 'info');
-    else app.toast(`Win races to earn ${fmt(EMP_PRICE - p.credits)} more credits.`, 'info');
+  const slots = itemSlots(p);
+  const total = bagTotal(p.items);
+  const full = total >= slots;
+  const next = nextItemSlotAt(p);
+  // Filled slots in kind order, so the pips show the mix.
+  const filled = ITEM_KINDS.flatMap((k) => Array.from({ length: p.items[k] }, () => k));
+  const buy = (kind: ItemKind) => {
+    const r = app.buyItem(kind);
+    if (r === 'bought') app.toast(`${ITEM_NAMES[kind]} ready (${total + 1}/${slots} slots).`, 'good');
+    else if (r === 'full') app.toast('Every item slot is full.', 'info');
+    else app.toast(`Win races to earn ${fmt(ITEM_PRICES[kind] - p.credits)} more credits.`, 'info');
   };
   return (
     <div class="mzu-section">
       <p class="mzu-note">
-        Fire with Ⓨ or F to hit the racer directly ahead: {Math.round((1 - CONFIG.EMP_SLOW) * 100)}% slower for {CONFIG.EMP_SLOW_TIME} s and no boost for{' '}
-        {CONFIG.EMP_LOCK_TIME} s. Unused EMPs carry over to your next race.
+        Pick with ◀ ▶ on the d-pad (or C), use with Ⓨ (or F). Every item shares your slots; unused items carry over to your next race.
       </p>
-      <div class="mzu-emp">
-        <span class="mzu-choice-name">⚡ EMP</span>
-        <span class="mzu-emp-pips" aria-label={`${have} of ${slots} slots filled`}>
-          {Array.from({ length: slots }, (_, i) => (
-            <span class={i < have ? 'on' : ''} />
-          ))}
-        </span>
-        <button type="button" class={`mzu-chip${full || short ? '' : ' go'}`} data-autofocus onClick={buy} aria-disabled={full || short}>
-          {full ? 'SLOTS FULL' : `BUY · ${fmt(EMP_PRICE)} CREDITS`}
-        </button>
+      <div class="mzu-emp-pips mzu-item-slots" aria-label={`${total} of ${slots} slots filled`}>
+        {Array.from({ length: slots }, (_, i) => (
+          <span class={i < total ? 'on' : ''}>{i < total ? ITEM_ICONS[filled[i]] : ''}</span>
+        ))}
       </div>
-      <p class="mzu-note dim">{next === null ? 'All EMP slots unlocked.' : `Slot ${slots + 1} unlocks at ${next} wins (you have ${p.stats.wins}).`}</p>
+      {ITEM_KINDS.map((kind, i) => {
+        const short = !full && p.credits < ITEM_PRICES[kind];
+        return (
+          <div class="mzu-emp" data-item={kind}>
+            <span class="mzu-choice-name">
+              {ITEM_ICONS[kind]} {ITEM_NAMES[kind]} <span class="mzu-item-have">×{p.items[kind]}</span>
+            </span>
+            <span class="mzu-note mzu-item-blurb">{itemBlurb(kind)}</span>
+            <button type="button" class={`mzu-chip${full || short ? '' : ' go'}`} data-autofocus={i === 0 ? true : undefined} onClick={() => buy(kind)} aria-disabled={full || short}>
+              {full ? 'SLOTS FULL' : `BUY · ${fmt(ITEM_PRICES[kind])}`}
+            </button>
+          </div>
+        );
+      })}
+      <p class="mzu-note dim">{next === null ? 'All item slots unlocked.' : `Slot ${slots + 1} unlocks at ${next} wins (you have ${p.stats.wins}).`}</p>
     </div>
   );
 }
@@ -334,6 +354,8 @@ export function Garage({ app }: { app: App }) {
   const [tab, setTab] = useState<Tab>('ship');
   const [preview, setPreview] = useState<Loadout | null>(null);
   const [buying, setBuying] = useState<{ slot: PartSlot; tier: PartTier } | null>(null);
+  const r = app.route.value;
+  const fromCup = r.name === 'garage' && r.back === 'cup';
   /** The card that opened the buy dialog gets focus back when it closes. */
   const opener = useRef<HTMLElement | null>(null);
   const p = app.activeProfile.value;
@@ -357,16 +379,21 @@ export function Garage({ app }: { app: App }) {
     opener.current = null;
   }, [buying]);
 
-  // Drag the turntable.
-  const drag = useRef<{ id: number; x: number } | null>(null);
+  // Drag the turntable (sideways turns, up and down tilts); the wheel zooms (§V.3).
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   const onPointerDown = (e: PointerEvent) => {
-    drag.current = { id: e.pointerId, x: e.clientX };
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent) => {
     if (drag.current?.id !== e.pointerId) return;
-    app.nudgeShipPreview((e.clientX - drag.current.x) * 0.012);
+    app.orbitShipPreview((e.clientX - drag.current.x) * 0.012, (e.clientY - drag.current.y) * 0.006, 0);
     drag.current.x = e.clientX;
+    drag.current.y = e.clientY;
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    app.orbitShipPreview(0, 0, -Math.sign(e.deltaY) * 0.08);
   };
   const onPointerUp = () => (drag.current = null);
 
@@ -396,8 +423,8 @@ export function Garage({ app }: { app: App }) {
   return (
     <section ref={ref} class="mzu-garage" data-screen="garage" aria-label="Garage" onKeyDown={(e) => ref.current && onUiKeyDown(ref.current, e)}>
       <header class="mzu-garage-head" inert={buying !== null}>
-        <button type="button" class="mzu-back" data-back={buying ? undefined : ''} onClick={() => app.closeGarage()} aria-label="Menu">
-          <span aria-hidden="true">‹</span> MENU
+        <button type="button" class="mzu-back" data-back={buying ? undefined : ''} onClick={() => app.closeGarage()} aria-label={fromCup ? 'Cup standings' : 'Menu'}>
+          <span aria-hidden="true">‹</span> {fromCup ? 'CUP' : 'MENU'}
         </button>
         <div class="mzu-titles">
           <div class="mzu-kicker">{p.name}</div>
@@ -407,7 +434,7 @@ export function Garage({ app }: { app: App }) {
       </header>
       <div class="mzu-garage-main" inert={buying !== null}>
         <div class="mzu-stage-col">
-          <div ref={stage} class="mzu-stage" data-preview onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+          <div ref={stage} class="mzu-stage" data-preview onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
             <div class="mzu-stage-label">
               <span class="mzu-choice-name">{c.name}</span>
               <span class={`mzu-tagpill ${c.cls}`}>{CLASS_LABEL[c.cls].toUpperCase()}</span>

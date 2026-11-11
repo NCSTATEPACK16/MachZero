@@ -34,6 +34,9 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'economy:credits': [],
     'item:emp': [],
     'item:fail': [],
+    'item:use': [],
+    'item:warn': [],
+    'item:shield': [],
     'ship:railHit': [],
     'ship:shipHit': [],
     'ship:boost': [],
@@ -45,6 +48,7 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'ship:destroyed': [],
     'ship:respawn': [],
     'ship:ice': [],
+    'ship:draft': [],
     'hazard:gate': [],
     'hazard:mine': [],
     'hazard:debris': [],
@@ -161,6 +165,40 @@ describe('PhysicsSystem propulsion', () => {
     drive(rig, ship, 25);
     expect(ship.speed).toBeLessThan(CONFIG.TOP_SPEED * 0.9 * 1.02);
     expect(ship.speed).toBeGreaterThan(CONFIG.TOP_SPEED * 0.9 * 0.93);
+  });
+
+  it('a ship in another’s slipstream drafts up to +6% top speed (and a lone ship does not)', async () => {
+    const rig = await makeRig();
+    const a = addRacer(rig, 0);
+    const aSlot = rig.track.startGrid[SHIP_ROSTER[0].gridIndex];
+    // B starts 22 m ahead in the same lane and runs 6% faster, so A can sit in its wake at its full draft speed.
+    const s = rig.track.sampleAt(aSlot.u + 22 / rig.track.length);
+    const b = rig.physics.addShip(SHIP_ROSTER[1], {
+      u: s.u,
+      lateral: aSlot.lateral,
+      position: s.position.clone().addScaledVector(s.right, aSlot.lateral).addScaledVector(s.up, CONFIG.HOVER_HEIGHT),
+      quaternion: aSlot.quaternion.clone(),
+    });
+    a.status = 'racing';
+    b.status = 'racing';
+    b.thrustScale = 1 + 0.06;
+    const map = new Map<ShipId, ControlInput>();
+    let maxA = 0;
+    let minGap = Infinity;
+    for (let i = 0; i < 25 * STEPS_PER_SECOND; i++) {
+      map.set(0, { ...neutralControls(), throttle: 1, steer: autoSteer(a, rig.track, aSlot.lateral) });
+      map.set(1, { ...neutralControls(), throttle: 1, steer: autoSteer(b, rig.track, aSlot.lateral) });
+      rig.physics.step(DT, map);
+      maxA = Math.max(maxA, a.speed);
+      minGap = Math.min(minGap, a.position.distanceTo(b.position));
+    }
+    expect(b.drafting).toBe(0);
+    expect(a.drafting).toBeGreaterThan(0.99);
+    expect(a.speed).toBeGreaterThan(CONFIG.TOP_SPEED * 1.04);
+    expect(maxA).toBeLessThanOrEqual(CONFIG.TOP_SPEED * 1.06 * 1.02);
+    expect(minGap).toBeGreaterThan(CONFIG.SHIP_LENGTH);
+    expect(rig.events['ship:draft']).toEqual([{ shipId: 0, active: true }]);
+    expect(rig.events['ship:shipHit']).toHaveLength(0);
   });
 
   it('caps a finished ship below full-throttle speed', async () => {

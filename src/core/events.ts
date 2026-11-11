@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { RaceState, RacerStanding, ShipId } from './contracts';
+import type { ItemKind } from '../content/items';
 
 /**
  * Every cross-system event. Emitters:
@@ -32,12 +33,20 @@ export interface GameEvents {
   'hazard:mine': { shipId: ShipId; mine: number; owner: ShipId | null; point: THREE.Vector3 };
   /** A ship hit a piece of drifting debris (Orbital Ring): `debris` is its index in PhysicsSystem.debris. */
   'hazard:debris': { shipId: ShipId; debris: number; point: THREE.Vector3 };
+  /** A ship entered (active) or left another's slipstream (physics/Drafting.ts hysteresis). */
+  'ship:draft': { shipId: ShipId; active: boolean };
   /** Touched down after a jump; intensity 0..1 from the speed into the surface. */
   'ship:land': { shipId: ShipId; intensity: number };
   /** An EMP fired by `from` hit `target` (the racer directly ahead). */
   'item:emp': { from: ShipId; target: ShipId; targetName: string };
-  /** An EMP could not fire: none left, or nobody racing ahead. */
-  'item:fail': { shipId: ShipId; reason: 'empty' | 'noTarget' };
+  /** An item could not be used: none left, or (EMP) nobody racing ahead. */
+  'item:fail': { shipId: ShipId; reason: 'empty' | 'noTarget'; kind: ItemKind };
+  /** A ship raised its shield or dropped a mine (the EMP has 'item:emp'). */
+  'item:use': { shipId: ShipId; kind: 'shield' | 'mine' };
+  /** A CPU fired an EMP at `target`: it lands CONFIG.EMP_WARN_TIME later unless a shield goes up. */
+  'item:warn': { from: ShipId; target: ShipId };
+  /** A raised shield took an EMP or a mine hit and dropped. */
+  'item:shield': { shipId: ShipId; blocked: 'emp' | 'mine'; point: THREE.Vector3 };
   /** App → HUD/Audio: credits paid to the player's profile at the results. */
   'economy:credits': { delta: number; total: number };
   /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */

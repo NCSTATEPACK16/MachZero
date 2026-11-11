@@ -5,6 +5,10 @@ import { Badge } from '../badges';
 import { MenuButton } from '../components';
 import { chassisById } from '../../content/ships';
 import { focusFirst, onUiKeyDown } from '../nav';
+import { CUPS, cupById } from '../../content/cups';
+import { cupRaces, cupWorld, racesDone, trophiesOf, trophyCount } from '../../game/modes/GrandPrix';
+import { worldById } from '../../content/worlds';
+import { TIER_NAMES, Trophies } from './GrandPrix';
 import { useRef, useLayoutEffect } from 'preact/hooks';
 
 const Icon = {
@@ -23,6 +27,11 @@ const Icon = {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="13" r="7" fill="none" stroke="currentColor" stroke-width="2" />
       <path d="M12 13 L15 10 M10 3 H14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+  ),
+  cup: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 4 H17 V9 a5 5 0 0 1 -10 0 Z M7 6 H4 a3 3 0 0 0 3 4 M17 6 H20 a3 3 0 0 1 -3 4 M12 14 V17 M8 20 H16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
     </svg>
   ),
   garage: (
@@ -47,6 +56,7 @@ export function MainMenu({ app }: { app: App }) {
     if (ref.current) focusFirst(ref.current);
   }, []);
   const p = app.activeProfile.value;
+  const cup = p?.cup ?? null;
   return (
     <section ref={ref} class="mzu-screen mzu-main" data-screen="menu" aria-label="Main menu" onKeyDown={(e) => ref.current && onUiKeyDown(ref.current, e)}>
       <div class="mzu-brand">
@@ -54,8 +64,19 @@ export function MainMenu({ app }: { app: App }) {
         <div class="mzu-tag">ANTI-GRAVITY RACING</div>
       </div>
       <div class="mzu-menu">
-        <MenuButton big autofocus icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
+        {cup ? (
+          <MenuButton
+            big
+            autofocus
+            icon={Icon.cup}
+            label="CONTINUE CUP"
+            sub={`${cupById(cup.cupId)?.name ?? 'CUP'} · ${TIER_NAMES[cup.tier]} · RACE ${racesDone(cup) + 1} OF ${cupRaces(cup)} · ${worldById(cupWorld(cup) ?? '')?.name ?? ''}`}
+            onClick={() => app.openCupStandings()}
+          />
+        ) : null}
+        <MenuButton big={!cup} autofocus={!cup} icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
         {app.features.worlds ? <MenuButton icon={Icon.worlds} label="WORLDS" sub="Neon Bay, Sunset Mesa and more to come" onClick={() => app.openWorlds()} /> : null}
+        {app.features.worlds && p && !cup ? <MenuButton icon={Icon.cup} label="GRAND PRIX" sub="Five races, every world, one cup" onClick={() => app.openGrandPrix()} /> : null}
         {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
           <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
         ))}
@@ -71,6 +92,7 @@ export function MainMenu({ app }: { app: App }) {
             <span class="mzu-pilot-name">{p.name}</span>
             <span class="mzu-pilot-sub">SWITCH PILOT</span>
           </span>
+          {trophyCount(p.trophies) ? CUPS.filter((c) => trophiesOf(p.trophies, c.id).length).map((c) => <Trophies key={c.id} won={trophiesOf(p.trophies, c.id)} cup={c.name} small />) : null}
         </button>
       ) : null}
       <div class="mzu-hints" aria-hidden="true">

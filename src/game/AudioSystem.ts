@@ -86,11 +86,21 @@ export class AudioSystem implements IAudioSystem {
     this.offs.push(
       bus.on('race:countdown', (e) => this.onCountdown(e.value)),
       bus.on('ship:boost', (e) => this.onBoost(e.shipId)),
+      bus.on('ship:draft', (e) => {
+        if (e.active && this.nearness(e.shipId) >= 1) this.noise(0.6, 0.22, { filter: 'bandpass', f0: 2600, f1: 600, q: 1.6, attack: 0.12 });
+      }),
       bus.on('ship:railHit', (e) => this.onRailHit(e.shipId, e.intensity)),
       bus.on('ship:shipHit', (e) => this.onShipHit(e.a, e.b, e.intensity)),
       bus.on('ship:dash', (e) => this.onDash(e.shipId)),
       bus.on('item:emp', (e) => this.onEmp(e.from, e.target)),
       bus.on('hazard:mine', (e) => this.onMine(e.shipId)),
+      bus.on('item:use', (e) => this.onItemUse(e.shipId, e.kind)),
+      bus.on('item:shield', (e) => this.onShieldBlock(e.shipId)),
+      bus.on('item:warn', (e) => {
+        // A CPU EMP is on its way to the player: three fast alarm pips inside the 0.5 s warning.
+        if (!this.isPlayer(e.target)) return;
+        for (let i = 0; i < 3; i++) this.tone(1320, 0.07, 'square', 0.11, { delay: i * 0.13, attack: 0.002 });
+      }),
       bus.on('item:fail', (e) => {
         if (this.isPlayer(e.shipId)) this.tone(220, 0.12, 'square', 0.08, { freqEnd: 160 });
       }),
@@ -477,6 +487,28 @@ export class AudioSystem implements IAudioSystem {
     if (gt <= 0.02) return;
     this.noise(0.45, 0.4 * gt, { filter: 'bandpass', f0: 5000, f1: 900, q: 2.5, attack: 0.005, delay: 0.08 });
     this.tone(880, 0.6, 'square', 0.1 * gt, { freqEnd: 70, delay: 0.08 });
+  }
+
+  /** Shield raised: a rising shimmer and a low hum; mine dropped: a heavy clunk behind. */
+  private onItemUse(id: ShipId, kind: 'shield' | 'mine'): void {
+    const g = this.nearness(id);
+    if (g <= 0.02) return;
+    if (kind === 'shield') {
+      this.tone(300, 0.35, 'triangle', 0.16 * g, { freqEnd: 1200, attack: 0.01 });
+      this.tone(110, 0.6, 'sine', 0.12 * g, { delay: 0.05 });
+    } else {
+      this.tone(140, 0.18, 'square', 0.18 * g, { freqEnd: 60, attack: 0.002 });
+      this.noise(0.12, 0.2 * g, { filter: 'lowpass', f0: 1800, f1: 300, q: 1, attack: 0.002 });
+    }
+  }
+
+  /** Shield block: a glassy crack and a bright ring. */
+  private onShieldBlock(id: ShipId): void {
+    const g = this.nearness(id);
+    if (g <= 0.02) return;
+    this.noise(0.3, 0.45 * g, { filter: 'highpass', f0: 3000, f1: 6000, q: 0.7, attack: 0.002 });
+    this.tone(1760, 0.4, 'triangle', 0.16 * g, { freqEnd: 880 });
+    this.tone(2640, 0.25, 'sine', 0.08 * g, { delay: 0.02 });
   }
 
   /** Mine: a sharp crack and a short boom. */

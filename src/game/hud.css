@@ -112,6 +112,11 @@
 .mz-btn:active {
   transform: skewX(-12deg) scale(0.98);
 }
+.mz-btn.danger {
+  border-color: var(--red);
+  background: linear-gradient(180deg, rgba(255, 51, 68, 0.24), rgba(138, 77, 255, 0.2));
+  text-shadow: 0 0 0.6em rgba(255, 51, 68, 0.9);
+}
 .mz-btn.big {
   font-size: 1.5em;
   padding: 0.8em 2.4em;
@@ -474,18 +479,24 @@
   animation: mz-flash 0.3s steps(2, jump-none) infinite;
 }
 
-/* EMP stock, beside the boost panel */
+/* Items: the selected kind and its count, every kind's count below; beside the boost panel */
 .mz-items {
   bottom: 9.4em;
   left: 22em;
 }
 .mz-items .mz-in {
   display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  flex-direction: column;
+  gap: 0.2em;
   padding: 0.35em 0.9em;
   font-weight: 900;
   font-style: italic;
+}
+.mz-items-head,
+.mz-items-kinds {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
 }
 .mz-items-val {
   font-size: 1.15em;
@@ -493,6 +504,15 @@
 .mz-items-key {
   font-size: 0.75em;
   opacity: 0.7;
+}
+.mz-items-kind {
+  font-size: 0.8em;
+  opacity: 0.55;
+}
+.mz-items-kind[data-sel='1'] {
+  opacity: 1;
+  color: #cfe8ff;
+  text-shadow: 0 0 0.6em rgba(111, 184, 255, 0.8);
 }
 .mz-items[data-s='ready'] {
   border-color: #6fb8ff;
@@ -502,8 +522,39 @@
 .mz-items[data-s='ready'] .mz-items-val {
   color: #cfe8ff;
 }
+.mz-items[data-s='shield'] {
+  border-color: #7dffd0;
+  box-shadow: 0 0 1.2em rgba(125, 255, 208, 0.55);
+}
+.mz-items-shield {
+  margin-left: auto;
+  color: #c8fff0;
+  text-shadow: 0 0 0.6em rgba(125, 255, 208, 0.8);
+}
+.mz-items-shield:empty {
+  display: none;
+}
 .mz-items[data-s='empty'] {
   opacity: 0.5;
+}
+
+/* A CPU's EMP is on its way to the player: 0.5 s to raise a shield */
+.mz-emp-warn {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.3em 1em;
+  font-size: 1.6em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  color: #fff3c4;
+  background: rgba(120, 40, 0, 0.55);
+  border: 2px solid #ffb02e;
+  box-shadow: 0 0 1.4em rgba(255, 176, 46, 0.7);
+  animation: mz-flash 0.12s steps(2, jump-none) infinite;
+  pointer-events: none;
 }
 
 /* speedometer */
@@ -1011,4 +1062,175 @@
 .mz-cb .mz-energy.low .mz-energy-val::before {
   content: '▲ ';
   color: var(--amber);
+}
+
+/* ---------- M5: slipstream chip ---------- */
+.mz-draft {
+  position: absolute;
+  right: 2.6em;
+  bottom: 19.4em;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.2em 0.8em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #e9fbff;
+  background: linear-gradient(90deg, rgba(25, 240, 255, 0.32), rgba(138, 77, 255, 0.18));
+  border: 1px solid rgba(25, 240, 255, 0.7);
+  box-shadow: 0 0 1em rgba(25, 240, 255, 0.45);
+  transform: skewX(-10deg);
+  pointer-events: none;
+}
+.mz-draft[hidden] {
+  display: none;
+}
+.mz-draft-icon {
+  font-size: 1.5em;
+  line-height: 1;
+  animation: mz-draft-flow 0.5s linear infinite;
+}
+@keyframes mz-draft-flow {
+  from { transform: translateX(-0.12em); opacity: 0.7; }
+  to { transform: translateX(0.12em); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mz-draft-icon { animation: none; }
+}
+
+/* ---------- M5: pilot portraits, grid intro card ---------- */
+.mz-portrait {
+  display: block;
+  flex: none;
+}
+.mz-table .row .who {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+.mz-table .row .face .mz-portrait {
+  width: 1.6em;
+  height: 1.6em;
+}
+.mz-winner-quote {
+  margin-top: 0.7em;
+  font-style: italic;
+  font-size: 0.9em;
+  color: var(--amber);
+  letter-spacing: 0.04em;
+}
+.mz-intro {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  padding: max(1.2em, env(safe-area-inset-top)) max(1.4em, env(safe-area-inset-right)) max(1.2em, env(safe-area-inset-bottom)) max(1.4em, env(safe-area-inset-left));
+  background: radial-gradient(ellipse at center, rgba(5, 3, 15, 0.5), rgba(5, 3, 15, 0.85));
+}
+.mz-hud.intro .mz-intro {
+  display: flex;
+}
+.mz-hud.intro .mz-race {
+  display: none !important;
+}
+.mz-intro-kicker {
+  font-size: 0.85em;
+  letter-spacing: 0.32em;
+  color: var(--amber);
+  font-weight: 800;
+}
+.mz-intro-head {
+  margin: 0;
+  font-size: 2.6em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  background: linear-gradient(180deg, #ffffff 10%, #19f0ff 60%, #8a4dff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.mz-intro-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5em 1.4em;
+  width: min(60em, 100%);
+}
+.mz-intro-row {
+  display: grid;
+  grid-template-columns: 2.4em 2.6em minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 0.6em;
+  align-items: center;
+  padding: 0.35em 0.6em;
+  background: rgba(8, 6, 26, 0.7);
+  border: 1px solid rgba(25, 240, 255, 0.25);
+  animation: mz-intro-in 0.35s ease-out both;
+}
+.mz-intro-row:nth-child(2n) { animation-delay: 0.08s; }
+.mz-intro-row.player {
+  border-color: var(--cyan);
+  box-shadow: 0 0 1em rgba(25, 240, 255, 0.35);
+}
+.mz-intro-row .slot {
+  grid-row: 1 / 3;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.2em;
+  color: rgba(244, 247, 255, 0.6);
+}
+.mz-intro-row .face {
+  grid-row: 1 / 3;
+}
+.mz-intro-row .face .mz-portrait {
+  width: 2.6em;
+  height: 2.6em;
+}
+.mz-intro-row .who {
+  display: flex;
+  gap: 0.6em;
+  align-items: baseline;
+  min-width: 0;
+}
+.mz-intro-row .name {
+  font-weight: 900;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mz-intro-row .ship {
+  font-size: 0.7em;
+  letter-spacing: 0.2em;
+  color: rgba(244, 247, 255, 0.55);
+}
+.mz-intro-row .quote {
+  font-size: 0.8em;
+  font-style: italic;
+  color: var(--amber);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mz-intro-row.player .quote {
+  color: var(--cyan);
+  letter-spacing: 0.2em;
+  font-weight: 800;
+}
+@keyframes mz-intro-in {
+  from { opacity: 0; transform: translateX(-0.8em); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 700px), (max-height: 460px) {
+  .mz-intro { font-size: 0.78em; gap: 0.4em; }
+  .mz-intro-head { font-size: 1.8em; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mz-intro-row { animation: none; }
 }

@@ -4,6 +4,7 @@
  * as `{ version: 1, recordLap }` before migrating.
  */
 import { CONFIG } from '../core/config';
+import { DEFAULT_CUP_ID } from '../content/cups';
 import { SAVE_VERSION, createProfile, defaultSettings } from './schema';
 
 type Obj = Record<string, unknown>;
@@ -33,6 +34,43 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
     ...save,
     version: 3,
     profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, aiTier: 'rookie', items: { emp: 0 } } : p)) : [],
+  }),
+  // v3 → 4: the Shield and Drop Mine join the EMP (IMPLEMENTATION §P): the bag holds a count per kind. The
+  // sanitizer clamps the total to the slot count afterwards.
+  3: (save) => ({
+    ...save,
+    version: 4,
+    profiles: Array.isArray(save.profiles)
+      ? save.profiles.map((p) => {
+          if (typeof p !== 'object' || p === null) return p;
+          const items = (p as Obj).items;
+          const emp = typeof items === 'object' && items !== null ? (items as Obj).emp : 0;
+          return { ...p, items: { emp: typeof emp === 'number' ? emp : 0, shield: 0, mine: 0 } };
+        })
+      : [],
+  }),
+  // v4 → 5: Grand Prix cups (IMPLEMENTATION §GP): no cup in progress, no trophies yet.
+  4: (save) => ({
+    ...save,
+    version: 5,
+    profiles: Array.isArray(save.profiles) ? save.profiles.map((p) => (typeof p === 'object' && p !== null ? { ...p, cup: null, trophies: [] } : p)) : [],
+  }),
+  // v5 → 6: cups become a list (IMPLEMENTATION §X1). The one cup so far is the Neon Cup: a cup in progress
+  // gains its id, and the trophies (a list of tiers) become that cup's trophies.
+  5: (save) => ({
+    ...save,
+    version: 6,
+    profiles: Array.isArray(save.profiles)
+      ? save.profiles.map((p) => {
+          if (typeof p !== 'object' || p === null) return p;
+          const { cup, trophies } = p as Obj;
+          return {
+            ...p,
+            cup: typeof cup === 'object' && cup !== null ? { ...cup, cupId: DEFAULT_CUP_ID } : null,
+            trophies: Array.isArray(trophies) && trophies.length ? { [DEFAULT_CUP_ID]: trophies } : {},
+          };
+        })
+      : [],
   }),
 };
 

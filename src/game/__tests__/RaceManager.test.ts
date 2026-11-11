@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AI_PACE, CONFIG } from '../../core/config';
+import { CONFIG } from '../../core/config';
+import { TIERS } from '../../content/tiers';
 import type { ShipId, ShipState, TrackData } from '../../core/contracts';
 import { RaceManager } from '../RaceManager';
 import { makeBus, makeCircleTrack, makeShip, placeShip, type Recorded } from './helpers';
@@ -266,7 +267,7 @@ describe('RaceManager finish, retire and results', () => {
     expect((lap?.payload as { isRecord: boolean }).isRecord).toBe(true);
   });
 
-  it('rubber-bands AI only: trailing AI speeds up, leading AI slows, player untouched', () => {
+  it('rubber-bands AI only: trailing AI speeds up, leading AI slows (around the tier pace), player untouched', () => {
     const r = rig();
     goRacing(r);
     for (let i = 0; i < 300; i++) {
@@ -274,14 +275,15 @@ describe('RaceManager finish, retire and results', () => {
       r.ships[2].trackU = 0.99; // stuck at the line (behind)
       r.race.fixedUpdate(DT);
     }
-    expect(r.ships[1].thrustScale).toBeLessThan(1);
-    expect(r.ships[1].thrustScale).toBeGreaterThanOrEqual(CONFIG.AI_RUBBER_BAND_MIN - 1e-9);
+    const pilot = TIERS.pilot; // a ship without a tier races at Pilot's
+    expect(r.ships[1].thrustScale).toBeLessThan(pilot.paceScale);
+    expect(r.ships[1].thrustScale).toBeGreaterThanOrEqual(pilot.paceScale * pilot.rubberBand.min - 1e-9);
     for (let i = 0; i < 400; i++) {
       r.player.trackU = (0.99 + Math.min(i, 100) * 0.002) % 1; // player pulls 0.2 laps clear
       r.race.fixedUpdate(DT);
     }
-    expect(r.ships[2].thrustScale).toBeGreaterThan(1);
-    expect(r.ships[2].thrustScale).toBeLessThanOrEqual(CONFIG.AI_RUBBER_BAND_MAX + 1e-9);
+    expect(r.ships[2].thrustScale).toBeGreaterThan(pilot.paceScale);
+    expect(r.ships[2].thrustScale).toBeLessThanOrEqual(pilot.paceScale * pilot.rubberBand.max + 1e-9);
     expect(r.player.thrustScale).toBe(1);
   });
 
@@ -294,7 +296,7 @@ describe('RaceManager finish, retire and results', () => {
       r.ships[1].trackU = 0.99; // stuck behind
       r.race.fixedUpdate(DT);
     }
-    expect(r.ships[1].thrustScale).toBeCloseTo(AI_PACE.rookie.base, 2);
-    expect(AI_PACE.rookie.base * AI_PACE.rookie.max).toBeLessThan(1);
+    expect(r.ships[1].thrustScale).toBeCloseTo(TIERS.rookie.paceScale, 2);
+    expect(TIERS.rookie.paceScale * TIERS.rookie.rubberBand.max).toBeLessThan(1);
   });
 });

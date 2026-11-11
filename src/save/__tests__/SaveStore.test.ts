@@ -76,6 +76,51 @@ describe('SaveStore', () => {
     expect(out.profiles[0].aiTier).toBe('rookie');
   });
 
+  it('migrates v3: the EMP count becomes a bag of every kind, clamped to the slots (EMPs kept first)', () => {
+    const p = { ...createProfile('ACE', 0, 'classic'), items: { emp: 2 } };
+    const out = migrate({ version: 3, profiles: [p, null], activeProfileId: p.id, settings: defaultSettings() }) as { version: number; profiles: Array<{ items: unknown }> };
+    expect(out.version).toBe(SAVE_VERSION); // chained on through every later migration
+    expect(out.profiles[0].items).toEqual({ emp: 2, shield: 0, mine: 0 });
+    // A v3 profile with no bag, and an over-full v4 bag, both come out clean.
+    const noBag = migrate({ version: 3, profiles: [{ ...p, items: undefined }], activeProfileId: p.id, settings: defaultSettings() }) as { profiles: Array<{ items: unknown }> };
+    expect(noBag.profiles[0].items).toEqual({ emp: 0, shield: 0, mine: 0 });
+    const full = sanitizeSave({ version: 4, profiles: [{ id: 'a', name: 'A', items: { emp: 1, shield: 5, mine: 2 } }] });
+    expect(full.profiles[0].items).toEqual({ emp: 1, shield: 1, mine: 0 });
+  });
+
+  it('migrates v4: no cup in progress and no trophies; a saved cup and trophies survive a reload', () => {
+    const p = { ...createProfile('CUP', 0, 'classic') } as Record<string, unknown>;
+    delete p.cup;
+    delete p.trophies;
+    const out = migrate({ version: 4, profiles: [p], activeProfileId: p.id, settings: defaultSettings() }) as { version: number; profiles: Array<Record<string, unknown>> };
+    expect(out.version).toBe(SAVE_VERSION);
+    expect(out.profiles[0]).toMatchObject({ cup: null, trophies: {} });
+    const cup = { cupId: 'neon', tier: 'ace', results: [[2, 1, 3, 4, 5, 6, 7, 8]] };
+    const back = sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', cup, trophies: { neon: ['legend', 'rookie', 'boss', 'rookie'] } }] });
+    expect(back.profiles[0].cup).toEqual(cup);
+    expect(back.profiles[0].trophies).toEqual({ neon: ['rookie', 'legend'] });
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', cup: { cupId: 'neon', tier: 'ace', results: 'x' } }] }).profiles[0].cup).toBeNull();
+  });
+
+  it('migrates v5: the cup in progress and the trophies become the Neon Cup\'s (IMPLEMENTATION §X1)', () => {
+    const base = { ...createProfile('CUP', 0, 'classic') } as Record<string, unknown>;
+    const results = [[2, 1, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]];
+    const v5 = { ...base, cup: { tier: 'pilot', results }, trophies: ['rookie', 'ace'], credits: 4321 };
+    const storage = new MemStorage();
+    storage.setItem(SAVE_KEY, JSON.stringify({ version: 5, profiles: [v5], activeProfileId: base.id, settings: defaultSettings() }));
+    const p = new SaveStore(storage).load().profiles[0];
+    expect(p.cup).toEqual({ cupId: 'neon', tier: 'pilot', results });
+    expect(p.trophies).toEqual({ neon: ['rookie', 'ace'] });
+    expect(p.credits).toBe(4321);
+    // No cup and no trophies: stays empty.
+    const none = migrate({ version: 5, profiles: [{ ...base, cup: null, trophies: [] }], activeProfileId: base.id, settings: defaultSettings() }) as { version: number; profiles: Array<Record<string, unknown>> };
+    expect(none.version).toBe(SAVE_VERSION);
+    expect(none.profiles[0]).toMatchObject({ cup: null, trophies: {} });
+    // A saved cup that names a cup this build can't play is dropped; the trophies and the rest stay.
+    const odd = sanitizeSave({ version: SAVE_VERSION, profiles: [{ id: 'a', name: 'A', credits: 99, cup: { cupId: 'bogus', tier: 'ace', results: [] }, trophies: { neon: ['ace'], bogus: ['ace'] } }] });
+    expect(odd.profiles[0]).toMatchObject({ cup: null, trophies: { neon: ['ace'] }, credits: 99 });
+  });
+
   it('corrupt JSON gives safe defaults', () => {
     const mem = new MemStorage();
     mem.map.set(SAVE_KEY, '{"version":2,"profiles":[{"id":');

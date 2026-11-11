@@ -6,7 +6,20 @@ import type { App } from '../../app/App';
 import { TRACK_DEFS } from '../../content/tracks';
 import { WORLDS, type WorldDef } from '../../content/worlds';
 import { formatTime } from '../../core/math';
-import { Screen } from '../components';
+import { TIER_OPTIONS, TIERS } from '../../content/tiers';
+import { Screen, Segmented } from '../components';
+
+/** The CPU difficulty for the next race (SPEC §2: the AI dial), saved to the profile. */
+export function TierPicker({ app }: { app: App }) {
+  const p = app.activeProfile.value;
+  if (!p) return null;
+  return (
+    <div class="mzu-section mzu-tier">
+      <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier} onChange={(v) => app.setAiTier(v)} />
+      <p class="mzu-note">{TIERS[p.aiTier].hint}</p>
+    </div>
+  );
+}
 
 /** Plan-view outline of a track definition as an SVG polyline in a 120 × 72 box. */
 function miniMap(trackId: string): string | null {
@@ -76,6 +89,7 @@ export function WorldSelect({ app }: { app: App }) {
   const current = app.currentWorld?.id;
   return (
     <Screen id="worlds" title="WORLDS" kicker="PICK A WORLD · 3 LAPS · 7 RIVALS" onBack={() => (app.route.value = { name: 'menu' })} backLabel="MENU" wide>
+      <TierPicker app={app} />
       <div class="mzu-worlds">
         {WORLDS.map((w) => (
           <WorldCard key={w.id} app={app} w={w} current={w.id === current} />

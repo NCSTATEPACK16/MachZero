@@ -21,6 +21,8 @@ import { CLASS_SCALE, chassisById } from '../content/ships';
 import { type BuiltGate, buildGates, gateClosure, gatePose } from '../track/features/gate';
 import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../track/features/debris';
 import { MineField, type MineState } from './MineField';
+import { Drafting } from './Drafting';
+import { MINE_LIFT } from '../track/features/mine';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -96,6 +98,7 @@ export class PhysicsSystem implements IPhysicsSystem {
   private readonly obstacleHitTime = new Map<number, number>();
   /** Mines (Orbital Ring): trigger spheres on the hazard clock. */
   private readonly mineField: MineField;
+  private readonly drafting: Drafting;
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -143,6 +146,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     for (const b of this.debris) this.addObstacle('debris', b.index, b.width, b.height, b.length);
     this.poseObstacles(true);
     this.mineField = new MineField(track);
+    this.drafting = new Drafting(bus);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -216,12 +220,14 @@ export class PhysicsSystem implements IPhysicsSystem {
       lateral: proj.lateral,
       heightAboveTrack: proj.height,
       airborne: false,
+      drafting: 0,
       lastControls: neutralControls(),
       status: 'grid',
       boostUnlocked: false,
       thrustScale: 1,
       empSlow: 0,
       empLock: 0,
+      shield: 0,
     };
 
     const controller = new ShipController(this.world, this.track, this.bus, state, body, collider);
@@ -240,6 +246,28 @@ export class PhysicsSystem implements IPhysicsSystem {
   /** The mines this step (positions, armed): graphics and the AI read them. */
   get mines(): readonly MineState[] {
     return this.mineField.mines;
+  }
+
+  /** Dropped mines on the track now (the Drop Mine item). */
+  get droppedMines(): number {
+    return this.mineField.droppedCount;
+  }
+
+  /**
+   * Drop Mine item: leave a mine DROP_MINE_BACK m behind ship `owner`, at its place across the road, armed at once
+   * (its dropper is spared for DROP_MINE_GRACE s). Returns its index in `mines`, or null for an unknown ship.
+   */
+  dropMine(owner: ShipId): number | null {
+    const c = this.controllers.get(owner);
+    if (!c) return null;
+    const s = c.state;
+    const t = this.raceClock;
+    if (s.path === null) return this.mineField.drop(owner, s.trackU - CONFIG.DROP_MINE_BACK / this.track.length, s.lateral, t);
+    // On a split path the main loop's (u, lateral) is elsewhere: place it behind the hull in the ship's frame.
+    const back = this.posePos.set(0, 0, 1).applyQuaternion(s.quaternion);
+    const up = this.pointVec.set(0, 1, 0).applyQuaternion(s.quaternion);
+    const at = back.multiplyScalar(CONFIG.DROP_MINE_BACK).add(s.position).addScaledVector(up, MINE_LIFT - s.heightAboveTrack);
+    return this.mineField.drop(owner, s.trackU, s.lateral, t, at);
   }
 
   /** Lateral of debris piece i's centre now. */
@@ -287,16 +315,20 @@ export class PhysicsSystem implements IPhysicsSystem {
     }
   }
 
-  /** Set off any armed mine a racing hull touches. */
+  /** Set off any armed mine a racing hull touches; a raised shield takes the hit instead (and drops). */
   private checkMines(): void {
     const field = this.mineField;
-    if (field.mines.length === 0) return;
     field.update(this.raceClock);
     for (const c of this.controllerList) {
       const s = c.state;
       if ((s.status !== 'racing' && s.status !== 'finished') || !c.isColliderEnabled) continue;
       const hit = field.test({ id: s.def.id, position: s.position, quaternion: s.quaternion, half: c.hullHalf }, this.raceClock);
       if (!hit) continue;
+      if (s.shield > 0) {
+        s.shield = 0;
+        this.bus.emit('item:shield', { shipId: s.def.id, blocked: 'mine', point: hit.mine.position.clone() });
+        continue;
+      }
       c.applyMineHit(hit.side, hit.up, this.hazards);
       this.bus.emit('hazard:mine', { shipId: s.def.id, mine: hit.mine.index, owner: hit.mine.owner, point: hit.mine.position.clone() });
     }
@@ -310,6 +342,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     if (this.obstacles.length > 0) this.poseObstacles(false);
 
     const list = this.controllerList;
+    this.drafting.update(this.ships, dt);
 
     // 1. Render-interpolation history first, then per-ship simulation.
     for (let i = 0; i < list.length; i++) list[i].beginStep();
@@ -341,6 +374,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     const c = this.controllers.get(id);
     if (!c) throw new Error(`PhysicsSystem: unknown ship ${id}`);
     c.reset(slot);
+    this.drafting.clear(c.state);
     for (const [key, pair] of this.activePairs) {
       if (pair[0] === c || pair[1] === c) this.activePairs.delete(key);
     }

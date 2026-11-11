@@ -1,7 +1,8 @@
 /** Settings: race difficulty, audio, comfort, controls (key rebinding) and save data. Every change applies live. */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
-import type { AITier, KeyControl } from '../../core/contracts';
+import type { KeyControl } from '../../core/contracts';
+import { TIER_OPTIONS, TIERS } from '../../content/tiers';
 import { KEY_CONTROLS } from '../../save/schema';
 import type { QualitySetting } from '../../save/schema';
 import { Screen, Segmented, Slider, Toggle, keyName } from '../components';
@@ -24,7 +25,8 @@ const CONTROL_LABEL: Record<KeyControl, string> = {
   airLeft: 'AIR-BRAKE LEFT',
   airRight: 'AIR-BRAKE RIGHT',
   boost: 'BOOST',
-  item: 'FIRE EMP',
+  item: 'USE ITEM',
+  itemNext: 'NEXT ITEM',
 };
 
 const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
@@ -33,7 +35,8 @@ const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
   ['LT / Ⓑ', 'BRAKE'],
   ['LB  RB', 'AIR-BRAKES'],
   ['Ⓧ', 'BOOST'],
-  ['Ⓨ', 'FIRE EMP'],
+  ['Ⓨ', 'USE ITEM'],
+  ['D-PAD ◀ ▶', 'PICK ITEM'],
   ['START', 'PAUSE'],
 ];
 
@@ -99,25 +102,13 @@ function Controls({ app }: { app: App }) {
   );
 }
 
-const TIER_OPTIONS: ReadonlyArray<{ value: AITier; label: string }> = [
-  { value: 'rookie', label: 'ROOKIE' },
-  { value: 'pilot', label: 'PILOT' },
-  { value: 'ace', label: 'ACE' },
-];
-const TIER_HINT: Record<AITier, string> = {
-  rookie: 'Slower rivals on stock parts who never speed up to catch you. You start at the back.',
-  pilot: 'Rivals with tuned engines who push to keep up with you.',
-  ace: 'Fast, upgraded rivals who take shortcuts. Pays more credits.',
-  legend: 'Fully upgraded rivals.',
-};
-
 function Race({ app }: { app: App }) {
   const p = app.activeProfile.value;
   if (!p) return <p class="mzu-note">Pick a pilot to set the difficulty.</p>;
   return (
     <div class="mzu-section">
-      <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier === 'legend' ? 'ace' : p.aiTier} onChange={(v) => app.setAiTier(v)} />
-      <p class="mzu-note">{TIER_HINT[p.aiTier]} Applies from the next race.</p>
+      <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier} onChange={(v) => app.setAiTier(v)} />
+      <p class="mzu-note">{TIERS[p.aiTier].hint} Applies from the next race; also on the world select.</p>
     </div>
   );
 }

@@ -136,6 +136,10 @@ export class Effects {
   private readonly v3 = new THREE.Vector3();
   private readonly q1 = new THREE.Quaternion();
 
+  private surface: { kind: 'spray' | 'dust' | 'sparks'; color: number; ships: 'player' | 'all'; rate: number } | null = null;
+  private readonly surfaceColor = new THREE.Color();
+  private surfaceAcc = 0;
+
   constructor() {
     const pPosAttr = new THREE.BufferAttribute(this.pPos, 3).setUsage(THREE.DynamicDrawUsage);
     const pColAttr = new THREE.BufferAttribute(this.pColorOut, 4).setUsage(THREE.DynamicDrawUsage);
@@ -202,6 +206,12 @@ export class Effects {
       havePrev: false,
       pitAcc: 0,
     });
+  }
+
+  /** Spray, dust or sparks behind grounded ships (IMPLEMENTATION §X2); null = none. */
+  setSurface(surface: { kind: 'spray' | 'dust' | 'sparks'; color: number; ships: 'player' | 'all'; rate: number } | null): void {
+    this.surface = surface;
+    if (surface) this.surfaceColor.setHex(surface.color);
   }
 
   setBudget(fraction: number): void {
@@ -474,10 +484,52 @@ export class Effects {
       const fov = (this.camera.fov * Math.PI) / 180;
       this.pMat.uniforms.uScale.value = viewHeightPx / (2 * Math.tan(fov / 2));
     }
-    for (const m of models) this.emitForShip(m, dt);
+    for (const m of models) {
+      this.emitForShip(m, dt);
+      if (this.surface && m.visible) this.emitSurface(m, dt);
+    }
     this.stepPoints(dt);
     this.stepSparks(dt);
     this.stepRings(dt);
+  }
+
+  /** Kicked up from the deck under the hull's tail, carried back and up; `dt`-scaled so it is frame-rate independent. */
+  private emitSurface(m: ShipModel, dt: number): void {
+    const s = this.surface;
+    const ship = m.ship;
+    if (!s || ship.airborne || ship.speed < 30) return;
+    if (s.ships === 'player' && !ship.def.isPlayer) return;
+    if (ship.status !== 'racing' && ship.status !== 'finished') return;
+    // About 40 particles a second for the player at top speed, fewer for rivals and at lower speed.
+    this.surfaceAcc += dt * s.rate * (ship.def.isPlayer ? 40 : 18) * Math.min(1, ship.speed / 140);
+    // The hull's own up and right (the model's orientation, banked with the road).
+    const up = this.v1.set(0, 1, 0).applyQuaternion(m.root.quaternion);
+    const right = this.v2.set(1, 0, 0).applyQuaternion(m.root.quaternion);
+    const c = this.surfaceColor;
+    const sparks = s.kind === 'sparks';
+    const dust = s.kind === 'dust';
+    while (this.surfaceAcc >= 1) {
+      this.surfaceAcc -= 1;
+      if (!this.admit()) continue;
+      const n = m.nozzleWorld[rnd() < 0.5 ? 0 : 1];
+      const lift = sparks ? 5 + rnd() * 6 : 2 + rnd() * 3;
+      const carry = sparks ? 0.55 : 0.3;
+      this.spawnPoint(
+        n.x - up.x * 0.45 + right.x * rs() * 0.9,
+        n.y - up.y * 0.45 + right.y * rs() * 0.9,
+        n.z - up.z * 0.45 + right.z * rs() * 0.9,
+        ship.velocity.x * carry + up.x * lift + right.x * rs() * 3,
+        ship.velocity.y * carry + up.y * lift + right.y * rs() * 3,
+        ship.velocity.z * carry + up.z * lift + right.z * rs() * 3,
+        sparks ? 0.25 + rnd() * 0.25 : 0.45 + rnd() * 0.5,
+        sparks ? 0.12 : 0.35,
+        sparks ? 0.05 : dust ? 2.2 : 1.3,
+        c.r * (sparks ? 3 : 0.9), c.g * (sparks ? 3 : 0.9), c.b * (sparks ? 3 : 0.9),
+        c.r * 0.25, c.g * 0.25, c.b * 0.25,
+        sparks ? 0.9 : dust ? 0.22 : 0.3,
+        sparks ? 1.5 : 2.4,
+      );
+    }
   }
 
   private emitForShip(m: ShipModel, dt: number): void {

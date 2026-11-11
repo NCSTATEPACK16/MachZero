@@ -18,6 +18,9 @@ import type { ShipAssets } from '../assets/AssetLoader';
 import { assembleShip } from './ShipAssembly';
 import { ShipPreview } from './ShipPreview';
 import type { Loadout } from '../core/contracts';
+import { worldById } from '../content/worlds';
+import { EnvFx } from './envfx/EnvFx';
+import { NO_ENVFX } from './envfx/EnvFxSpec';
 
 
 /** Procedural neon "studio": gradient dome + emissive light strips, prefiltered with PMREM. */
@@ -103,6 +106,11 @@ export class GraphicsSystem implements IGraphicsSystem {
   private fogBase = 0.0006;
   private readonly fx: Effects;
   private readonly mineVisual = new MineVisual();
+  /** The active world's weather, atmosphere and light effects (IMPLEMENTATION §X2). */
+  private readonly envfx: EnvFx;
+  /** Theme light levels before any lightning flash. */
+  private hemiBase = 0.85;
+  private fillBase = 0.7;
   private readonly speedLines: SpeedLines;
   private readonly chase: ChaseCamera;
   private readonly debug: DebugOverlay | null;
@@ -198,6 +206,12 @@ export class GraphicsSystem implements IGraphicsSystem {
 
     this.chase = new ChaseCamera(this.camera);
     this.post = new PostFX(renderer, this.scene, this.camera, this.width, this.height);
+    this.envfx = new EnvFx({
+      setGrade: (g) => this.post.setGrade(g),
+      setFlash: (r, g, b) => this.post.setFlash(r, g, b),
+      setSurface: (s) => this.fx.setSurface(s),
+    });
+    this.scene.add(this.envfx.group);
     this.theme = createTheme('neon-bay', fogUniforms);
     this.scene.add(this.theme.group);
     this.applyTheme();
@@ -211,6 +225,7 @@ export class GraphicsSystem implements IGraphicsSystem {
         camera: this.camera,
         post: this.post,
         fx: this.fx,
+        envfx: this.envfx,
         chase: this.chase,
         models: this.modelList,
       };
@@ -273,6 +288,16 @@ export class GraphicsSystem implements IGraphicsSystem {
           this.post.kickAberration(1);
         }
       }),
+      bus.on('item:shield', (e) => {
+        const model = this.models.get(e.shipId);
+        if (e.blocked === 'mine') this.fx.mineBlast(e.point, null);
+        else if (model) this.fx.empHit(model);
+        model?.shieldBlocked();
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.15);
+          this.post.kickAberration(0.5);
+        }
+      }),
       bus.on('hazard:debris', (e) => {
         this.fx.shipHit(e.point, 0.8);
         if (e.shipId === this.playerId) this.chase.addImpact(0.3);
@@ -327,6 +352,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.post.reset();
     if (this.trackVisual) this.scene.remove(this.trackVisual);
     this.trackVisual = null;
+    this.envfx.clear();
     this.hasRace = false;
   }
 
@@ -341,6 +367,7 @@ export class GraphicsSystem implements IGraphicsSystem {
       this.moon.shadow.map = null;
     }
     this.theme.setDensity(q.scenery);
+    this.envfx.setQuality(q.level);
     this.fx.setBudget(q.particles);
     this.speedLines.budget = q.particles;
     this.applyFogDensity();
@@ -361,6 +388,7 @@ export class GraphicsSystem implements IGraphicsSystem {
       next.dispose();
       return;
     }
+    this.envfx.clear();
     this.scene.remove(this.theme.group);
     this.theme.dispose();
     this.theme = next;
@@ -382,12 +410,12 @@ export class GraphicsSystem implements IGraphicsSystem {
     const l = t.lighting;
     this.hemi.color.setHex(l.hemiSky);
     this.hemi.groundColor.setHex(l.hemiGround);
-    this.hemi.intensity = l.hemiIntensity;
+    this.hemi.intensity = this.hemiBase = l.hemiIntensity;
     this.moon.color.setHex(l.keyColor);
     this.moon.intensity = l.keyIntensity;
     this.moonDir.copy(l.keyDirection);
     this.sunLight.color.setHex(l.fillColor);
-    this.sunLight.intensity = l.fillIntensity;
+    this.sunLight.intensity = this.fillBase = l.fillIntensity;
     this.sunLight.position.copy(t.sunDirection).multiplyScalar(100);
     (this.scene.fog as THREE.FogExp2).color.setHex(l.fogColor);
     this.fogUniforms.uFogColor.value.setHex(l.fogColor);
@@ -398,6 +426,14 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.post.setShimmer(t.shimmer);
     t.setDensity(this.quality.scenery);
     t.setReducedMotion?.(this.reducedMotion);
+    const palette = worldById(t.id)?.palette;
+    this.envfx.setWorld({
+      spec: t.envfx ?? NO_ENVFX,
+      leftNeon: palette?.left ?? 0xffffff,
+      rightNeon: palette?.right ?? 0xffffff,
+      sunDirection: t.sunDirection,
+      materials: t.roleMaterial ? (role) => t.roleMaterial!(role) : undefined,
+    });
   }
 
   get qualityLevel(): QualityProfile['level'] {
@@ -408,6 +444,7 @@ export class GraphicsSystem implements IGraphicsSystem {
   setComfort(opts: { reducedMotion: boolean }): void {
     this.reducedMotion = opts.reducedMotion;
     this.theme.setReducedMotion?.(opts.reducedMotion);
+    this.envfx.setReducedMotion(opts.reducedMotion);
     this.chase.reducedMotion = opts.reducedMotion;
     this.post.reducedMotion = opts.reducedMotion;
     this.speedLines.disabled = opts.reducedMotion;
@@ -426,7 +463,9 @@ export class GraphicsSystem implements IGraphicsSystem {
       if ((o as THREE.Mesh).isMesh) o.receiveShadow = true;
     });
     this.scene.add(track.visual);
-    this.theme.buildScenery(track, this.worldProps.get(this.theme.id) ?? null);
+    const props = this.worldProps.get(this.theme.id) ?? null;
+    this.theme.buildScenery(track, props);
+    this.envfx.build(track, props);
   }
 
   /** Blender GLB ships for the next races (null = v1 procedural ships). */
@@ -450,13 +489,22 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.preview?.nudge(radians);
   }
 
+  /** Garage orbit: turn (rad), tilt (rad) and zoom (log steps, + = closer). */
+  orbitPreview(yaw: number, pitch: number, zoom: number): void {
+    this.preview?.orbit(yaw, pitch, zoom);
+  }
+
   addShip(ship: ShipState): void {
     if (this.models.has(ship.def.id)) return;
-    // Ship LOD per preset: High LOD0; Med LOD0 for the player, LOD1 for rivals; Low LOD1.
+    // Ship LOD and materials (§V.2): your ship is always LOD0 with full materials. Rivals: High LOD0; Med and
+    // Low LOD1, and on Low without normal maps or clearcoat. Rivals' parts are baked into the chassis, one mesh per
+    // role (§V.7 step 1: parts were half of every ship's draw calls).
     const q = this.quality.level;
-    const lod: 0 | 1 = q === 'high' || (q === 'med' && ship.def.isPlayer) ? 0 : 1;
-    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod) : null;
-    const model = new ShipModel(ship, assembled);
+    const player = ship.def.isPlayer;
+    const lod: 0 | 1 = player || q === 'high' ? 0 : 1;
+    const lite = !player && q === 'low';
+    const assembled = this.shipAssets && ship.def.loadout ? assembleShip(this.shipAssets, ship.def.loadout, lod, { lite, merge: !player }) : null;
+    const model = new ShipModel(ship, assembled, { fxLite: lite });
     this.models.set(ship.def.id, model);
     this.modelList.push(model);
     this.scene.add(model.root);
@@ -487,8 +535,13 @@ export class GraphicsSystem implements IGraphicsSystem {
     ctx.track.animateHazards?.(ctx.hazardTime);
     this.mineVisual.update(ctx.mines, player.position, time, dt);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);
-    this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting);
+    this.speedLines.update(dt, this.camera, player.velocity, state === 'results' ? 0 : player.speed, player.boosting, player.drafting);
     this.theme.update(this.camera, time);
+    this.envfx.update(this.camera, time, dt);
+    // A lightning flash lifts the sky and fill light for a moment (the frame-wide flash is in the post chain).
+    const flash = this.envfx.flash;
+    this.hemi.intensity = this.hemiBase * (1 + 2.5 * flash);
+    this.sunLight.intensity = this.fillBase * (1 + 2 * flash);
 
     if (pm) {
       // tight shadow frustum following the player
@@ -630,6 +683,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.modelList.length = 0;
     this.models.clear();
     this.fx.dispose();
+    this.envfx.dispose();
     this.speedLines.dispose();
     this.scene.remove(this.theme.group);
     this.theme.dispose();

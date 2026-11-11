@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
-import { AI_PACE, CONFIG } from '../core/config';
+import { CONFIG } from '../core/config';
+import { tierDef } from '../content/tiers';
 import type {
   IRaceManager,
   RaceSnapshot,
@@ -102,6 +103,8 @@ export class RaceManager implements IRaceManager {
     ships: ShipState[],
     private readonly bus: GameBus,
     private readonly records: RecordStore = localRecordStore,
+    /** Seconds after the player finishes before the results (headless sims: until every ship is home). */
+    private readonly resultsDelay: number = CONFIG.RESULTS_DELAY,
   ) {
     this.racers = ships.map((ship) => ({
       ship,
@@ -263,9 +266,26 @@ export class RaceManager implements IRaceManager {
 
   /** The nearest racer ahead of `id` in the standings that is still racing (the EMP target), or null. */
   racerAhead(id: ShipId): ShipState | null {
+    return this.neighbour(id, -1);
+  }
+
+  /** The nearest racer still racing behind `id` in the standings, or null. */
+  racerBehind(id: ShipId): ShipState | null {
+    return this.neighbour(id, 1);
+  }
+
+  /** Track metres `a` leads `b` by (negative when behind), from race progress. */
+  gapMetres(a: ShipId, b: ShipId): number {
+    const ra = this.racers.find((x) => x.ship.def.id === a);
+    const rb = this.racers.find((x) => x.ship.def.id === b);
+    return ra && rb ? (ra.progress - rb.progress) * this.track.length : 0;
+  }
+
+  private neighbour(id: ShipId, dir: 1 | -1): ShipState | null {
     this.updateStandings();
     const i = this.sorted.findIndex((s) => s.id === id);
-    for (let j = i - 1; j >= 0; j--) {
+    if (i < 0) return null;
+    for (let j = i + dir; j >= 0 && j < this.sorted.length; j += dir) {
       const st = this.sorted[j];
       if (st.status !== 'racing') continue;
       const r = this.racers.find((x) => x.ship.def.id === st.id);
@@ -281,6 +301,7 @@ export class RaceManager implements IRaceManager {
       r.ship.thrustScale = 1;
       r.ship.empSlow = 0;
       r.ship.empLock = 0;
+      r.ship.shield = 0;
     }
   }
 
@@ -333,7 +354,7 @@ export class RaceManager implements IRaceManager {
 
     if (this.playerRacer.ship.status !== 'racing') {
       this.resultsClock += dt;
-      if (this.resultsClock >= CONFIG.RESULTS_DELAY) this.enterResults();
+      if (this.resultsClock >= this.resultsDelay || (this.resultsDelay === Infinity && this.racers.every((r) => r.ship.status !== 'racing'))) this.enterResults();
     }
   }
 
@@ -418,7 +439,8 @@ export class RaceManager implements IRaceManager {
         r.ship.thrustScale = 1;
         continue;
       }
-      const pace = AI_PACE[r.ship.def.tier ?? 'pilot'];
+      const tier = tierDef(r.ship.def.tier);
+      const pace = { base: tier.paceScale, min: tier.rubberBand.min, max: tier.rubberBand.max };
       let band = 1;
       if (playerRacing) {
         const gap = (r.progress - player.progress) * this.track.length; // + = AI ahead

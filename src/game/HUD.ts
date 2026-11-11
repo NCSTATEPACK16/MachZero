@@ -2,7 +2,10 @@ import { CONFIG } from '../core/config';
 import type { HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackData } from '../core/contracts';
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
+import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
+import type { ItemView } from './ItemSystem';
 import { Minimap } from './Minimap';
+import type { RosterEntry } from './pilotPortrait';
 import '../ui/tokens.css';
 import './hud.css';
 
@@ -88,8 +91,15 @@ export class HUD implements IHUD {
   private readonly boostBox: HTMLElement;
   private readonly boostText: Txt;
   private readonly itemsBox: HTMLElement;
+  private readonly itemsName: Txt;
   private readonly itemsVal: Txt;
-  private shownItems: number | null | undefined = undefined;
+  private readonly itemsShield: Txt;
+  private readonly itemsKinds: { node: HTMLElement; txt: Txt }[] = [];
+  private readonly warnBox: HTMLElement;
+  private readonly draftBox: HTMLElement;
+  private readonly introEl: HTMLElement;
+  private readonly roster: readonly RosterEntry[];
+  private shownItems: string | null | undefined = undefined;
   private readonly speedBox: HTMLElement;
   private readonly speedArc: SVGPathElement;
   /** A wide faint copy of the arc under it: the glow, without a CSS filter re-rasterised every frame. */
@@ -129,8 +139,9 @@ export class HUD implements IHUD {
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
-    opts: { showTitle?: boolean } = {},
+    opts: { showTitle?: boolean; roster?: readonly RosterEntry[] } = {},
   ) {
+    this.roster = opts.roster ?? [];
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
     root.appendChild(c);
@@ -151,7 +162,7 @@ export class HUD implements IHUD {
         ['A D / ← →', 'STEER'],
         ['Q  E', 'AIR-BRAKES'],
         ['SPACE / SHIFT', 'BOOST (LAP 2+)'],
-        ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
+        this.actions.cup ? ['ESC  M', 'PAUSE  MUTE'] : ['ESC  M  R', 'PAUSE  MUTE  RESTART'],
       ]) {
         const row = el('div', 'row', undefined, kb);
         el('kbd', undefined, k, row);
@@ -231,10 +242,27 @@ export class HUD implements IHUD {
 
     const items = panel('mz-items', race);
     this.itemsBox = items.outer;
-    el('span', 'mz-label', '⚡ EMP', items.inner);
-    this.itemsVal = new Txt(el('span', 'mz-num mz-items-val', '0', items.inner));
-    prompt('mz-items-key', 'F', 'Ⓨ', items.inner);
+    const head = el('div', 'mz-items-head', undefined, items.inner);
+    this.itemsName = new Txt(el('span', 'mz-label mz-items-name', '⚡ EMP', head));
+    this.itemsVal = new Txt(el('span', 'mz-num mz-items-val', '0', head));
+    prompt('mz-items-key', 'F', 'Ⓨ', head);
+    this.itemsShield = new Txt(el('span', 'mz-num mz-items-shield', '', head));
+    const kinds = el('div', 'mz-items-kinds', undefined, items.inner);
+    for (const k of ITEM_KINDS) {
+      const node = el('span', 'mz-items-kind', undefined, kinds);
+      node.dataset.k = k;
+      this.itemsKinds.push({ node, txt: new Txt(node) });
+    }
+    prompt('mz-items-key mz-items-pick', 'C', '◀ ▶', kinds);
     this.itemsBox.hidden = true;
+    this.warnBox = el('div', 'mz-emp-warn', '⚠ EMP INCOMING', race);
+    this.warnBox.hidden = true;
+    // Slipstream: an icon-first chip while the player drafts (physics/Drafting.ts).
+    this.draftBox = el('div', 'mz-draft', undefined, race);
+    this.draftBox.setAttribute('role', 'status');
+    el('span', 'mz-draft-icon', '≋', this.draftBox);
+    el('span', 'mz-draft-text', 'DRAFT', this.draftBox);
+    this.draftBox.hidden = true;
 
     this.speedBox = el('div', 'mz-speed', undefined, race);
     const gauge = svg('svg', { viewBox: '0 0 200 200' }, this.speedBox);
@@ -270,14 +298,22 @@ export class HUD implements IHUD {
     this.pauseEl = pause;
     el('h1', 'mz-heading', 'PAUSED', pause);
     const prow = el('div', 'mz-btnrow', undefined, pause);
+    // A Grand Prix cup race can't be restarted: RETIRE (no points from this race) replaces RESTART and MENU.
+    const cup = this.actions.cup;
     this.button('mz-btn', 'RESUME', () => this.actions.onResume(), prow);
-    this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
+    if (!cup) this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
     if (this.actions.onSettings) this.button('mz-btn', 'SETTINGS', () => this.actions.onSettings?.(), prow);
-    if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
+    if (cup) this.button('mz-btn danger', 'RETIRE', () => cup.onRetire(), prow);
+    else if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
     this.addMute(prow);
-    prompt('mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', `Ⓐ / START RESUME  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, pause);
+    if (cup) prompt('mz-hint', 'ESC RESUME  •  M MUTE  •  RETIRE SCORES NO POINTS', 'Ⓐ / START RESUME  •  ✥ CHOOSE  •  RETIRE SCORES NO POINTS', pause);
+    else prompt('mz-hint', 'ESC RESUME  •  R RESTART  •  M MUTE', `Ⓐ / START RESUME  •  ✥ CHOOSE${this.actions.onMenu ? '  •  Ⓑ MENU' : ''}`, pause);
 
     this.resultsEl = el('section', 'mz-screen mz-results', undefined, c);
+
+    // ------------------------------------------------------------ pilot intro card (before the countdown)
+    this.introEl = el('section', 'mz-intro', undefined, c);
+    this.buildIntro(track.name);
 
     // ------------------------------------------------------------ events
     this.offs.push(
@@ -302,26 +338,47 @@ export class HUD implements IHUD {
       bus.on('race:state', (e) => {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
         if (e.state === 'title' || e.state === 'countdown') this.earned = null;
+        if (e.state === 'title' || e.state === 'results') this.draftBox.hidden = true;
       }),
       bus.on('economy:credits', (e) => (this.earned = e)),
+      bus.on('ship:draft', (e) => {
+        if (e.shipId === PLAYER_ID) this.draftBox.hidden = !e.active;
+      }),
       bus.on('item:emp', (e) => {
         if (e.from === PLAYER_ID) this.toast(`EMP → ${e.targetName}`, 'good');
         else if (e.target === PLAYER_ID) this.toast('EMP HIT', 'bad');
       }),
       bus.on('item:fail', (e) => {
-        if (e.shipId === PLAYER_ID) this.toast(e.reason === 'empty' ? 'NO EMP LEFT' : 'NO TARGET AHEAD', 'warn', true);
+        if (e.shipId === PLAYER_ID) this.toast(e.reason === 'empty' ? `NO ${ITEM_NAMES[e.kind]} LEFT` : 'NO TARGET AHEAD', 'warn', true);
+      }),
+      bus.on('item:use', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast(e.kind === 'shield' ? '🛡 SHIELD UP' : '✷ MINE DROPPED', 'good', true);
+      }),
+      bus.on('item:shield', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : '🛡 MINE BLOCKED', 'good');
       }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
   }
 
-  /** The player's EMP count, or null when the player carries no items (chip hidden). */
-  setItems(n: number | null): void {
-    if (n === this.shownItems) return;
-    this.shownItems = n;
-    this.itemsBox.hidden = n === null;
-    this.itemsVal.set(`×${n ?? 0}`);
-    this.itemsBox.dataset.s = n ? 'ready' : 'empty';
+  /** The player's items (selected kind, counts, shield, incoming EMP), or null when they carry none (chip hidden). */
+  setItems(v: ItemView | null): void {
+    const key = v === null ? null : `${v.selected}|${v.counts.emp},${v.counts.shield},${v.counts.mine}|${v.shield > 0 ? Math.ceil(v.shield) : 0}|${v.incoming > 0 ? 1 : 0}`;
+    if (key === this.shownItems) return;
+    this.shownItems = key;
+    this.itemsBox.hidden = v === null;
+    this.warnBox.hidden = v === null || v.incoming <= 0;
+    if (v === null) return;
+    const n = v.counts[v.selected];
+    this.itemsName.set(`${ITEM_ICONS[v.selected]} ${ITEM_NAMES[v.selected]}`);
+    this.itemsVal.set(`×${n}`);
+    this.itemsShield.set(v.shield > 0 ? `🛡 ${Math.ceil(v.shield)}s` : '');
+    ITEM_KINDS.forEach((k, i) => {
+      const chip = this.itemsKinds[i];
+      chip.txt.set(`${ITEM_ICONS[k]}${v.counts[k]}`);
+      chip.node.dataset.sel = k === v.selected ? '1' : '0';
+    });
+    this.itemsBox.dataset.s = v.shield > 0 ? 'shield' : n > 0 ? 'ready' : 'empty';
   }
 
   /** Unsubscribe and remove the DOM (RaceSession.dispose). */
@@ -529,6 +586,10 @@ export class HUD implements IHUD {
     const table = el('div', 'mz-table', undefined, body);
     el('div', 'head', 'FINAL STANDINGS', table);
     for (const s of snap.standings) table.appendChild(this.standingRow(s));
+    // A rival who wins gets the last word.
+    const winner = snap.standings.find((s) => s.position === 1);
+    const quote = winner && winner.id !== PLAYER_ID ? this.roster.find((r) => r.id === winner.id)?.catchphrase : null;
+    if (winner && quote) el('div', 'mz-winner-quote', `“${quote}” — ${winner.name}`, table);
 
     const lapsBox = el('div', 'mz-lapstable', undefined, body);
     el('div', 'head', 'YOUR LAPS', lapsBox);
@@ -555,6 +616,13 @@ export class HUD implements IHUD {
     }
 
     const row = el('div', 'mz-btnrow', undefined, root);
+    const cup = this.actions.cup;
+    if (cup) {
+      this.button('mz-btn big', 'CUP STANDINGS', () => cup.onStandings(), row);
+      this.addMute(row);
+      prompt('mz-hint', 'PRESS ENTER FOR THE CUP STANDINGS', 'Ⓐ CUP STANDINGS', root);
+      return;
+    }
     this.button('mz-btn big', 'RACE AGAIN', () => this.actions.onRestart(), row);
     if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), row);
     this.addMute(row);
@@ -575,10 +643,41 @@ export class HUD implements IHUD {
     }
   }
 
+  /** The grid intro card: every racer in grid order with portrait, ship and catchphrase. */
+  private buildIntro(trackName: string): void {
+    const root = this.introEl;
+    el('div', 'mz-intro-kicker', trackName, root);
+    el('h2', 'mz-intro-head', 'THE GRID', root);
+    const grid = el('div', 'mz-intro-grid', undefined, root);
+    for (const r of [...this.roster].sort((a, b) => a.gridIndex - b.gridIndex)) {
+      const row = el('div', r.id === PLAYER_ID ? 'mz-intro-row player' : 'mz-intro-row', undefined, grid);
+      el('span', 'slot', `P${r.gridIndex + 1}`, row);
+      const face = el('span', 'face', undefined, row);
+      face.innerHTML = r.portrait; // constant recipe markup (game/pilotPortrait.ts)
+      const who = el('span', 'who', undefined, row);
+      el('span', 'name', r.name, who);
+      el('span', 'ship', r.ship, who);
+      el('span', 'quote', r.catchphrase ? `“${r.catchphrase}”` : 'YOU', row);
+    }
+    prompt('mz-hint', 'PRESS ANY KEY TO SKIP', 'PRESS ANY BUTTON TO SKIP', root);
+  }
+
+  /** Show or hide the grid intro card (App: before every race, ≈ 3 s, any input skips). */
+  setIntro(on: boolean): void {
+    this.container.classList.toggle('intro', on && this.roster.length > 0);
+  }
+
+  get introShown(): boolean {
+    return this.container.classList.contains('intro');
+  }
+
   private standingRow(s: RacerStanding): HTMLElement {
     const row = el('div', s.id === PLAYER_ID ? 'row player' : 'row');
     el('span', 'pos', String(s.position), row);
-    el('span', undefined, s.name, row);
+    const who = el('span', 'who', undefined, row);
+    const entry = this.roster.find((r) => r.id === s.id);
+    if (entry) el('span', 'face', undefined, who).innerHTML = entry.portrait;
+    el('span', undefined, s.name, who);
     let status: string;
     let time: string;
     if (s.status === 'finished') {

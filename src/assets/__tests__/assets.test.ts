@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 interface CheckResult {
   problems: string[];
-  report: Record<string, number>;
+  report: Record<string, number>; // (hull sizes are arrays)
 }
 type Checker = { checkAssets(root?: string): Promise<CheckResult> };
 
@@ -14,8 +14,12 @@ describe('game assets (public/game)', () => {
   it('ships, parts and world props meet names, sockets, materials, orientation and budgets', async () => {
     const { problems, report } = await (await load()).checkAssets();
     expect(problems).toEqual([]);
-    // 6 ships × 2 LODs + 16 parts + Neon Bay's 7, Sunset Mesa's 9, Cryo Station's 8, Jade Ruins' 8 and Orbital Ring's 5 props.
-    expect(Object.keys(report).length).toBe(6 * 2 + 16 + 7 + 9 + 8 + 8 + 5);
+    // 6 ships × (2 LODs + a hull size) + the trim and ship-asset totals + 16 parts + Neon Bay's 8 (with the X2 airship), Sunset Mesa's 9,
+    // Cryo Station's 8, Jade Ruins' 8 and Orbital Ring's 5 props.
+    expect(Object.keys(report).length).toBe(6 * 3 + 2 + 16 + 8 + 9 + 8 + 8 + 5);
+    // §V.4 budgets: the trim sheet ≤ 400 KB and every ship asset together ≤ 2 MB.
+    expect(report.trimKB).toBeLessThanOrEqual(400);
+    expect(report.shipAssetsKB).toBeLessThanOrEqual(2048);
   });
 
   it('the checker reports missing assets', async () => {

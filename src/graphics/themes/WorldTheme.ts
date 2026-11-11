@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { TrackData } from '../../core/contracts';
 import type { FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 
 export interface ThemeLighting {
   /** Hemisphere light sky / ground colours and intensity. */
@@ -36,6 +37,10 @@ export interface WorldTheme {
   readonly sunDirection: THREE.Vector3;
   /** Heat-shimmer strength for the post chain (0 = none). Applied on Med/High only, never with reduced motion. */
   readonly shimmer: number;
+  /** Weather, atmosphere and light effects, as data (IMPLEMENTATION §X2). Absent = none. */
+  readonly envfx?: EnvFxSpec;
+  /** Material for a prop role of this world's props.glb (drifting set pieces use the theme's own materials). */
+  roleMaterial?(role: string): THREE.Material;
   /** Build the track-dependent scenery (props may be null if they failed to load: procedural fallback). */
   buildScenery(track: TrackData, props: GLTF | null): void;
   /** Quality: fraction of scenery instances drawn. */

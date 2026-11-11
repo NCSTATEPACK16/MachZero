@@ -5,6 +5,11 @@
  * (ShipController.applyMineHit: a knock sideways, away from the mine, and up; MINE_DAMAGE energy under the normal
  * hazard policy, or no energy and the Rookie slow-down) and `hazard:mine`; the mine re-arms MINE_RESPAWN seconds
  * later in the same place on its drift. Track mines move on the hazard clock (track/features/mine.ts).
+ *
+ * Dropped mines (the Drop Mine item, §P) follow the track mines in `mines`, in a fixed pool of DROP_MINE_MAX slots
+ * (no allocation per drop; a free slot is unarmed, so graphics hides it and the AI and the test skip it). A dropped
+ * mine holds still, ignores its dropper for DROP_MINE_GRACE s, and is gone when hit or after DROP_MINE_LIFE s; a
+ * drop into a full pool replaces the oldest.
  */
 import * as THREE from 'three';
 import { CONFIG } from '../core/config';
@@ -43,6 +48,10 @@ export class MineField {
   private readonly local = new THREE.Vector3();
   private readonly invQuat = new THREE.Quaternion();
   private readonly hit: MineHit = { mine: undefined as unknown as MineState, side: new THREE.Vector3(), up: new THREE.Vector3() };
+  /** Index of the first dropped-mine slot (= the number of track mines). */
+  readonly dropBase: number;
+  /** Hazard time each dropped-mine slot was filled (−∞ = free). */
+  private readonly droppedAt: number[] = [];
 
   constructor(private readonly track: TrackData) {
     this.defs = buildMines(track);
@@ -50,13 +59,50 @@ export class MineField {
       this.mines.push({ index: m.index, owner: null, u: 0, lateral: m.lateral, position: new THREE.Vector3(), armed: true });
       this.rearmAt.push(-Infinity);
     }
+    this.dropBase = this.mines.length;
+    for (let k = 0; k < CONFIG.DROP_MINE_MAX; k++) {
+      this.mines.push({ index: this.dropBase + k, owner: null, u: 0, lateral: 0, position: new THREE.Vector3(), armed: false });
+      this.droppedAt.push(-Infinity);
+    }
     this.update(0);
   }
 
-  /** Re-arm every mine and pose them for hazard time t (a race reset). */
+  /** Re-arm every track mine, clear the dropped ones and pose them for hazard time t (a race reset). */
   reset(t: number): void {
     for (let i = 0; i < this.rearmAt.length; i++) this.rearmAt[i] = -Infinity;
+    for (let k = 0; k < this.droppedAt.length; k++) this.droppedAt[k] = -Infinity;
     this.update(t);
+  }
+
+  /** Dropped mines on the track now. */
+  get droppedCount(): number {
+    let n = 0;
+    for (const at of this.droppedAt) if (at > -Infinity) n++;
+    return n;
+  }
+
+  /**
+   * Leave a mine at main-loop (u, lateral), or at `position` when given (a ship on a split path), at hazard
+   * time t. Returns its index in `mines`.
+   */
+  drop(owner: ShipId, u: number, lateral: number, t: number, position?: THREE.Vector3): number {
+    let k = this.droppedAt.indexOf(-Infinity);
+    if (k < 0) {
+      k = 0;
+      for (let j = 1; j < this.droppedAt.length; j++) if (this.droppedAt[j] < this.droppedAt[k]) k = j;
+    }
+    this.droppedAt[k] = t;
+    const m = this.mines[this.dropBase + k];
+    m.owner = owner;
+    m.u = wrap01(u);
+    m.lateral = lateral;
+    if (position) m.position.copy(position);
+    else {
+      const s = (this.sample = this.track.sampleAt(m.u, this.sample));
+      m.position.copy(s.position).addScaledVector(s.right, lateral).addScaledVector(s.up, MINE_LIFT);
+    }
+    m.armed = true;
+    return m.index;
   }
 
   /** Pose the mines and re-arm the ones whose time has come. */
@@ -71,6 +117,10 @@ export class MineField {
       m.position.copy(s.position).addScaledVector(s.right, m.lateral).addScaledVector(s.up, MINE_LIFT);
       m.armed = t >= this.rearmAt[i];
     }
+    for (let k = 0; k < this.droppedAt.length; k++) {
+      if (this.droppedAt[k] > -Infinity && t >= this.droppedAt[k] + CONFIG.DROP_MINE_LIFE) this.droppedAt[k] = -Infinity;
+      this.mines[this.dropBase + k].armed = this.droppedAt[k] > -Infinity;
+    }
   }
 
   /**
@@ -82,6 +132,8 @@ export class MineField {
     for (let i = 0; i < this.mines.length; i++) {
       const m = this.mines[i];
       if (!m.armed || m.position.distanceToSquared(ship.position) > reach * reach) continue;
+      const dropped = i >= this.dropBase;
+      if (dropped && m.owner === ship.id && t < this.droppedAt[i - this.dropBase] + CONFIG.DROP_MINE_GRACE) continue;
       // Mine centre in hull space, then the distance to the box.
       const p = this.local.copy(m.position).sub(ship.position).applyQuaternion(this.invQuat.copy(ship.quaternion).invert());
       const dx = Math.max(Math.abs(p.x) - ship.half.x, 0);
@@ -90,7 +142,8 @@ export class MineField {
       if (dx * dx + dy * dy + dz * dz > MINE_RADIUS * MINE_RADIUS) continue;
 
       m.armed = false;
-      this.rearmAt[i] = t + CONFIG.MINE_RESPAWN;
+      if (dropped) this.droppedAt[i - this.dropBase] = -Infinity;
+      else this.rearmAt[i] = t + CONFIG.MINE_RESPAWN;
       const s = (this.sample = this.track.sampleAt(m.u, this.sample));
       const across = this.sideScratch.copy(ship.position).sub(m.position).dot(s.right);
       // Away from the mine; dead centre, towards the middle of the road.
