@@ -1,13 +1,22 @@
 """
-Build the 16 bolt-on parts (4 slots x 4 tiers) into one parts.glb.
+Build the 32 bolt-on parts into one parts.glb: 4 slots x 4 tiers (variant A, the 2.0 parts), their 12 variant-B
+sidegrades (Mk II, Mk III and Prototype) and the 4 Aero parts (IMPLEMENTATION §X3).
 
   Blender -b --factory-startup -P blender/parts/build_parts.py -- --out <dir>
 
-Each part is a root node named <slot>_t<tier> whose origin is the matching socket on the ship:
+Each part is a root node named <slot>_t<tier> (variant A and Aero) or <slot>_t<tier>b (variant B) whose origin is
+the matching socket on the ship:
   engine     -> socket_engine      (hull tail; the part extends backwards, -Y)
   booster    -> socket_booster_R   (right pod flank; +X is outwards; the runtime mirrors it for the left)
   stabilizer -> socket_stabilizer  (hull top, rear)
   hull       -> socket_hull        (hull top, front)
+  aero       -> socket_aero        (nose deck; canards reach out to both sides)
+
+A variant-B part must read as a different part from its A part at a glance, by silhouette and not only by colour:
+  engine     A one big turbine barrel      B (Sprint)   two small turbines side by side under an intake scoop
+  booster    A a long slim canister        B (Burst)    a short fat canister with a flared bell nozzle
+  stabilizer A a horizontal wing on pylons B (Agility)  twin canted fins (a V tail)
+  hull       A one flat tapered plate      B (Plate)    overlapping stepped armour segments with side skirts
 
 §V V2: the parts follow the approved COMET look (white painted plates, carbon and ribbed dark trim, cyan glow
 strips) and the tier ladder in docs/v2/VEHICLE_CONCEPTS.md (there are no part concepts):
@@ -213,7 +222,171 @@ def hull(t):
     return mb.finish(bounds_of(length))
 
 
+# ------------------------------------------------------------------------------------ variant B: engine
+def engine_b(t):
+    """Sprint: two small turbines side by side in a flat housing, under an intake scoop."""
+    mb = C.MeshBuilder(f"engine_t{t}b_mesh")
+    r = 0.105 + 0.02 * t
+    length = 0.26 + 0.09 * t
+    dx = r * 1.12
+    body = "livery_secondary" if t < 2 else "metal"
+    body_strip = "plate" if t < 2 else "brushed"
+    # the bridge housing between the turbines
+    box(mb, (0.0, -length * 0.3, 0.0), (dx * 2.0, length * 0.6, r * 1.25), body, body_strip)
+    for sx in (-1, 1):
+        cx = sx * dx
+        secs = [(-length, cx, 0.0, r * 0.84, r * 0.84), (-length * 0.5, cx, 0.0, r, r), (-0.04, cx, 0.0, r * 1.03, r * 1.03), (0.0, cx, 0.0, r * 0.7, r * 0.7)]
+        C.loft(mb, secs, 12, 2.0, body, cap_start=False, cap_end=True, strip=body_strip, panels=3)
+        tube(mb, -length - 0.07, -length + 0.005, cx, 0.0, r * 0.76, r * 0.88, 12, "dark", "ribbed", panels=2)
+        C.disc(mb, cx, -length - 0.05, 0.0, r * 0.68, 12, "glow", strip="flat")
+        if t >= 2:  # a glow band round each barrel
+            C.torus_ring(mb, cx, -length * 0.5, 0.0, r * 1.03, 0.014, 12, 4, "glow", strip="flat")
+    # intake scoop on top (a louvred wedge), with a glow slot behind it
+    scoop_h = 0.05 + 0.02 * t
+    box(mb, (0.0, -length * 0.22, r * 0.62 + scoop_h / 2), (dx * 1.3, length * 0.42, scoop_h), "dark", "vent")
+    box(mb, (0.0, -length * 0.46, r * 0.62 + scoop_h * 0.45), (dx * 1.1, 0.02, scoop_h * 0.5), "glow", "flat")
+    if t == 3:  # Prototype: a third, smaller turbine slung under the bridge
+        rr = r * 0.62
+        secs = [(-length * 0.9, 0.0, -r * 1.05, rr * 0.85, rr * 0.85), (-length * 0.4, 0.0, -r * 1.05, rr, rr), (-0.02, 0.0, -r * 1.05, rr * 0.6, rr * 0.6)]
+        C.loft(mb, secs, 12, 2.0, body, cap_start=False, cap_end=True, strip=body_strip, panels=3)
+        tube(mb, -length * 0.9 - 0.05, -length * 0.9 + 0.005, 0.0, -r * 1.05, rr * 0.76, rr * 0.88, 12, "dark", "ribbed", panels=2)
+        C.disc(mb, 0.0, -length * 0.9 - 0.035, -r * 1.05, rr * 0.68, 12, "glow", strip="flat")
+    return mb.finish(bounds_of(dx * 2 + length))
+
+
+# ----------------------------------------------------------------------------------- variant B: booster
+def booster_b(t):
+    """Burst: a short fat canister with a flared bell nozzle (+X outwards), centred on the socket in y."""
+    mb = C.MeshBuilder(f"booster_t{t}b_mesh")
+    r = 0.105 + 0.022 * t
+    length = 0.34 + 0.07 * t
+    x = r * 0.9
+    shell = "livery_secondary" if t < 2 else "dark"
+    shell_strip = "plate" if t < 2 else "carbon"
+    trim = "dark" if t < 2 else "metal"
+    trim_strip = "ribbed" if t < 2 else "brushed"
+    y0, y1 = -length / 2, length / 2
+    secs = [(y0 + 0.05, x, 0.0, r * 0.72, r * 0.72), (y0 + 0.11, x, 0.0, r, r), (y1 - 0.1, x, 0.0, r, r), (y1 - 0.03, x, 0.0, r * 0.74, r * 0.74), (y1, x, 0.0, r * 0.3, r * 0.3)]
+    C.loft(mb, secs, 12, 2.0, shell, cap_start=False, cap_end=True, strip=shell_strip, panels=3)
+    # the bell: wider at the tail than at the throat
+    bell = 0.13 + 0.03 * t
+    tube(mb, y0 - bell, y0 + 0.06, x, 0.0, r * 1.18, r * 0.66, 12, trim, trim_strip, panels=2)
+    C.disc(mb, x, y0 - bell * 0.55, 0.0, r * 0.86, 12, "glow", strip="flat")
+    # mounting saddle against the pod
+    box(mb, (r * 0.15, 0.0, 0.0), (r * 0.5, length * 0.6, r * 0.9), trim, trim_strip)
+    # one glow hoop round the body per tier
+    for k in range(t):
+        C.torus_ring(mb, x, y0 + 0.15 + k * 0.065, 0.0, r * 1.02, 0.013, 12, 4, "glow", strip="flat")
+    if t >= 2:  # Mk III: four steering vanes round the bell
+        for k in range(4):
+            a = k / 4 * math.tau + math.pi / 4
+            box(mb, (x + r * 1.12, y0 - bell * 0.35, 0.0), (0.07, bell * 0.7, 0.02), shell, shell_strip, rot_y=a, about=(x, 0.0))
+    if t == 3:  # Prototype: a pressure tank strapped on top
+        C.loft(mb, [(y0 + 0.1, x, r * 1.25, r * 0.4, r * 0.4), (y1 - 0.08, x, r * 1.25, r * 0.4, r * 0.4)], 10, 2.0, trim, cap_start=True, cap_end=True, strip=trim_strip, panels=2)
+    return mb.finish(bounds_of(length + bell))
+
+
+# -------------------------------------------------------------------------------- variant B: stabilizer
+def stabilizer_b(t):
+    """Agility: twin fins canted outwards (a V tail) on a carbon base plate."""
+    mb = C.MeshBuilder(f"stabilizer_t{t}b_mesh")
+    gap = 0.15 + 0.04 * t
+    h = 0.24 + 0.09 * t
+    chord = 0.3 + 0.05 * t
+    fin_role = "livery_secondary" if t != 2 else "dark"
+    fin_strip = "plate" if t != 2 else "carbon"
+    base = [(-gap - 0.06, -chord * 0.75), (gap + 0.06, -chord * 0.75), (gap + 0.04, 0.0), (-gap - 0.04, 0.0)]
+    C.slab(mb, base, 0.0, 0.028, "dark", strip="carbon", edge_strip="grip")
+    for sx in (-1, 1):
+        C.fin(mb, 0.02, h, chord, chord * 0.42, 0.1 + 0.03 * t, 0.026, fin_role, x=sx * gap, cant=sx * 0.5, strip=fin_strip, y=-chord * 0.38)
+        # a glow strip along each fin root
+        gl = [(sx * gap - 0.02, -chord * 0.7), (sx * gap + 0.02, -chord * 0.7), (sx * gap + 0.02, -chord * 0.06), (sx * gap - 0.02, -chord * 0.06)]
+        C.slab(mb, gl, 0.028, 0.036, "glow", strip="flat")
+    if t >= 2:  # Mk III: a louvred vent between the fins
+        C.slab(mb, [(-gap * 0.55, -chord * 0.6), (gap * 0.55, -chord * 0.6), (gap * 0.55, -chord * 0.15), (-gap * 0.55, -chord * 0.15)], 0.028, 0.04, "dark", strip="vent")
+    if t == 3:  # Prototype: a short centre fin with a glow tip
+        C.fin(mb, 0.03, h * 0.6, chord * 0.8, chord * 0.35, 0.1, 0.022, "dark", x=0.0, strip="carbon", y=-chord * 0.4)
+        C.slab(mb, [(-0.014, -chord * 0.4 - 0.1 - chord * 0.175), (0.014, -chord * 0.4 - 0.1 - chord * 0.175), (0.014, -chord * 0.4 - 0.1 + chord * 0.175), (-0.014, -chord * 0.4 - 0.1 + chord * 0.175)], 0.03 + h * 0.6, 0.03 + h * 0.6 + 0.012, "glow", strip="flat")
+    return mb.finish(bounds_of(gap + h))
+
+
+# -------------------------------------------------------------------------------------- variant B: hull
+def hull_b(t):
+    """Plate: overlapping armour segments stepping up towards the tail, with side skirts (tapers to the nose, +Y)."""
+    mb = C.MeshBuilder(f"hull_t{t}b_mesh")
+    w = 0.2 + 0.07 * t
+    length = 0.42 + 0.17 * t
+    th = 0.04 + 0.012 * t
+    n = t + 1  # 2, 3, 4 segments
+    body = "livery_secondary" if t < 2 else "metal"
+    body_strip = "plate" if t < 2 else "brushed"
+    seg = length / n
+    for k in range(n):  # k = 0 at the nose end
+        y1 = length / 2 - k * seg
+        y0 = y1 - seg * 1.18  # each segment overlaps the one behind it
+        f0 = 1.0 - 0.4 * max(0.0, (y0 + length / 2) / length)
+        f1 = 1.0 - 0.4 * (y1 + length / 2) / length
+        z = k * 0.014
+        plate = [(-w * f0, y0), (w * f0, y0), (w * f1, y1), (-w * f1, y1)]
+        C.slab(mb, plate, z, z + th, body, strip=body_strip, edge_strip="grip")
+        # a dark rib across the leading edge of each segment
+        C.slab(mb, [(-w * f1 * 0.9, y1 - 0.035), (w * f1 * 0.9, y1 - 0.035), (w * f1 * 0.9, y1 - 0.012), (-w * f1 * 0.9, y1 - 0.012)], z + th, z + th + 0.012, "dark", strip="ribbed")
+    if t >= 2:  # Mk III: a glow slit under the rearmost segment
+        zr = (n - 1) * 0.014
+        C.slab(mb, [(-w * 0.8, -length / 2 - 0.012), (w * 0.8, -length / 2 - 0.012), (w * 0.8, -length / 2), (-w * 0.8, -length / 2)], zr + 0.006, zr + th - 0.006, "glow", strip="flat")
+    # side skirts: dark armour hanging off both edges
+    for sx in (-1, 1):
+        x0 = sx * (w * 0.92)
+        x1 = sx * (w + 0.07 + 0.03 * t)
+        side = [(x0, -length / 2 + 0.02), (x1, -length / 2 + 0.07), (x1, length * 0.12), (x0, length * 0.3)]
+        if sx < 0:
+            side = list(reversed(side))
+        C.slab(mb, side, -0.05 - 0.01 * t, th * 0.6, "dark", strip="carbon", edge_strip="ribbed")
+    if t == 3:  # Prototype: a glow seam down the spine of the two rear segments
+        zr = (n - 1) * 0.014 + th
+        C.slab(mb, [(-0.014, -length / 2 + 0.04), (0.014, -length / 2 + 0.04), (0.014, -length / 2 + seg * 1.6), (-0.014, -length / 2 + seg * 1.6)], zr, zr + 0.012, "glow", strip="flat")
+    return mb.finish(bounds_of(length))
+
+
+# -------------------------------------------------------------------------------------------------- aero
+def aero(t):
+    """Canards on the nose deck (IMPLEMENTATION §X3). Stock is a small splitter lip; each tier adds span."""
+    mb = C.MeshBuilder(f"aero_t{t}_mesh")
+    span = 0.18 + 0.1 * t
+    chord = 0.12 + 0.035 * t
+    h = 0.03 + 0.012 * t
+    wing = "livery_secondary" if t < 2 else "dark"
+    wing_strip = "plate" if t < 2 else "carbon"
+    # the centre mount
+    C.slab(mb, [(-0.055, -chord), (0.055, -chord), (0.04, chord * 0.5), (-0.04, chord * 0.5)], 0.0, h, "dark", strip="carbon", edge_strip="grip")
+    if t == 0:  # Stock: a short painted lip
+        C.slab(mb, [(-span, -chord * 0.5), (span, -chord * 0.5), (span * 0.7, chord * 0.3), (-span * 0.7, chord * 0.3)], h, h + 0.014, wing, strip=wing_strip, edge_strip="grip")
+        return mb.finish(bounds_of(span))
+    for sx in (-1, 1):  # swept canards
+        c = [(sx * 0.04, -chord * 0.3), (sx * span, -chord * 1.15), (sx * span, -chord * 0.65), (sx * 0.04, chord * 0.5)]
+        if sx < 0:
+            c = list(reversed(c))
+        C.slab(mb, c, h, h + 0.018, wing, strip=wing_strip, edge_strip="grip")
+        # glow tip
+        tip = [(sx * span, -chord * 1.15), (sx * (span + 0.014), -chord * 1.15), (sx * (span + 0.014), -chord * 0.65), (sx * span, -chord * 0.65)]
+        if sx < 0:
+            tip = list(reversed(tip))
+        C.slab(mb, tip, h + 0.002, h + 0.016, "glow", strip="flat")
+        if t >= 2:  # Mk III: end plates
+            C.fin(mb, h - 0.03, 0.09 + 0.02 * t, chord * 0.7, chord * 0.4, 0.03, 0.016, wing, x=sx * (span + 0.02), strip=wing_strip, y=-chord * 0.9)
+    if t == 3:  # Prototype: a second, shorter pair above on a centre pylon
+        C.slab(mb, [(-0.02, -chord * 0.8), (0.02, -chord * 0.8), (0.02, -chord * 0.2), (-0.02, -chord * 0.2)], h, h + 0.09, "dark", strip="carbon")
+        for sx in (-1, 1):
+            c = [(sx * 0.02, -chord * 0.4), (sx * span * 0.62, -chord * 1.0), (sx * span * 0.62, -chord * 0.62), (sx * 0.02, chord * 0.1)]
+            if sx < 0:
+                c = list(reversed(c))
+            C.slab(mb, c, h + 0.09, h + 0.104, wing, strip=wing_strip, edge_strip="grip")
+        C.slab(mb, [(-span * 0.62, -chord * 1.03), (span * 0.62, -chord * 1.03), (span * 0.62, -chord * 1.0), (-span * 0.62, -chord * 1.0)], h + 0.092, h + 0.102, "glow", strip="flat")
+    return mb.finish(bounds_of(span + chord))
+
+
 BUILDERS = {"engine": engine, "booster": booster, "stabilizer": stabilizer, "hull": hull}
+BUILDERS_B = {"engine": engine_b, "booster": booster_b, "stabilizer": stabilizer_b, "hull": hull_b}
 MAX_ROLES = 3
 
 
@@ -223,18 +396,21 @@ def main():
     objs = []
     meshes = []
     report = {}
-    for slot, fn in BUILDERS.items():
-        for t in range(4):
-            root = bpy.data.objects.new(f"{slot}_t{t}", None)
-            bpy.context.scene.collection.objects.link(root)
-            mesh = fn(t)
-            mesh.parent = root
-            objs += [root, mesh]
-            meshes.append(mesh)
-            roles = [m.name for m in mesh.data.materials]
-            if len(roles) > MAX_ROLES:
-                raise RuntimeError(f"{root.name} uses {len(roles)} roles {roles} > {MAX_ROLES}")
-            report[root.name] = (C.triangle_count(mesh), len(roles))
+    # (node name, builder, tier): variant A first so the 2.0 parts keep their order in the file
+    jobs = [(f"{slot}_t{t}", fn, t) for slot, fn in BUILDERS.items() for t in range(4)]
+    jobs += [(f"{slot}_t{t}b", fn, t) for slot, fn in BUILDERS_B.items() for t in (1, 2, 3)]
+    jobs += [(f"aero_t{t}", aero, t) for t in range(4)]
+    for name, fn, t in jobs:
+        root = bpy.data.objects.new(name, None)
+        bpy.context.scene.collection.objects.link(root)
+        mesh = fn(t)
+        mesh.parent = root
+        objs += [root, mesh]
+        meshes.append(mesh)
+        roles = [m.name for m in mesh.data.materials]
+        if len(roles) > MAX_ROLES:
+            raise RuntimeError(f"{root.name} uses {len(roles)} roles {roles} > {MAX_ROLES}")
+        report[root.name] = (C.triangle_count(mesh), len(roles))
     C.bake_vertex_ao(meshes, samples=64, distance=0.25)
     path = os.path.join(out_dir, "parts.glb")
     C.export_glb(path, objs, texcoords=True)

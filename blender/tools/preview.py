@@ -37,11 +37,19 @@ def main():
         for f in files:
             bpy.ops.import_scene.gltf(filepath=f)
         roots = sorted((o for o in bpy.data.objects if o.parent is None), key=lambda o: o.name)
-        slots = sorted({r.name.split("_t")[0] for r in roots}, key=lambda s: ["engine", "booster", "stabilizer", "hull"].index(s) if s in ("engine", "booster", "stabilizer", "hull") else 9)
+        # One row per line of parts: a slot's variant-B parts (<slot>_t<tier>b, IMPLEMENTATION §X3) sit in their
+        # own row under its variant-A parts, so each B part is right below the A part it replaces.
+        order = ["engine", "engine b", "booster", "booster b", "stabilizer", "stabilizer b", "hull", "hull b", "aero"]
+
+        def row_of(name):
+            slot, rest = name.split("_t")
+            return f"{slot} b" if rest.endswith("b") else slot
+
+        slots = sorted({row_of(r.name) for r in roots}, key=lambda s: order.index(s) if s in order else 99)
         cols, rows, spacing = 4, len(slots), 2.6
         for r in roots:
-            slot, tier = r.name.split("_t")[0], int(r.name.split("_t")[1][0])
-            r.location = Vector((tier * spacing, -slots.index(slot) * spacing, 0))
+            tier = int(r.name.split("_t")[1][0])
+            r.location = Vector((tier * spacing, -slots.index(row_of(r.name)) * spacing, 0))
             r.rotation_euler = (0, 0, math.radians(180))
         files = []
     else:
@@ -79,6 +87,14 @@ def main():
     else:  # parts sheet: from behind-right and above, rows level across the image
         cam.data.ortho_scale = cols * spacing * 1.08
         cam.location = Vector((cx + 3, cy - 12, 8))
+        if rows > 5:  # the full 2.1 sheet (A, B and Aero rows): straight from behind so the columns stay upright
+            cam.location = Vector((cx, cy - 12, 8))
+            width = cols * spacing * 1.08
+            # rows recede from the camera: each takes spacing x sin(elevation) of the image height
+            height = (rows - 1) * spacing * (8 / math.hypot(12, 8)) + spacing * 1.2
+            scene.render.resolution_y = round(scene.render.resolution_x * height / width)
+            # ortho_scale spans the longer side of the image
+            cam.data.ortho_scale = max(width, height)
     direction = Vector((cx, cy, 0)) - cam.location
     cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
     scene.render.filepath = os.path.abspath(out)

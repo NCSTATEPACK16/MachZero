@@ -526,7 +526,8 @@ def build_wisp(lod_level, bounds):
 # crisp edges), a long flat pointed nose, a long low faceted canopy, a thin glowing yellow pinline along the chine
 # over a dark underbody, slim faceted pods with forward intakes and dark carbon panels, straight-edged wings and
 # twin canted fins (the concept overrides the prompt's single centre fin).
-ARROW = dict(hullHW=0.56, hullTop=0.1, podX=0.8, podR=0.17, podZ0=-0.25, podZ1=2.15, noseZ=-2.75, tailZ=2.15, halfW=1.14)
+ARROW = dict(hullHW=0.56, hullTop=0.1, podX=0.8, podR=0.17, podZ0=-0.25, podZ1=2.15, noseZ=-2.75, tailZ=2.15, halfW=1.14,
+             aeroS=0.2)  # the nose is a point: the Aero part sits further back, where the deck is wide enough
 ARROW_PROFILE = [
     (0.0, 0.06, -0.2, -0.17),
     (0.08, 0.25, -0.26, -0.1),
@@ -797,6 +798,18 @@ COMET_SOCKETS = dict(podX=0.86, podR=0.27, podZ0=0.0, podZ1=1.75, hullTop=0.12, 
 GROUNDED = {"comet": (build_comet, COMET_SOCKETS), "dart": (build_dart, DART), "wisp": (build_wisp, WISP), "arrow": (build_arrow, ARROW), "titan": (build_titan, TITAN), "bastion": (build_bastion, BASTION)}
 
 
+PROFILES = {"comet": COMET_PROFILE, "dart": DART_PROFILE, "wisp": WISP_PROFILE, "arrow": ARROW_PROFILE, "titan": TITAN_PROFILE, "bastion": BASTION_PROFILE}
+
+
+def profile_top(profile, s):
+    """Height of the hull's top at s (0 nose .. 1 tail), interpolated from a profile's (s, width, bottom, top) rows."""
+    for (a, b) in zip(profile, profile[1:]):
+        if a[0] <= s <= b[0]:
+            k = (s - a[0]) / (b[0] - a[0])
+            return a[3] + k * (b[3] - a[3])
+    return profile[-1][3]
+
+
 def grounded_bounds(g):
     """COLOR_0 body box of a §V chassis: tip of the nose (or spike) to the tail, out to its widest point."""
     tail = y_of(g.get("tailZ", HULL_TAIL_Z)) - 0.1
@@ -824,12 +837,19 @@ def build(cid, out_dir):
     # part sockets on the deck; a §V chassis may move them (a big canopy, a low tail)
     stab = d.get("stabSock", (1.35, d["hullTop"] - 0.01))
     hull_s = d.get("hullSock", (-0.95, d["hullTop"] - 0.04))
+    # Aero (IMPLEMENTATION §X3): on the nose deck, `aeroS` of the way from the nose to the tail, at the hull's
+    # own height there (read from the chassis profile).
+    aero_s = d.get("aeroS", 0.1)
+    nose = d["noseZ"]
+    aero_z = nose + aero_s * (d.get("tailZ", HULL_TAIL_Z) - nose)
+    aero_top = profile_top(PROFILES[cid], aero_s) - 0.012
     sockets = [
         ("socket_engine", (0.0, tail + 0.05, -0.12)),
         ("socket_booster_L", (-edge + 0.02, pod_mid, POD_Z)),
         ("socket_booster_R", (edge - 0.02, pod_mid, POD_Z)),
         ("socket_stabilizer", (0.0, y_of(stab[0]), stab[1])),
         ("socket_hull", (0.0, y_of(hull_s[0]), hull_s[1])),
+        ("socket_aero", (0.0, y_of(aero_z), aero_top)),
         ("socket_exhaust_L", (-d["podX"], pod_tail - 0.08, POD_Z)),
         ("socket_exhaust_R", (d["podX"], pod_tail - 0.08, POD_Z)),
         ("socket_camera", (0.0, tail - 7.0, 2.4)),
