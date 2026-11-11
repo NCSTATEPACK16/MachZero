@@ -1058,7 +1058,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X0 | Design docs (this section, SPEC §10, `WORLD_CONCEPTS.md`) | `v2/x-design-docs` | — | — |
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
-| X3 ✅ built (#X3PR) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
+| X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
@@ -1220,9 +1220,9 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X3 — Upgrades: sidegrades and the Aero slot — ✅ BUILT (PR #X3PR; waiting on the user's look approval of the new parts and the device gate)
+### X3 — Upgrades: sidegrades and the Aero slot — ✅ BUILT (PR #35; waiting on the user's look approval of the new parts and the device gate)
 
-**As built (PR #X3PR)** (read before X4):
+**As built (PR #35)** (read before X4):
 - **Data:** `content/parts.ts` holds variant A (`PART_EFFECTS`, the 2.0 numbers, unchanged), variant B (`PART_EFFECTS_B`) and `AERO_EFFECTS`. Helpers: `hasVariants(slot, tier)`, `variantOf`, `partKey` / `parsePartKey` (`'0'`, `'1a'`, `'3b'`), `partName` ("Mk III Sprint"), `PART_VARIANT_NAMES`, `STOCK_VARIANTS`. Stock and Aero have one line of parts: their variant is always `'a'`.
 - **Contracts:** `PartSlot` has `'aero'`; `PartVariant = 'a' | 'b'`; `ShipStats` has `draftScale`, `pushScale`, `airSteerScale`, `ramMass` (all 1 on a 2.0 loadout).
 - **Physics:** `ShipStatsResolver` picks each slot's table by variant. `ShipController` multiplies the slipstream by `draftScale` and the air steering by `airSteerScale`. `PhysicsSystem` sets the collider density to `mass × ramMass`. **`pushScale` has no reader yet: X4's wind and X6's jets must multiply their push by it.**

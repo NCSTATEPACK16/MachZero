@@ -5,9 +5,9 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
 
 ## Where things stand (2026-11-10, the 2.1 design session)
 
-- **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #X3PR** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. X4's wind must multiply its push by `ShipStats.pushScale` (the Aero stat from X3).
+- **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #35** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. X4's wind must multiply its push by `ShipStats.pushScale` (the Aero stat from X3).
 - **`expansion` is still off.** Turn it on when the user approves the look of X3's parts.
-- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34 → #X3PR.
+- **Stack now:** #21, #22, #23 → #24 → #28 → #31 (V3 catch-up) → #32 → #33 → #34 → #35.
 
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
