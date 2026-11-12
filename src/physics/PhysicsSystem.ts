@@ -23,6 +23,8 @@ import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../tra
 import { MineField, type MineState } from './MineField';
 import { Drafting } from './Drafting';
 import { MINE_LIFT } from '../track/features/mine';
+import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
+import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikeActive, strikeCycle } from '../track/features/lightning';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -99,6 +101,13 @@ export class PhysicsSystem implements IPhysicsSystem {
   /** Mines (Orbital Ring): trigger spheres on the hazard clock. */
   private readonly mineField: MineField;
   private readonly drafting: Drafting;
+  /** Crosswind zones and lightning strike points (Tempest Spire), both on the hazard clock. */
+  readonly winds: readonly BuiltWind[];
+  readonly strikes: readonly BuiltStrike[];
+  /** The strike cycle in which each ship was last hit by each point (key ship·1024 + strike): one hit per strike. */
+  private readonly strikeHitCycle = new Map<number, number>();
+  private readonly strikeLocal = new THREE.Vector3();
+  private readonly strikeInv = new THREE.Quaternion();
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -147,6 +156,8 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.poseObstacles(true);
     this.mineField = new MineField(track);
     this.drafting = new Drafting(bus);
+    this.winds = buildWinds(track);
+    this.strikes = buildStrikes(track);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -280,6 +291,53 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.raceClock = 0;
     this.poseObstacles(true);
     this.mineField.reset(0);
+    this.strikeHitCycle.clear();
+  }
+
+  /** The crosswind (m/s² along the road's right) at main-loop u now. */
+  windAt(u: number): number {
+    return windAt(this.winds, u * this.track.length, this.track.length, this.raceClock);
+  }
+
+  /** Hand each ship the crosswind where it is: grounded ships on the main loop that are racing or have finished. */
+  private applyWind(): void {
+    for (const c of this.controllerList) {
+      const s = c.state;
+      const active = (s.status === 'racing' || s.status === 'finished') && s.path === null;
+      c.setWind(active ? this.windAt(s.trackU) : 0);
+    }
+  }
+
+  /**
+   * Lightning: while a point strikes, every racing hull inside its circle is hit once (a sphere of STRIKE_RADIUS at
+   * hull height against the hull box, like a mine). A raised shield takes the strike instead, and drops.
+   */
+  private checkLightning(): void {
+    const t = this.raceClock;
+    for (const k of this.strikes) {
+      if (!strikeActive(k, t)) continue;
+      const cycle = strikeCycle(k, t);
+      for (const c of this.controllerList) {
+        const s = c.state;
+        if ((s.status !== 'racing' && s.status !== 'finished') || !c.isColliderEnabled) continue;
+        const key = s.def.id * 1024 + k.index;
+        if (this.strikeHitCycle.get(key) === cycle) continue;
+        const half = c.hullHalf;
+        const p = this.strikeLocal.copy(k.center).sub(s.position).applyQuaternion(this.strikeInv.copy(s.quaternion).invert());
+        const dx = Math.max(Math.abs(p.x) - half.x, 0);
+        const dy = Math.max(Math.abs(p.y) - half.y, 0);
+        const dz = Math.max(Math.abs(p.z) - half.z, 0);
+        if (dx * dx + dy * dy + dz * dz > STRIKE_RADIUS * STRIKE_RADIUS) continue;
+        this.strikeHitCycle.set(key, cycle);
+        if (s.shield > 0) {
+          s.shield = 0;
+          this.bus.emit('item:shield', { shipId: s.def.id, blocked: 'lightning', point: s.position.clone() });
+          continue;
+        }
+        c.applyStrike(this.hazards);
+        this.bus.emit('hazard:lightning', { shipId: s.def.id, strike: k.index, point: s.position.clone() });
+      }
+    }
   }
 
   private addObstacle(kind: Obstacle['kind'], index: number, width: number, height: number, length: number): void {
@@ -343,6 +401,7 @@ export class PhysicsSystem implements IPhysicsSystem {
 
     const list = this.controllerList;
     this.drafting.update(this.ships, dt);
+    if (this.winds.length > 0) this.applyWind();
 
     // 1. Render-interpolation history first, then per-ship simulation.
     for (let i = 0; i < list.length; i++) list[i].beginStep();
@@ -365,6 +424,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     }
     for (const pair of this.activePairs.values()) this.resolveShipContact(pair[0], pair[1]);
     this.checkMines();
+    if (this.strikes.length > 0) this.checkLightning();
 
     // 4. Projection, zones, energy, safety respawn.
     for (let i = 0; i < list.length; i++) list[i].finishStep(dt);

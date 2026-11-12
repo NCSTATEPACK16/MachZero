@@ -10,6 +10,7 @@ import { clamp, clamp01, damp, inLoopRange, wrapAngle } from '../core/math';
 import { DRAFT } from './Drafting';
 import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
+import { STRIKE_DAMAGE, STRIKE_JAM } from '../track/features/lightning';
 
 /**
  * Physics-only tuning that is not part of the shared CONFIG. Everything the
@@ -60,6 +61,8 @@ export const TUNING = {
   RESPAWN_SPEED_FACTOR: 0.3,
   /** Zones only affect ships hovering within this height of the surface. */
   ZONE_MAX_HEIGHT: 6,
+  /** Crosswind (m/s²) above which a ship counts as in a gust (the ship:wind event). */
+  WIND_EVENT_MIN: 0.7,
   // --- collision response ---
   /** Minimum closing speed (m/s) to count as an impact. */
   IMPACT_MIN_SPEED: 0.8,
@@ -191,6 +194,11 @@ export class ShipController {
   private lastRailEventTime = -Infinity;
 
   private colliderEnabled = true;
+
+  /** Crosswind on the ship this step (m/s² along the road's right, before pushScale): set by the PhysicsSystem. */
+  private windPush = 0;
+  /** Direction of the gust the ship last reported (ship:wind), 0 while none pushes it. */
+  private windDir: 0 | 1 | -1 = 0;
 
   /** Per-ship handling (Balanced Stock = v1 CONFIG). */
   private get stats(): ShipStats {
@@ -423,6 +431,9 @@ export class ShipController {
       f = f + (Math.sign(f || 1) * keep - f) * transfer;
       lat = latNew;
 
+      // Crosswind (track/features/wind.ts): a push across the road on a grounded ship. Aero parts cut it.
+      if (this.windPush !== 0 && grounded) lat += this.windPush * this.stats.pushScale * this.sampleRight.dot(this.right) * dt;
+
       // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth) and the rails come back
       // there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
       const guard = this.seamGuard();
@@ -566,6 +577,33 @@ export class ShipController {
     }
   }
 
+  /**
+   * The crosswind at the ship this step (m/s² along the road's right; 0 = none). Emits ship:wind when a gust starts
+   * or stops pushing the ship.
+   */
+  setWind(push: number): void {
+    this.windPush = push;
+    const dir = Math.abs(push) > TUNING.WIND_EVENT_MIN ? (push > 0 ? 1 : -1) : 0;
+    if (dir === this.windDir) return;
+    const last = this.windDir;
+    this.windDir = dir;
+    // A gust that swings round (two zones back to back) reports the new direction.
+    this.bus.emit('ship:wind', { shipId: this.state.def.id, active: dir !== 0, dir: dir !== 0 ? dir : (last as 1 | -1) });
+  }
+
+  /**
+   * Lightning struck the hull (track/features/lightning.ts): STRIKE_DAMAGE energy and a boost jam under a damaging
+   * hazard policy, or else the policy's slow-down and nothing more.
+   */
+  applyStrike(hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (hazards.damage) {
+      this.drainEnergy(STRIKE_DAMAGE * this.stats.damageTakenScale);
+      s.empLock = Math.max(s.empLock, STRIKE_JAM);
+    } else this.scaleVelocity(hazards.hitSpeedScale);
+  }
+
   /** Scale the ship's velocity (a hazard hit under the Rookie policy). */
   scaleVelocity(f: number): void {
     this.state.velocity.multiplyScalar(f);
@@ -671,6 +709,7 @@ export class ShipController {
     this.jumping = false;
     this.surfaceGrip = 1;
     this.onIce = false;
+    this.setWind(0);
     if (s.inPit) {
       s.inPit = false;
       this.bus.emit('ship:pit', { shipId: s.def.id, active: false });

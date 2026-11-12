@@ -242,7 +242,19 @@ export type TrackFeature =
    */
   | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number; lane?: number }
   /** Solid wreckage drifting slowly across the road (Orbital Ring), clear of a lane centred at lateral `lane` (m). */
-  | { type: 'debris'; dStart: number; dEnd: number; count: number; lane?: number };
+  | { type: 'debris'; dStart: number; dEnd: number; count: number; lane?: number }
+  /**
+   * A crosswind zone (Tempest Spire). While its gust is on, every grounded ship between dStart and dEnd is pushed
+   * across the road at `accel` m/s² (× the ship's pushScale), toward the right rail for `dir` 1 and the left for −1.
+   * The gust runs on the hazard clock: on for `duty` of each `period` seconds, offset by `phase`.
+   */
+  | { type: 'wind'; dStart: number; dEnd: number; dir: 1 | -1; accel: number; period: number; phase: number; duty: number }
+  /**
+   * A lightning field (Tempest Spire): `count` strike points between dStart and dEnd, either side of a clear lane
+   * centred at lateral `lane` (m). Each point strikes once per `period` seconds on the hazard clock; `phase` shifts
+   * the whole field.
+   */
+  | { type: 'lightning'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
 
 /** content/tracks/<id>.json */
 export interface TrackDefinition {
@@ -445,9 +457,9 @@ export interface ShipState {
   thrustScale: number;
   /** EMP hit: seconds of reduced top speed and acceleration left (set by GAME, counted down by physics). */
   empSlow: number;
-  /** EMP hit: seconds left before the ship can boost again (set by GAME, counted down by physics). */
+  /** Seconds left before the ship can boost again: an EMP hit (set by GAME) or a lightning strike (set by PHYSICS); counted down by physics. */
   empLock: number;
-  /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine. */
+  /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine or a lightning strike. */
   shield: number;
 }
 
