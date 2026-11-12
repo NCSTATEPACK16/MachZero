@@ -1059,7 +1059,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
-| X4 ⏭ next | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | `chosen.jpg`; look approval; device gate |
+| X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
@@ -1290,9 +1290,43 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X4 — World 6: Tempest Spire (crosswinds and lightning) — ⏭ NEXT (not started; plan checked against the code on 2026-11-10)
+### X4 — World 6: Tempest Spire (crosswinds and lightning) — 🟡 GAMEPLAY HALF BUILT (PR #37, draft; the look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`)
 
-**Start here.** Branch `v2/x4-tempest-spire` from `v2/x3-upgrades` (PR #35). The design decisions and build steps below are settled. The build notes come first: they are facts about the code as it stands after X1–X3 that the steps rely on.
+**As built: the gameplay half (PR #37)** (read before X5, and before building the look):
+- **What is done:** build steps 1–7, the placeholder theme of step 8 and the HUD chip of step 9. **What is left (commit point 5):** the real theme, the props, the effect set, the perf table on the real look and the shots. All of it needs `chosen.jpg`.
+- **Wind** (`track/features/wind.ts`): `buildWinds`, `windGust(w, t)` (0..1), `windSpan` (the push fades over the first and last 20 m of a zone), `windAccel`, `windAt`. `PhysicsSystem.applyWind` hands each ship the push at its place every step (`ShipController.setWind`); the controller adds it to the sideways speed of a **grounded** ship, times `pushScale`. Ships on the grid, retired ships and ships on a split path get none. `ship:wind { shipId, active, dir }` fires when a gust starts or stops pushing a ship (above 0.7 m/s²).
+- **Wind numbers** (`sim/wind.hold.sim.test.ts`, 15 cases, on a 280 m zone put on Neon Bay's longest plain straight): a steering ship stays within 0.12 m of its line at 70 and 125 m/s on three lines; a hands-off ship drifts 3.5 m at 70 m/s and 2.0 m at 125 m/s and touches no rail; Aero Prototype drifts 1.75 m where Stock drifts 2.48 m; a ship held above the hover rays is not pushed; the same run twice is identical.
+- **Lightning** (`track/features/lightning.ts`): `buildStrikes` places `count` points along a field, either side of the clear lane (`lane`, the same helpers as the mine fields). **The bolt is the last 0.2 s of each point's cycle**, so no point strikes at t = 0 without a warning. The points of a field are staggered by the golden ratio. `PhysicsSystem.checkLightning` tests a 3 m sphere at hull height against each hull box while a bolt is down, one hit per ship per strike. Normal: 6 energy × `damageTakenScale` and `empLock` = 3 s. Rookie: velocity × 0.85 only. A Shield takes the strike and drops (`item:shield` with `blocked: 'lightning'`). Event: `hazard:lightning { shipId, strike, point }`.
+- **Track** (`content/tracks/tempest-spire.json`, from `scripts/track-design.mjs`): 4,341 m, about 36.8 s at Pilot pace, minimum radius 102 m, elevation 56–75 m. Three wind zones: 290 m on the long bridge pushing right; 320 m through the 420 m-radius sweeper pushing outward; 240 m pushing inward before the chicane. Two lightning fields of 5 points (periods 4.5 s and 5 s, lanes +2 m and −2 m). One 60 m jump, the pit and two dash plates. The design tool takes `{ type: 'wind', from, len | to, dir, period, phase, duty, accel? }` and `{ type: 'lightning', from, to, count, period, phase, lane }`.
+- **Validator** (`TrackValidate.ts`, issue codes `wind` and `lightning`): no zone or field on a jump (ramp to landing blend), a pipe, a loop or the start and pit area; wind not within 60 m of a corkscrew; zones do not overlap; a zone is at least 80 m long; gust 0–12 m/s²; the gust is on and off for at least 1.5 s; a field's period is at least 3.7 s (the Rookie warning must fit); a field is never inside a wind zone.
+- **AI** (`AIDriver`): it aims upwind by `look · push / (grip · speed)` (the offset that cancels the gust's steady drift, from its own copy of the wind timeline), and `avoidHazards` adds a band for a strike circle only when its bolt lands within 0.45 s of the hull crossing it.
+- **World entry:** `WorldDef.expansion` and `worldsFor(features)` (`content/worlds.ts`). The Worlds screen and the Grand Prix cup list read it. `?world=tempest-spire` races the world whatever the flag says. `WorldDef.props: false` stops the app from fetching a `props.glb` that does not exist yet.
+- **Placeholder theme** (`graphics/themes/placeholder.ts`): a flat two-colour sky tinted with the world's left rail colour, plain lights, no props, no `envfx`. Registered under `tempest-spire` in `themes/index.ts`. **Replace that one line when the real theme exists, and delete `props: false` from the world entry.**
+- **Telegraph visuals** (built with the track, so the warm-up compiles them; 4 draw calls for the whole track): `windVisual.ts` (streamers on both rail tops that stand out across the road in a gust and hang limp between gusts; rows of deck chevrons that light up and run across the road with the gust) and `lightningVisual.ts` (each circle always shows dimly, brightens with a quickening pulse over the warning, goes white under a jagged bolt). Both use the palette's accent (electric yellow).
+- **Feedback:** HUD chip `WIND` with an arrow that points the way the gust pushes; toast `⚡ LIGHTNING STRIKE`; the boost indicator already reads `BOOST JAMMED` from `empLock`; a sky flash through `EnvFx.flashNow` (0.7 for the player, 0.25 for a rival; nothing with reduced motion); a heavy haptic tap and pad rumble.
+- **Sims** (`sim/tempest-spire.sim.test.ts`, 8 races, about 10 s): Rookie and Legend fits finish with no respawn; the tier matrix passes (Pilot and Ace fields clean; mixed field mean position Legend 2.0, Rookie 7.0; Rookie-assisted autopilot P1 from P8; Pilot autopilot P3, 0.4% off the median); an Ace race replays to the same standings and strikes. The AI takes 0–3 strikes per ship in a race.
+- **iOS preview builds:** `VITE_FEATURES=<list>` at build time turns flags on in that build (`core/features.ts` `buildDefaults`). The app has no URL for `?features=`. Netlify does not set it.
+- **Tests:** 533 unit and sim tests in 61 files (X3: 484 in 57); e2e 16/16 (one new: a Tempest Spire race past a wind zone and a lightning field, no console error, no shader compiled mid-race). `scripts/perf-desktop.mjs` takes `--world <id>`.
+- **Desktop perf on the placeholder theme** (`perf-desktop --audit`, 8 ships; not the gate, which is measured on the real look):
+
+  | World, preset | fps | p50 / p95 / p99 ms | Grid-frame draw calls | Race median draw calls | Triangles |
+  |---|---|---|---|---|---|
+  | Tempest Spire, High | 60.0 | 16.7 / 16.8 / 16.8 | 152 | 106 | 114k |
+  | Tempest Spire, Med | 59.9 | 16.7 / 16.8 / 16.8 | 152 | 106 | 114k |
+  | Tempest Spire, Low | 60.0 | 16.7 / 16.8 / 16.8 | 131 | 76 | 108k |
+  | Neon Bay, High (shared code; X3 was 170) | 59.9 | 16.7 / 16.7 / 16.8 | 170 | 138 | 141k |
+  | Neon Bay, Low (X3 was 147) | 60.0 | 16.7 / 16.7 / 16.8 | 147 | 102 | 118k |
+
+  The track visual is 17 draw calls on Tempest Spire against 9 on Neon Bay: 4 for the wind and lightning telegraphs, the rest for the jump. Ship draw calls did not change.
+- **Deviations from the plan:**
+  - The lightning flash and the weather slant are wired in `GraphicsSystem.attachBus`, where every other event effect is, not in `RaceSession`. No pass-through methods were needed.
+  - **`setWeatherWind(0, 0)` on the end of a gust clears the theme's own base wind.** The placeholder has no weather, so nothing shows it. When the real theme has rain, restore the spec's `weather.wind` at the end of a gust instead.
+  - `LightningFeature` has `lane` (as the mine fields do). The plan's type did not list it, and "always leaving a clear lane" needs it.
+  - No track-count assertion failed: `assets.test.ts` only changes when the world has props.
+  - The hold sim uses a zone on Neon Bay, so it does not depend on the new track.
+- **Not asked for, in this PR:** the `VITE_FEATURES` build switch (without it the owner cannot see a flagged world on a device); haptics and rumble on a strike.
+
+**Original plan.** Branch `v2/x4-tempest-spire` from `v2/x3-upgrades` (PR #35). The design decisions and build steps below are settled. The build notes come first: they are facts about the code as it stands after X1–X3 that the steps rely on.
 
 **Build notes from X1–X3 as built (read before step 1):**
 - **What exists and is ready to use:**
@@ -1348,11 +1382,11 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 9. HUD: a wind arrow chip while in a zone; a strike warning uses the existing hazard styling. Audio hooks are events only (M6 adds sound).
 
 **Done when:**
-- [ ] The wind hold test and the hazard tests pass; hazards are deterministic.
-- [ ] The 4-tier sims pass: all 8 ships finish, order roughly follows tier, the SPEC §9 balance targets hold.
-- [ ] `tracks:check` passes; the SVG preview is committed; lap 30–45 s.
-- [ ] World assets ≤ 2.5 MB; `public/game` ≤ 15 MB; effects within X2's budget.
-- [ ] **The user approves the look**, and the **device gate** passes on Tempest Spire.
+- [x] The wind hold test and the hazard tests pass; hazards are deterministic.
+- [x] The 4-tier sims pass: all 8 ships finish, order roughly follows tier, the SPEC §9 balance targets hold.
+- [x] `tracks:check` passes; the SVG preview is committed; lap 30–45 s.
+- [ ] World assets ≤ 2.5 MB; `public/game` ≤ 15 MB; effects within X2's budget. *(Waits for the look: the world has no assets yet.)*
+- [ ] **The user approves the look**, and the **device gate** passes on Tempest Spire. *(Waits for `chosen.jpg`.)*
 
 ---
 
@@ -1584,6 +1618,8 @@ Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 | Gimmick holds: corkscrew, pipe (θ sweep), loop (5 offsets), jumps (clear rate) | `sim/*.hold.sim.test.ts` | height error < 0.6 m; no respawns (jumps: no respawn for non-erratic) |
 | Balance: assisted Rookie autopilot vs Rookie AI; Pilot autopilot vs Pilot AI | `sim/balance.sim.test.ts` | top 3; mid-pack |
 | Hazard determinism (same seed → same outcome) | `sim/hazards.sim.test.ts` | identical standings |
+| Crosswind hold (2.1, §X4) | `sim/wind.hold.sim.test.ts` | line held within 1.5 m; hands-off drift 2–4 m, no rail; Aero drifts less; identical replays |
+| Lightning (2.1, §X4) | `sim/hazards.sim.test.ts` | one hit per strike; normal and Rookie rules; Shield; clear lane; identical replays |
 | Track validation + SVG previews | `track/__tests__`, `npm run tracks:check` | radius, clearance, overlaps |
 | Asset checks (sockets, tris, materials, nose, size) | `scripts/check-assets.mjs` via vitest | budgets |
 | Save migrations + corrupt data | `save/__tests__` | safe defaults |

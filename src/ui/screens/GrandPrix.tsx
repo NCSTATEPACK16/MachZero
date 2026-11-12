@@ -8,7 +8,7 @@ import type { App } from '../../app/App';
 import type { AITier } from '../../core/contracts';
 import { availableCups, cupById, type CupDef } from '../../content/cups';
 import { GP_POINTS, cupBonus, racesDone, trophiesOf } from '../../game/modes/GrandPrix';
-import { worldById } from '../../content/worlds';
+import { worldById, worldsFor } from '../../content/worlds';
 import { AI_TIERS } from '../../save/schema';
 import { Screen } from '../components';
 
@@ -56,7 +56,8 @@ export function QuitCup({ app }: { app: App }) {
 export function GrandPrix({ app }: { app: App }) {
   const p = app.activeProfile.value;
   const cup = p?.cup ?? null;
-  const cups = availableCups();
+  // A cup with a world behind the `expansion` flag stays hidden while that flag is off.
+  const cups = availableCups(worldsFor(app.features));
   // The cup in progress is always the one shown; otherwise the last one picked here.
   const [picked, setPicked] = useState(cups[0]?.id ?? '');
   const def: CupDef | undefined = (cup ? cupById(cup.cupId) : cupById(picked)) ?? cups[0];

@@ -522,7 +522,8 @@ export class App {
   /** Scenery props of the next race's world (cached; on failure the theme's procedural scenery remains). */
   private async loadWorldAssets(): Promise<void> {
     const w = this.currentWorld;
-    if (!w) return;
+    // A world on the placeholder theme has no props.glb yet.
+    if (!w || w.props === false) return;
     try {
       this.graphics.setWorldProps(w.id, await this.assets.load(`worlds/${w.id}/props.glb`));
     } catch (e) {

@@ -1,7 +1,8 @@
 // Authoring tool for MachZero's hand-designed tracks: each world's circuit is written below as a sequence of
 // turtle segments (straights and constant-radius arcs, each with an end elevation), which this script turns
 // into the closed Catmull-Rom control points of src/content/tracks/<id>.json, plus the features placed on
-// those segments (corkscrew, jumps, pipes, ice, stone gates, mines, debris, dash plates, pit) in metres along the
+// those segments (corkscrew, jumps, pipes, ice, stone gates, mines, debris, crosswind zones, lightning fields, dash
+// plates, pit) in metres along the
 // lap. A pipe or ice patch may run on past its segment (`len` instead of `to`). A split path (`branches`) is its own
 // segment list from a `fork` to a `merge` marker on flat main straights; see designBranch(). A `loop` segment is a
 // loop-the-loop on the level: dense control points along the analytic loop of src/track/features/loop.ts, ending
@@ -191,6 +192,31 @@ const TRACKS = {
       { s: 160, y: 44, f: [{ type: 'dash', at: 40, lateral: 3 }] },
     ],
   },
+  // World 6. Art-deco towers above a permanent thunderstorm: a clockwise lap along the sky bridges between the
+  // spires. Three crosswind zones (`dir` 1 pushes toward the right rail): one on the long bridge, one through the
+  // fast sweeper pushing outward, one pushing inward before the chicane. Two lightning fields, each with a clear
+  // lane, and one jump between two towers (no wind on it).
+  'tempest-spire': {
+    worldId: 'tempest-spire',
+    name: 'TEMPEST SPIRE',
+    elevation: [44, 84],
+    segments: [
+      { s: 340, y: 60, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
+      { r: 260, a: 90, y: 64 },
+      { s: 430, y: 70, adjust: true, f: [{ type: 'dash', at: 50, lateral: 0 }, { type: 'wind', from: 100, len: 290, dir: 1, period: 7, phase: 0, duty: 0.6 }] },
+      { r: 420, a: 60, y: 74, f: [{ type: 'wind', from: 50, len: 320, dir: -1, period: 6, phase: 2, duty: 0.65 }] },
+      { s: 280, y: 74, f: [{ type: 'lightning', from: 40, to: 240, count: 5, period: 4.5, phase: 0, lane: 2 }] },
+      { r: 200, a: 30, y: 72 },
+      { s: 500, y: 66, f: [{ type: 'jump', lip: 130, gap: 60, kick: 3 }] },
+      { r: 200, a: 90, y: 62 },
+      { s: 320, y: 58, f: [{ type: 'wind', from: 40, len: 240, dir: 1, period: 5, phase: 1, duty: 0.6 }] },
+      { r: 150, a: 50, y: 56 },
+      { r: 150, a: -50, y: 56 },
+      { s: 300, y: 58, f: [{ type: 'dash', at: 30, lateral: 3 }, { type: 'lightning', from: 70, to: 270, count: 5, period: 5, phase: 1.3, lane: -2 }] },
+      { r: 170, a: 90, y: 60 },
+      { s: 375, y: 60, adjust: true },
+    ],
+  },
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -278,6 +304,12 @@ function walk(segments, lengths, emit, start = null) {
         } else if (f.type === 'mines' || f.type === 'debris') {
           const m = { type: f.type, dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, lane: f.lane };
           feats.push(f.type === 'mines' ? { ...m, drift: f.drift } : m);
+        } else if (f.type === 'wind') {
+          // A crosswind zone may run on past its segment (`len`), like a pipe.
+          const to = f.to ?? f.from + f.len;
+          feats.push({ type: 'wind', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + to).toFixed(2), dir: f.dir, accel: f.accel ?? 7, period: f.period, phase: f.phase ?? 0, duty: f.duty });
+        } else if (f.type === 'lightning') {
+          feats.push({ type: 'lightning', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, period: f.period, phase: f.phase ?? 0, lane: f.lane ?? 0 });
         } else if (f.type === 'gate') {
           feats.push({ type: 'gate', d: +(d0 + f.at).toFixed(2), period: f.period, phase: f.phase, closedFraction: f.closedFraction, span: f.span });
         } else if (f.type === 'fork' || f.type === 'merge' || f.type === 'open') {

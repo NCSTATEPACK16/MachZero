@@ -38,6 +38,18 @@ That opens the project in Xcode.
    - if Xcode shows a red signing error, click **Try Again**; it creates the certificates and profiles.
 3. The bundle ID must match the app you created in App Store Connect (SKU `machzero-ios`).
 
+## Build with unfinished features turned on
+
+The live site keeps unfinished features behind flags (`src/core/features.ts`), and a web preview turns them on with
+`?features=...`. The app has no URL, so set the flags when you build it:
+
+```bash
+VITE_FEATURES=expansion npm run ios:sync
+```
+
+`expansion` shows the 2.1 worlds, cups and parts. `VITE_FEATURES=all` turns every flag on. A plain
+`npm run ios:sync` builds what the live site shows.
+
 ## Upload a build to TestFlight
 
 1. Run `npm run ios:sync`, then open Xcode (`npm run ios:open`).

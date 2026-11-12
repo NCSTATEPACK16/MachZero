@@ -22,6 +22,10 @@ import { worldById } from '../content/worlds';
 import { EnvFx } from './envfx/EnvFx';
 import { NO_ENVFX } from './envfx/EnvFxSpec';
 
+/** Sky flash colour of a lightning strike on a ship, and the sideways weather drift (m/s) of a gust on the player. */
+const LIGHTNING_FLASH = 0xfff3b0;
+const WIND_WEATHER_SPEED = 18;
+
 
 /** Procedural neon "studio": gradient dome + emissive light strips, prefiltered with PMREM. */
 function buildEnvironmentMap(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
@@ -141,6 +145,7 @@ export class GraphicsSystem implements IGraphicsSystem {
 
   // scratch
   private readonly tmpV = new THREE.Vector3();
+  private readonly windScratch = new THREE.Vector3();
   private readonly tmpDir = new THREE.Vector3();
 
   /** A bus given here is attached at once (v1 style); the App attaches one per race via attachBus(). */
@@ -296,6 +301,27 @@ export class GraphicsSystem implements IGraphicsSystem {
         if (e.shipId === this.playerId) {
           this.chase.addImpact(0.15);
           this.post.kickAberration(0.5);
+        }
+      }),
+      bus.on('hazard:lightning', (e) => {
+        const model = this.models.get(e.shipId);
+        if (model) this.fx.empHit(model);
+        model?.flicker(0.5);
+        // The sky flashes for a strike on any ship near enough to see; the player's own also shakes the camera.
+        this.envfx.flashNow(e.shipId === this.playerId ? 0.7 : 0.25, LIGHTNING_FLASH);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.35);
+          this.post.kickAberration(1);
+        }
+      }),
+      bus.on('ship:wind', (e) => {
+        // The weather slants with the gust on the player's ship (worlds with weather particles).
+        if (e.shipId !== this.playerId) return;
+        const ship = this.models.get(e.shipId)?.ship;
+        if (!e.active || !ship) this.envfx.setWeatherWind(0, 0);
+        else {
+          const right = this.windScratch.set(1, 0, 0).applyQuaternion(ship.quaternion);
+          this.envfx.setWeatherWind(right.x * e.dir * WIND_WEATHER_SPEED, right.z * e.dir * WIND_WEATHER_SPEED);
         }
       }),
       bus.on('hazard:debris', (e) => {

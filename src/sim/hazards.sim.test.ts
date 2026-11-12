@@ -15,6 +15,7 @@ import { TRACK_DEFS } from '../content/tracks';
 import { PhysicsSystem } from '../physics';
 import { trackFromSource } from '../track';
 import { gateClosure } from '../track/features/gate';
+import { STRIKE_DAMAGE, STRIKE_JAM, STRIKE_LANE_MARGIN, STRIKE_RADIUS, STRIKE_TIME, STRIKE_WARNING, buildStrikes as buildStrikesOf, strikeActive, strikeWarning } from '../track/features/lightning';
 import { runWorldRace } from './worldRace';
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -265,5 +266,152 @@ describe('Orbital Ring mines and debris', () => {
     expect(a.finished).toBe(true);
     expect(b.standings).toEqual(a.standings);
     expect([...b.mineHits]).toEqual([...a.mineHits]);
+  });
+});
+
+/**
+ * Tempest Spire's lightning fields. A strike point's circle glows, then the bolt lands for STRIKE_TIME seconds: a hull
+ * inside the circle then takes one hit per strike. Normal policy: STRIKE_DAMAGE energy and a boost jam; Rookie
+ * policy: no energy lost, no jam, the slow-down. A raised Shield takes the strike instead. Every field leaves a
+ * clear lane, and the strikes run on physics time since the reset.
+ */
+describe('Tempest Spire lightning', () => {
+  const spire: TrackData = trackFromSource({ kind: 'authored', def: TRACK_DEFS['tempest-spire'] });
+  const fields = spire.features.filter((f) => f.type === 'lightning');
+
+  function spireSlot(u: number, lateral: number): GridSlot {
+    const s = spire.sampleAt(u);
+    const position = s.position.clone().addScaledVector(s.right, lateral).addScaledVector(s.up, CONFIG.HOVER_HEIGHT);
+    const m = new THREE.Matrix4().makeBasis(s.right, s.up, s.forward.clone().negate());
+    return { u, lateral, position, quaternion: new THREE.Quaternion().setFromRotationMatrix(m) };
+  }
+
+  interface StrikeRun {
+    hits: number;
+    blocked: number;
+    energyLost: number;
+    /** Boost jam right after the first hit (s), and the speed just before and after it. */
+    jam: number;
+    speedBefore: number;
+    speedAfter: number;
+    /** Hazard time of each hit. */
+    times: number[];
+  }
+
+  /** Hold a ship at `speed` on (u, lateral) of strike point `index` (or `at`) for `seconds`, counting the strikes it takes. */
+  async function wait(index: number, hazards: Readonly<HazardPolicy>, seconds: number, opts: { lateral?: number; shield?: boolean; speed?: number } = {}): Promise<StrikeRun> {
+    const bus = new EventBus<GameEvents>();
+    const physics = await PhysicsSystem.create(spire, bus, { hazards });
+    const k = physics.strikes[index];
+    const ship = physics.addShip(SHIP_ROSTER[0], spire.startGrid[0]);
+    physics.resetTime();
+    const slot = spireSlot(k.u, opts.lateral ?? k.lateral);
+    physics.resetShip(0, slot);
+    ship.status = 'racing';
+    if (opts.shield) ship.shield = 99;
+    const run: StrikeRun = { hits: 0, blocked: 0, energyLost: 0, jam: 0, speedBefore: 0, speedAfter: 0, times: [] };
+    bus.on('hazard:lightning', () => {
+      run.hits++;
+      run.times.push(physics.hazardTime);
+    });
+    bus.on('item:shield', (e) => {
+      if (e.blocked === 'lightning') run.blocked++;
+    });
+    const e0 = ship.energy;
+    const controls = new Map<ShipId, ControlInput>();
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(slot.quaternion);
+    for (let i = 0; i < 120 * seconds; i++) {
+      // Put the hull back on the point every step: it then sits in the circle whenever the bolt lands.
+      physics.bodyOf(0)!.setTranslation(slot.position, true);
+      ship.position.copy(slot.position);
+      const hitsBefore = run.hits;
+      if (opts.speed) ship.velocity.copy(fwd).multiplyScalar(opts.speed);
+      controls.set(0, { throttle: 0, brake: 0, steer: 0, airbrakeLeft: 0, airbrakeRight: 0, boost: false });
+      const before = opts.speed ?? 0;
+      physics.step(CONFIG.FIXED_DT, controls);
+      if (run.hits > hitsBefore && run.hits === 1) {
+        run.jam = ship.empLock;
+        run.speedBefore = before;
+        run.speedAfter = ship.speed;
+      }
+    }
+    run.energyLost = e0 - ship.energy;
+    physics.dispose();
+    return run;
+  }
+
+  it('has two fields; every strike circle leaves the clear lane and the rails alone', () => {
+    expect(fields.length).toBe(2);
+    const strikes = buildStrikesOf(spire);
+    expect(strikes.length).toBe(10);
+    for (const f of fields) {
+      if (f.type !== 'lightning') continue;
+      const mine = strikes.filter((k) => k.d >= f.dStart && k.d <= f.dEnd);
+      expect(mine.length).toBe(f.count);
+      for (const k of mine) {
+        expect(Math.abs(k.lateral - (f.lane ?? 0)) - STRIKE_RADIUS - CONFIG.SHIP_WIDTH / 2).toBeGreaterThanOrEqual(STRIKE_LANE_MARGIN - 1e-6);
+        expect(Math.abs(k.lateral) + STRIKE_RADIUS).toBeLessThan(spire.halfWidth);
+      }
+      // Circles on both sides of the lane: the lane is a gap, not an empty half of the road.
+      expect(mine.some((k) => k.lateral < (f.lane ?? 0))).toBe(true);
+      expect(mine.some((k) => k.lateral > (f.lane ?? 0))).toBe(true);
+    }
+  });
+
+  it('the circle warns before the bolt, twice as early in Rookie races, and the bolt time does not change', () => {
+    const k = buildStrikesOf(spire)[0];
+    let first = 0;
+    while (!strikeActive(k, first)) first += 1 / 120;
+    // Past the first bolt, find the next one.
+    let t = first + STRIKE_TIME + 0.05;
+    while (!strikeActive(k, t)) t += 1 / 120;
+    expect(t - first).toBeCloseTo(k.period, 1);
+    expect(strikeWarning(k, t - STRIKE_WARNING - 0.1)).toBe(0);
+    expect(strikeWarning(k, t - STRIKE_WARNING / 2)).toBeCloseTo(0.5, 1);
+    expect(strikeWarning(k, t - STRIKE_WARNING - 0.1, 2 * STRIKE_WARNING)).toBeGreaterThan(0);
+    expect(strikeWarning(k, t + STRIKE_TIME / 2)).toBe(1);
+  });
+
+  it('a hull in the circle takes one hit per strike: energy and a boost jam (normal policy)', async () => {
+    const period = (fields[0] as { period: number }).period;
+    const r = await wait(0, HAZARDS_NORMAL, 2 * period + 0.5);
+    console.log(`lightning normal: hits=${r.hits} at ${r.times.map((t) => t.toFixed(2)).join(', ')} s energyLost=${r.energyLost.toFixed(1)} jam=${r.jam.toFixed(2)} s`);
+    expect(r.hits).toBe(2);
+    expect(r.times[1] - r.times[0]).toBeCloseTo(period, 1);
+    expect(r.energyLost).toBeCloseTo(2 * STRIKE_DAMAGE, 5);
+    expect(r.jam).toBeCloseTo(STRIKE_JAM, 1);
+  });
+
+  it('under the Rookie policy a strike costs no energy, does not jam the boost, and slows the ship by the hit scale', async () => {
+    const period = (fields[0] as { period: number }).period;
+    const r = await wait(0, HAZARDS_ROOKIE, period + 0.5, { speed: 80 });
+    console.log(`lightning rookie: hits=${r.hits} energyLost=${r.energyLost.toFixed(1)} jam=${r.jam} v ${r.speedBefore.toFixed(0)}→${r.speedAfter.toFixed(1)}`);
+    expect(r.hits).toBe(1);
+    expect(r.energyLost).toBe(0);
+    expect(r.jam).toBe(0);
+    expect(r.speedAfter).toBeLessThanOrEqual(r.speedBefore * HAZARDS_ROOKIE.hitSpeedScale + 1e-6);
+    expect(r.speedAfter).toBeGreaterThan(r.speedBefore * HAZARDS_ROOKIE.hitSpeedScale - 2);
+  });
+
+  it('a raised Shield takes the strike and drops: no hit, no energy lost', async () => {
+    const period = (fields[0] as { period: number }).period;
+    const r = await wait(0, HAZARDS_NORMAL, period + 0.5, { shield: true });
+    expect(r.blocked).toBe(1);
+    expect(r.hits).toBe(0);
+    expect(r.energyLost).toBe(0);
+  });
+
+  it('the clear lane is never struck, however long a ship stays on it', async () => {
+    const f = fields[0] as { lane?: number; period: number };
+    const r = await wait(0, HAZARDS_NORMAL, 3 * f.period, { lateral: f.lane ?? 0 });
+    expect(r.hits).toBe(0);
+    expect(r.energyLost).toBe(0);
+  });
+
+  it('the strikes run on physics time since the reset: the same wait takes the same hits at the same times', async () => {
+    const a = await wait(3, HAZARDS_NORMAL, 12);
+    const b = await wait(3, HAZARDS_NORMAL, 12);
+    expect(a.hits).toBeGreaterThanOrEqual(2);
+    expect(b.times).toEqual(a.times);
   });
 });

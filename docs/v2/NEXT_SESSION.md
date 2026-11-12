@@ -1,14 +1,16 @@
-# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; build in progress)
+# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; X0–X3 merged, X4 gameplay half built)
 
 Paste the prompt at the bottom into a fresh Claude Code session opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-10, the 2.1 design session)
+## Where things stand (2026-11-11, after the X4 gameplay half)
 
-- **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #35** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. **Read §X4's "Build notes from X1–X3 as built" and its commit points before step 1**: they list what the code already offers, what X4 must add (a way to hide a built world, a placeholder theme, a `--world` argument for the perf script) and where to open the draft PR.
-- **`expansion` is still off.** Turn it on when the user approves the look of X3's parts.
-- **Merge order now (2026-11-10):** **#36** (one PR into `main` that combines #21–#34; #34 was merged into `v2/x1-cups`), then **#35** (X3, base `main`). After #36 merges, close #24, #28, #31, #32 and #33 by hand: their content is in `main`. New work branches from `v2/x3-upgrades`.
-
+- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire: the gameplay half is built, PR #37 (draft, branch `v2/x4-tempest-spire`, base `main`).** Read IMPLEMENTATION §X4 "As built: the gameplay half" first.
+  - **If `assets/reference/worlds/tempest-spire/chosen.jpg` exists:** finish X4 on its branch (commit point 5): `graphics/themes/tempestSpire.ts`, `build_tempest_spire` in `blender/props/build_props.py`, the `envfx` set, the perf table on the real look, the shots; swap the placeholder line in `themes/index.ts`, delete `props: false` from the world entry, then mark the PR ready.
+  - **If it does not:** start X5 Cinder Forge's gameplay half on `v2/x5-cinder-forge`, stacked on `v2/x4-tempest-spire`. It can reuse `themes/placeholder.ts`, `worldsFor`, `WorldDef.props: false` and `perf-desktop --world`.
+- **`expansion` is still off.** Turn it on when the user approves the look of X3's parts. A world also needs its own look approved before its card shows on `main`.
+- **Device builds of flagged features:** `VITE_FEATURES=expansion npm run ios:sync` (docs/IOS_TESTFLIGHT.md). Without it the app hides Tempest Spire.
+- **Close by hand:** #24, #28, #31, #32 and #33 are still open, and their content is in `main` through #36.
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
 - **#31 exists because #30 (V3, the five rebuilt chassis) was merged into `v2/v2-parts` after #29 had already gone into `v2/v23-ships-plan`.** #31 carries exactly #30's 20 files into the stack. Every 2.1 branch starts from its tip.
@@ -188,8 +190,8 @@ what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
 Start by confirming the open PRs' state (gh pr list). Branch from the newest open stack branch (the last X
-branch pushed). Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build number). No
+branch pushed; from main when no X branch is open). Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build number). No
 attribution lines in commits or PR bodies. End every PR hand-off with the preview URL, the iOS build command
-for that PR's branch (git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open) and
-the device-test steps.
+for that PR's branch (git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open; put
+VITE_FEATURES=expansion before npm run ios:sync when the PR's work is behind that flag) and the device-test steps.
 ```

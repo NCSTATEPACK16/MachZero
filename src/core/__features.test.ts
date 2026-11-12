@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FEATURE_DEFAULTS, FEATURE_NAMES, resolveFeatures } from './features';
+import { FEATURE_DEFAULTS, FEATURE_NAMES, buildDefaults, resolveFeatures } from './features';
 
 describe('feature flags', () => {
   it('ship only completed milestones on main by default', () => {
@@ -17,5 +17,17 @@ describe('feature flags', () => {
     expect(some.music).toBe(false);
     const none = resolveFeatures('?features=none', { ...FEATURE_DEFAULTS, garage: true });
     expect(none.garage).toBe(false);
+  });
+  it('a build made with VITE_FEATURES turns those flags on as defaults (the iOS app has no query string)', () => {
+    expect(buildDefaults(undefined)).toEqual(FEATURE_DEFAULTS);
+    expect(buildDefaults('')).toEqual(FEATURE_DEFAULTS);
+    const ios = buildDefaults('expansion');
+    expect(ios.expansion).toBe(true);
+    expect(ios.garage).toBe(true);
+    expect(ios.music).toBe(false);
+    expect(buildDefaults('expansion, tiers,bogus')).toMatchObject({ expansion: true, tiers: true, music: false });
+    for (const n of FEATURE_NAMES) expect(buildDefaults('all')[n]).toBe(true);
+    // The query string still wins over the build: ?features=none turns everything off.
+    expect(resolveFeatures('?features=none', ios).expansion).toBe(false);
   });
 });
