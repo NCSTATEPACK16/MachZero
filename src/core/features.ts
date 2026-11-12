@@ -2,6 +2,10 @@
  * 2.0 feature flags. `main` is the live site (every merged PR deploys), so unfinished 2.0 surfaces stay
  * off until their milestone is complete. Previews enable them with `?features=all` or a comma list,
  * e.g. `?features=garage,worlds`. Flip a default to `true` in the PR that completes its milestone.
+ *
+ * The iOS app has no URL to carry `?features=`, so a build can turn flags on instead: set `VITE_FEATURES` (the same
+ * comma list) when building, e.g. `VITE_FEATURES=expansion npm run ios:sync`. Netlify builds do not set it, so the
+ * live site and the previews keep the defaults.
  */
 export const FEATURE_NAMES = [
   'profiles', // M1: profiles, saves, settings menus
@@ -46,8 +50,17 @@ export function resolveFeatures(search: string, defaults: FeatureSet = FEATURE_D
   return out;
 }
 
-/** Flags for this page load. */
-export const FEATURES: FeatureSet = resolveFeatures(typeof location !== 'undefined' ? location.search : '');
+/** The defaults of a build made with `VITE_FEATURES=<list>` (`all`, or a comma list): those flags are on as well. */
+export function buildDefaults(list: string | undefined, defaults: FeatureSet = FEATURE_DEFAULTS): FeatureSet {
+  if (!list || list.trim() === '') return defaults;
+  return resolveFeatures(`?features=${encodeURIComponent(list)}`, defaults);
+}
+
+/** Flags for this page load: the build's defaults, then the query string. */
+export const FEATURES: FeatureSet = resolveFeatures(
+  typeof location !== 'undefined' ? location.search : '',
+  buildDefaults(import.meta.env?.VITE_FEATURES as string | undefined),
+);
 
 export function isEnabled(name: FeatureName): boolean {
   return FEATURES[name];
