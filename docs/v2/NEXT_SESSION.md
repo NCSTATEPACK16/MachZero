@@ -5,7 +5,7 @@ Paste the prompt at the bottom into a fresh Claude Code session opened on
 
 ## Where things stand (2026-11-11, after the X4 gameplay half)
 
-- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire: the gameplay half is built, PR_X4 (draft, branch `v2/x4-tempest-spire`, base `main`).** Read IMPLEMENTATION §X4 "As built: the gameplay half" first.
+- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire: the gameplay half is built, PR #37 (draft, branch `v2/x4-tempest-spire`, base `main`).** Read IMPLEMENTATION §X4 "As built: the gameplay half" first.
   - **If `assets/reference/worlds/tempest-spire/chosen.jpg` exists:** finish X4 on its branch (commit point 5): `graphics/themes/tempestSpire.ts`, `build_tempest_spire` in `blender/props/build_props.py`, the `envfx` set, the perf table on the real look, the shots; swap the placeholder line in `themes/index.ts`, delete `props: false` from the world entry, then mark the PR ready.
   - **If it does not:** start X5 Cinder Forge's gameplay half on `v2/x5-cinder-forge`, stacked on `v2/x4-tempest-spire`. It can reuse `themes/placeholder.ts`, `worldsFor`, `WorldDef.props: false` and `perf-desktop --world`.
 - **`expansion` is still off.** Turn it on when the user approves the look of X3's parts. A world also needs its own look approved before its card shows on `main`.

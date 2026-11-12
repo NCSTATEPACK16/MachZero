@@ -1059,7 +1059,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X1 | Cups groundwork | `v2/x1-cups` | v5 → v6 | Device check (pad-only cup) |
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
-| X4 🟡 gameplay half built (PR_X4) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
+| X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
@@ -1290,9 +1290,9 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X4 — World 6: Tempest Spire (crosswinds and lightning) — 🟡 GAMEPLAY HALF BUILT (PR_X4, draft; the look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`)
+### X4 — World 6: Tempest Spire (crosswinds and lightning) — 🟡 GAMEPLAY HALF BUILT (PR #37, draft; the look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`)
 
-**As built: the gameplay half (PR_X4)** (read before X5, and before building the look):
+**As built: the gameplay half (PR #37)** (read before X5, and before building the look):
 - **What is done:** build steps 1–7, the placeholder theme of step 8 and the HUD chip of step 9. **What is left (commit point 5):** the real theme, the props, the effect set, the perf table on the real look and the shots. All of it needs `chosen.jpg`.
 - **Wind** (`track/features/wind.ts`): `buildWinds`, `windGust(w, t)` (0..1), `windSpan` (the push fades over the first and last 20 m of a zone), `windAccel`, `windAt`. `PhysicsSystem.applyWind` hands each ship the push at its place every step (`ShipController.setWind`); the controller adds it to the sideways speed of a **grounded** ship, times `pushScale`. Ships on the grid, retired ships and ships on a split path get none. `ship:wind { shipId, active, dir }` fires when a gust starts or stops pushing a ship (above 0.7 m/s²).
 - **Wind numbers** (`sim/wind.hold.sim.test.ts`, 15 cases, on a 280 m zone put on Neon Bay's longest plain straight): a steering ship stays within 0.12 m of its line at 70 and 125 m/s on three lines; a hands-off ship drifts 3.5 m at 70 m/s and 2.0 m at 125 m/s and touches no rail; Aero Prototype drifts 1.75 m where Stock drifts 2.48 m; a ship held above the hover rays is not pushed; the same run twice is identical.
