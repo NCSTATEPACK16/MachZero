@@ -17,6 +17,10 @@ import { buildGates } from './features/gate';
 import { buildGateVisual } from './features/gateVisual';
 import { buildDebris } from './features/debris';
 import { buildDebrisVisual } from './features/debrisVisual';
+import { buildWinds } from './features/wind';
+import { buildWindVisual } from './features/windVisual';
+import { buildStrikes } from './features/lightning';
+import { buildLightningVisual } from './features/lightningVisual';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -283,7 +287,16 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const debrisVisual = debrisDefs.length > 0 ? buildDebrisVisual(debrisDefs) : null;
   if (debrisVisual) group.add(debrisVisual.group);
-  const hazardAnimators = [gateVisual?.update, debrisVisual?.update].filter((f): f is (t: number) => void => !!f);
+  // Crosswind zones and lightning fields (Tempest Spire) follow the same clock. Both glow in the palette's accent.
+  const windDefs = buildWinds({ features });
+  const windVisual = windDefs.length > 0 ? buildWindVisual(windDefs, { length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) }, palette.accent) : null;
+  if (windVisual) group.add(windVisual.group);
+  const strikeDefs = features.some((f) => f.type === 'lightning')
+    ? buildStrikes({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const lightningVisual = strikeDefs.length > 0 ? buildLightningVisual(strikeDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (lightningVisual) group.add(lightningVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update].filter((f): f is (t: number) => void => !!f);
   const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
     for (const f of hazardAnimators) f(t);
   };

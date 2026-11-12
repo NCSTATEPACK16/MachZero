@@ -1099,6 +1099,52 @@
   .mz-draft-icon { animation: none; }
 }
 
+/* ---------- X4: crosswind chip (above the draft chip; the arrow points the way the gust pushes) ---------- */
+.mz-wind {
+  position: absolute;
+  right: 2.6em;
+  bottom: 22.2em;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.2em 0.8em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #fffbe0;
+  background: linear-gradient(90deg, rgba(255, 225, 77, 0.3), rgba(138, 92, 255, 0.18));
+  border: 1px solid rgba(255, 225, 77, 0.75);
+  box-shadow: 0 0 1em rgba(255, 225, 77, 0.4);
+  transform: skewX(-10deg);
+  pointer-events: none;
+}
+.mz-wind[hidden] {
+  display: none;
+}
+.mz-wind.left {
+  flex-direction: row-reverse;
+}
+.mz-wind-icon {
+  font-size: 1.3em;
+  line-height: 1;
+  animation: mz-wind-push 0.45s linear infinite;
+}
+.mz-wind.left .mz-wind-icon {
+  transform: scaleX(-1);
+  animation-name: mz-wind-push-left;
+}
+@keyframes mz-wind-push {
+  from { transform: translateX(-0.18em); opacity: 0.6; }
+  to { transform: translateX(0.18em); opacity: 1; }
+}
+@keyframes mz-wind-push-left {
+  from { transform: scaleX(-1) translateX(-0.18em); opacity: 0.6; }
+  to { transform: scaleX(-1) translateX(0.18em); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mz-wind-icon { animation: none; }
+}
+
 /* ---------- M5: pilot portraits, grid intro card ---------- */
 .mz-portrait {
   display: block;

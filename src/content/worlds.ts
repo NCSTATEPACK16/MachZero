@@ -1,10 +1,12 @@
 /**
- * The five worlds (SPEC §6, IMPLEMENTATION Appendix B), in World Tour order. A world is `built` once its
- * authored track, theme and scenery exist; the others show as locked "coming soon" cards.
+ * The worlds (SPEC §6 and §10, IMPLEMENTATION Appendix B), in World Tour order: the five 2.0 worlds, then the 2.1
+ * expansion worlds. A world is `built` once its authored track and a theme exist; the others show as locked
+ * "coming soon" cards. An `expansion` world is hidden from the menus until the `expansion` feature flag is on
+ * (`worldsFor`); `?world=<id>` still races it, for QA.
  */
 import type { TrackPalette } from '../track/TrackMesh';
 
-export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring';
+export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire';
 
 export interface WorldDef {
   id: WorldId;
@@ -20,6 +22,10 @@ export interface WorldDef {
   /** Card / UI accent colours (CSS hex). */
   ui: { from: string; to: string };
   built: boolean;
+  /** A 2.1 world: shown only with the `expansion` feature flag on. */
+  expansion?: true;
+  /** False while the world has no props.glb (it runs on the placeholder theme): nothing is fetched for it. */
+  props?: false;
 }
 
 export const WORLDS: readonly WorldDef[] = [
@@ -78,8 +84,27 @@ export const WORLDS: readonly WorldDef[] = [
     ui: { from: '#f4f7ff', to: '#2b8cff' },
     built: true,
   },
+  {
+    id: 'tempest-spire',
+    order: 6,
+    name: 'TEMPEST SPIRE',
+    tagline: 'Sky bridges above a permanent storm',
+    gimmick: 'CROSSWINDS',
+    trackId: 'tempest-spire',
+    // Storm violet and teal rails, electric yellow for the gimmick (wind streamers, strike circles).
+    palette: { left: 0x8a5cff, right: 0x2be0c8, accent: 0xffe14d, pit: 0x7dff3a },
+    ui: { from: '#8a5cff', to: '#ffe14d' },
+    built: true,
+    expansion: true,
+    props: false,
+  },
 ];
 
 export function worldById(id: string): WorldDef | undefined {
   return WORLDS.find((w) => w.id === id);
+}
+
+/** The worlds the menus show: every world, without the 2.1 expansion worlds while that flag is off. */
+export function worldsFor(features: { expansion: boolean }, worlds: readonly WorldDef[] = WORLDS): readonly WorldDef[] {
+  return features.expansion ? worlds : worlds.filter((w) => !w.expansion);
 }

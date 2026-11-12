@@ -19,6 +19,8 @@ import { TrackRoute } from '../track/TrackRoute';
 import { type BuiltGate, buildGates, gateBand, gateBlocksDuring } from '../track/features/gate';
 import { buildMines, MINE_RADIUS, minePose, type TrackMine } from '../track/features/mine';
 import { type BuiltDebris, buildDebris, debrisHalfAcross, debrisLateral } from '../track/features/debris';
+import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
+import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikesDuring } from '../track/features/lightning';
 
 /** Aggressive pilots lean toward a split path's shortcut by this much over their tier's odds. */
 const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
@@ -48,6 +50,13 @@ const HAZARD_WINDOW = 0.25;
 /** Clearance (m) kept from a dropped mine at every tier. Wider than HAZARD_MARGIN: on a gentle bend the hull settles
  *  up to ~1.3 m short of its target lateral (items.sim), and a still mine gives no drift to make up for that. */
 const DROPPED_MARGIN = 2.5;
+/** Lightning: a strike point blocks its circle when its bolt lands within this many seconds of the ship's arrival
+ *  (the driver's speed, and so its arrival time, changes on the way there). */
+const STRIKE_WINDOW = 0.45;
+/** Crosswind: how much of the push the driver cancels ahead of time by aiming upwind (the rest is left to its
+ *  steering loop), and how fast that aim offset follows the gust (1/s). */
+const WIND_FEED_FORWARD = 1;
+const WIND_AIM_RATE = 6;
 
 export interface AIDriverOptions {
   /** Physics seconds since the race reset (the stone gates' timeline); default: the driver's own clock. */
@@ -222,6 +231,10 @@ export class AIDriver implements IAIDriver {
   private readonly gates: BuiltGate[];
   private readonly mines: TrackMine[];
   private readonly debris: BuiltDebris[];
+  private readonly winds: BuiltWind[];
+  private readonly strikes: BuiltStrike[];
+  /** Upwind aim offset (m) that cancels the crosswind's steady drift. */
+  private windAim = 0;
   private readonly hazardMargin: number;
   private readonly tier: Readonly<TierDef>;
   /** Stream for the tier's small mistakes (separate, so they don't shift the personality's random choices). */
@@ -310,6 +323,8 @@ export class AIDriver implements IAIDriver {
     this.gates = buildGates(track);
     this.mines = buildMines(track);
     this.debris = buildDebris(track);
+    this.winds = buildWinds(track);
+    this.strikes = buildStrikes(track);
     this.hazardMargin = this.tier.hazardMargin;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
     this.liveMines = opts.liveMines ?? null;
@@ -546,9 +561,19 @@ export class AIDriver implements IAIDriver {
     }
     this.tLat = damp(this.tLat, desired, onIce ? ICE_LATERAL_RATE : ram ? LATERAL_RATE * 1.6 : LATERAL_RATE, dt);
 
+    // --- crosswind: aim upwind by the drift the gust would cause (feed-forward from the wind timeline) ---
+    // A push a (m/s²) settles at a sideways speed a / grip; pointing the nose upwind by that speed over the forward
+    // speed cancels it. At the aim point `look` metres ahead that angle is an offset of look · a / (grip · v).
+    let windOffset = 0;
+    if (this.winds.length > 0 && ship.path === null && ship.grounded) {
+      const push = windAt(this.winds, wrap01(u) * this.length, this.length, this.hazardClock()) * ship.def.stats.pushScale;
+      windOffset = (-WIND_FEED_FORWARD * look * push) / (ship.def.stats.lateralGrip * Math.max(speed, 40));
+    }
+    this.windAim = damp(this.windAim, windOffset, WIND_AIM_RATE, dt);
+
     // --- steering: PD on the signed angle to the target point, in the ship's plane ---
     // The aim point lies on the driving surface (inside a pipe that is on the curled tube wall).
-    route.surfacePoint(targetR, this.tLat, this.targetPoint);
+    route.surfacePoint(targetR, this.tLat + this.windAim, this.targetPoint);
     this.toTarget.copy(this.targetPoint).sub(ship.position);
     this.toTarget.addScaledVector(this.up, -this.toTarget.dot(this.up));
     // fwd × target · up is negative when the target lies to the right (fwd = -Z, up = +Y, right = +X)
@@ -659,12 +684,13 @@ export class AIDriver implements IAIDriver {
   }
 
   /**
-   * Move `desired` clear of the mines and debris the ship will reach in the next HAZARD_LOOKAHEAD_TIME seconds,
-   * at where each will be on arrival (hazard clock), to the nearest free lateral within ±maxLat.
+   * Move `desired` clear of the mines, debris and lightning strikes the ship will reach in the next
+   * HAZARD_LOOKAHEAD_TIME seconds, at where (and, for lightning, whether) each will be on arrival (hazard clock), to
+   * the nearest free lateral within ±maxLat.
    */
   private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
     const live = this.liveMines?.();
-    if (this.mines.length === 0 && this.debris.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
+    if (this.mines.length === 0 && this.debris.length === 0 && this.strikes.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
     const here = wrap01(u) * this.length;
     const v = Math.max(speed, 30);
     const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
@@ -700,6 +726,15 @@ export class AIDriver implements IAIDriver {
       const dist = ahead(b.d);
       if (dist < -b.length || dist > reach) continue;
       block(dist, b.lateral, b.drift, (t) => debrisLateral(b, t), debrisHalfAcross(b.width, b.length));
+    }
+    // Lightning: a strike circle is in the way only if its bolt lands as the ship crosses it.
+    for (const k of this.strikes) {
+      const dist = ahead(k.d);
+      if (dist < -(STRIKE_RADIUS + 4) || dist > reach) continue;
+      // The hull is under the circle from when its nose reaches the near edge until its tail leaves the far one.
+      const t0 = now + Math.max(0, dist - STRIKE_RADIUS - CONFIG.SHIP_LENGTH / 2) / v - STRIKE_WINDOW;
+      const t1 = now + Math.max(0, dist + STRIKE_RADIUS + CONFIG.SHIP_LENGTH / 2) / v + STRIKE_WINDOW;
+      if (strikesDuring(k, t0, t1)) bands.push([k.lateral - STRIKE_RADIUS - hull, k.lateral + STRIKE_RADIUS + hull]);
     }
     let out = clearOfBands(desired, bands, maxLat);
     if (!live) return out;

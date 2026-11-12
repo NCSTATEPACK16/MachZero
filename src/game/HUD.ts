@@ -97,6 +97,7 @@ export class HUD implements IHUD {
   private readonly itemsKinds: { node: HTMLElement; txt: Txt }[] = [];
   private readonly warnBox: HTMLElement;
   private readonly draftBox: HTMLElement;
+  private readonly windBox: HTMLElement;
   private readonly introEl: HTMLElement;
   private readonly roster: readonly RosterEntry[];
   private shownItems: string | null | undefined = undefined;
@@ -263,6 +264,12 @@ export class HUD implements IHUD {
     el('span', 'mz-draft-icon', '≋', this.draftBox);
     el('span', 'mz-draft-text', 'DRAFT', this.draftBox);
     this.draftBox.hidden = true;
+    // Crosswind: a chip with an arrow that points the way the gust pushes, while it pushes the player.
+    this.windBox = el('div', 'mz-wind', undefined, race);
+    this.windBox.setAttribute('role', 'status');
+    el('span', 'mz-wind-icon', '➤', this.windBox);
+    el('span', 'mz-wind-text', 'WIND', this.windBox);
+    this.windBox.hidden = true;
 
     this.speedBox = el('div', 'mz-speed', undefined, race);
     const gauge = svg('svg', { viewBox: '0 0 200 200' }, this.speedBox);
@@ -338,11 +345,20 @@ export class HUD implements IHUD {
       bus.on('race:state', (e) => {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
         if (e.state === 'title' || e.state === 'countdown') this.earned = null;
-        if (e.state === 'title' || e.state === 'results') this.draftBox.hidden = true;
+        if (e.state === 'title' || e.state === 'results') this.draftBox.hidden = this.windBox.hidden = true;
       }),
       bus.on('economy:credits', (e) => (this.earned = e)),
       bus.on('ship:draft', (e) => {
         if (e.shipId === PLAYER_ID) this.draftBox.hidden = !e.active;
+      }),
+      bus.on('ship:wind', (e) => {
+        if (e.shipId !== PLAYER_ID) return;
+        this.windBox.hidden = !e.active;
+        this.windBox.classList.toggle('left', e.dir < 0);
+        this.windBox.setAttribute('aria-label', e.dir < 0 ? 'Crosswind pushing left' : 'Crosswind pushing right');
+      }),
+      bus.on('hazard:lightning', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast('⚡ LIGHTNING STRIKE', 'bad');
       }),
       bus.on('item:emp', (e) => {
         if (e.from === PLAYER_ID) this.toast(`EMP → ${e.targetName}`, 'good');
@@ -355,7 +371,7 @@ export class HUD implements IHUD {
         if (e.shipId === PLAYER_ID) this.toast(e.kind === 'shield' ? '🛡 SHIELD UP' : '✷ MINE DROPPED', 'good', true);
       }),
       bus.on('item:shield', (e) => {
-        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : '🛡 MINE BLOCKED', 'good');
+        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : e.blocked === 'mine' ? '🛡 MINE BLOCKED' : '🛡 LIGHTNING BLOCKED', 'good');
       }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));

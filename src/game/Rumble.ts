@@ -35,6 +35,7 @@ export class Rumble {
       bus.on('ship:land', (e) => mine(e.shipId) && e.intensity >= RUMBLE.LAND_MIN && this.play(0.4 + 0.5 * clamp01(e.intensity), 0.3, 140)),
       bus.on('item:emp', (e) => mine(e.target) && this.play(0.9, 0.9, 380)),
       bus.on('hazard:mine', (e) => mine(e.shipId) && this.play(1, 0.8, 300)),
+      bus.on('hazard:lightning', (e) => mine(e.shipId) && this.play(0.8, 1, 260)),
       bus.on('ship:destroyed', (e) => mine(e.shipId) && this.play(1, 1, 500)),
     ];
   }

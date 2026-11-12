@@ -4,7 +4,7 @@
  */
 import type { App } from '../../app/App';
 import { TRACK_DEFS } from '../../content/tracks';
-import { WORLDS, type WorldDef } from '../../content/worlds';
+import { worldsFor, type WorldDef } from '../../content/worlds';
 import { formatTime } from '../../core/math';
 import { TIER_OPTIONS, TIERS } from '../../content/tiers';
 import { Screen, Segmented } from '../components';
@@ -91,7 +91,7 @@ export function WorldSelect({ app }: { app: App }) {
     <Screen id="worlds" title="WORLDS" kicker="PICK A WORLD · 3 LAPS · 7 RIVALS" onBack={() => (app.route.value = { name: 'menu' })} backLabel="MENU" wide>
       <TierPicker app={app} />
       <div class="mzu-worlds">
-        {WORLDS.map((w) => (
+        {worldsFor(app.features).map((w) => (
           <WorldCard key={w.id} app={app} w={w} current={w.id === current} />
         ))}
       </div>
