@@ -7,6 +7,7 @@ import type { TrackData } from '../core/contracts';
 import type { TrackReport } from './TrackValidate';
 import { buildDebris } from './features/debris';
 import { buildMines } from './features/mine';
+import { buildStrikes, STRIKE_RADIUS } from './features/lightning';
 
 const W = 1000;
 const PLAN_H = 760;
@@ -99,6 +100,8 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     else if (f.type === 'loop') label((f.dStart + f.dEnd) / 2, 'LOOP', '#ffb319');
     else if (f.type === 'mines') label((f.dStart + f.dEnd) / 2, `MINES ×${f.count}`, '#ff3344');
     else if (f.type === 'debris') label((f.dStart + f.dEnd) / 2, `DEBRIS ×${f.count}`, '#c9a14a');
+    else if (f.type === 'wind') label((f.dStart + f.dEnd) / 2, `WIND ${f.dir > 0 ? '→ R' : '← L'} ${(f.dEnd - f.dStart).toFixed(0)} m`, '#ffe14d');
+    else if (f.type === 'lightning') label((f.dStart + f.dEnd) / 2, `LIGHTNING ×${f.count}`, '#b98cff');
     else if (f.type === 'gate' && !f.branch) label(f.d, `GATE ${f.span.toUpperCase()}`, '#b04dff');
     else if (f.type === 'gate') {
       const br = track.branches.find((x) => x.id === f.branch);
@@ -118,6 +121,24 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
   }
   for (const b of buildDebris(track)) {
     marks.push(`<circle cx="${px(b.center.x + b.right.x * b.lateral)}" cy="${pz(b.center.z + b.right.z * b.lateral)}" r="3" fill="#c9a14a"/>`);
+  }
+  // Lightning: each strike circle at its true size.
+  for (const k of buildStrikes(track)) {
+    marks.push(`<circle cx="${px(k.position.x)}" cy="${pz(k.position.z)}" r="${Math.max(2, STRIKE_RADIUS * scale).toFixed(1)}" fill="none" stroke="#b98cff" stroke-width="1.5"/>`);
+  }
+  // Crosswind zones: a yellow band over the deck with arrows across the road, pointing the way the gust pushes.
+  for (const f of track.features) {
+    if (f.type !== 'wind') continue;
+    for (let d = f.dStart; d < f.dEnd; d += 6) {
+      const a = at(d);
+      const b = at(Math.min(d + 6, f.dEnd));
+      marks.push(`<line x1="${px(a.position.x)}" y1="${pz(a.position.z)}" x2="${px(b.position.x)}" y2="${pz(b.position.z)}" stroke="#ffe14d" stroke-opacity="0.3" stroke-width="${(2 * track.halfWidth * scale).toFixed(1)}"/>`);
+    }
+    for (let d = f.dStart + 20; d < f.dEnd - 10; d += 45) {
+      const a = at(d);
+      const k = f.dir * (track.halfWidth - 2);
+      marks.push(`<line x1="${px(a.position.x - a.right.x * k)}" y1="${pz(a.position.z - a.right.z * k)}" x2="${px(a.position.x + a.right.x * k)}" y2="${pz(a.position.z + a.right.z * k)}" stroke="#ffe14d" stroke-width="1.5" marker-end="url(#arrow)"/>`);
+    }
   }
   // Pipes: a translucent cyan sleeve over the deck; ice patches: pale strips on their lateral band.
   for (const f of track.features) {

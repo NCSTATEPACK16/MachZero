@@ -83,7 +83,7 @@ export function buildStrikes(track: Pick<TrackData, 'features' | 'halfWidth' | '
   return strikes;
 }
 
-/** Seconds into the point's current cycle: the bolt is the first STRIKE_TIME seconds of each. */
+/** Seconds into the point's current cycle: the bolt is the last STRIKE_TIME seconds of each, so no point strikes at t = 0. */
 function cycleTime(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number): number {
   return (((t + s.phase) % s.period) + s.period) % s.period;
 }
@@ -95,21 +95,19 @@ export function strikeCycle(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number)
 
 /** Is the bolt down at time t? */
 export function strikeActive(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number): boolean {
-  return cycleTime(s, t) < STRIKE_TIME;
+  return cycleTime(s, t) >= s.period - STRIKE_TIME;
 }
 
 /** Warning glow 0..1 over the `warning` seconds before the bolt (1 while it is down). */
 export function strikeWarning(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number, warning = STRIKE_WARNING): number {
-  const c = cycleTime(s, t);
-  if (c < STRIKE_TIME) return 1;
-  const toStrike = s.period - c;
+  const toStrike = s.period - STRIKE_TIME - cycleTime(s, t);
+  if (toStrike <= 0) return 1;
   return toStrike <= warning ? clamp01(1 - toStrike / warning) : 0;
 }
 
 /** Is the bolt down at any moment of [t0, t1]? (The AI's arrival check.) */
 export function strikesDuring(s: Pick<BuiltStrike, 'period' | 'phase'>, t0: number, t1: number): boolean {
-  if (t1 - t0 >= s.period) return true;
-  const c0 = cycleTime(s, t0);
-  // Down at t0, or the next bolt starts before t1.
-  return c0 < STRIKE_TIME || c0 + (t1 - t0) >= s.period;
+  if (t1 - t0 >= s.period - STRIKE_TIME) return true;
+  // Down at t0, or the bolt of this cycle starts before t1.
+  return cycleTime(s, t0) + (t1 - t0) >= s.period - STRIKE_TIME;
 }

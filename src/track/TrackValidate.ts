@@ -7,16 +7,23 @@
  *   - lap length in the band that gives a 30–45 s lap at Pilot pace;
  *   - split paths: fork and merge overlaps on main straights, branch radius and elevation, and the branch clear
  *     of the main road once the two have separated;
- *   - loops: side offset that keeps the entry and exit decks apart, level and unbanked at both ends.
+ *   - loops: side offset that keeps the entry and exit decks apart, level and unbanked at both ends;
+ *   - crosswind zones: not on a jump, a pipe, a loop or the start and pit area, not within 60 m of a corkscrew,
+ *     clear of each other, long enough to fade in and out, and a gust that can be steered against;
+ *   - lightning fields: the same places as wind, never inside a crosswind zone, a period long enough for the
+ *     Rookie warning, and room for the strike circles beside the clear lane.
  */
 import { CONFIG } from '../core/config';
 import type { TrackData, TrackFeature } from '../core/contracts';
 import { RAMP_LENGTH, LANDING_BLEND } from './features/jump';
 import { branchSeparation } from './features/branch';
 import { LOOP_MIN_SIDE } from './features/loop';
+import { WIND_EDGE } from './features/wind';
+import { STRIKE_MIN_PERIOD, STRIKE_RADIUS, strikeLaneGap } from './features/lightning';
+import { laneIntervals } from './features/mine';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop' | 'wind' | 'lightning';
   message: string;
 }
 
@@ -57,6 +64,12 @@ export const VALIDATION = {
   PIPE_MIN_CLOSED: 150,
   /** Tolerance (m) on the rail-to-rail separation a branch keeps from the main road once separated. */
   BRANCH_SEPARATION_SLACK: 0.5,
+  /** A crosswind zone keeps this far (m) from a corkscrew: the deck rolls there and a push would fight the magnetism. */
+  WIND_CORKSCREW_GAP: 60,
+  /** The strongest gust a zone may have (m/s²): beyond it the lateral thrusters cannot hold a line. */
+  WIND_MAX_ACCEL: 12,
+  /** The shortest gust, on and off (s): the ramps at both ends must fit. */
+  WIND_MIN_GUST: 1.5,
 } as const;
 
 /** [start, end] metres a feature occupies, including its approach/exit (jump ramp and landing blend). */
@@ -191,6 +204,42 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
     if (f.type !== 'dash') continue;
     for (const s of spans) {
       if (circularOverlap([f.dStart, f.dEnd], s.span, L)) issues.push({ code: 'feature-overlap', message: `dash plate at ${f.dStart.toFixed(0)} m sits on the ${s.f.type}` });
+    }
+  }
+
+  // ---- crosswind zones and lightning fields ----
+  const windZones = track.features.filter((f): f is Extract<TrackFeature, { type: 'wind' }> => f.type === 'wind');
+  const fields = track.features.filter((f): f is Extract<TrackFeature, { type: 'lightning' }> => f.type === 'lightning');
+  const placed = (what: string, code: 'wind' | 'lightning', span: [number, number]): void => {
+    if (circularOverlap(span, startZone, L)) issues.push({ code, message: `${what} overlaps the start / pit area` });
+    for (const s of spans) {
+      const gap = code === 'wind' && s.f.type === 'corkscrew' ? VALIDATION.WIND_CORKSCREW_GAP : 0;
+      if (circularOverlap(span, [s.span[0] - gap, s.span[1] + gap], L)) {
+        issues.push({ code, message: gap ? `${what} is within ${gap} m of the corkscrew at ${s.span[0].toFixed(0)} m` : `${what} overlaps the ${s.f.type} at ${s.span[0].toFixed(0)} m` });
+      }
+    }
+  };
+  windZones.forEach((w, i) => {
+    const what = `wind zone at ${w.dStart.toFixed(0)} m`;
+    placed(what, 'wind', [w.dStart, w.dEnd]);
+    if (w.dEnd - w.dStart < 4 * WIND_EDGE) issues.push({ code: 'wind', message: `${what} is shorter than ${4 * WIND_EDGE} m` });
+    if (!(w.accel > 0) || w.accel > VALIDATION.WIND_MAX_ACCEL) issues.push({ code: 'wind', message: `${what}: gust ${w.accel} m/s² outside 0–${VALIDATION.WIND_MAX_ACCEL} m/s²` });
+    if (!(w.duty > 0) || w.duty > 1) issues.push({ code: 'wind', message: `${what}: duty ${w.duty} outside 0–1` });
+    else if (w.duty < 1 && (w.duty * w.period < VALIDATION.WIND_MIN_GUST || (1 - w.duty) * w.period < VALIDATION.WIND_MIN_GUST)) {
+      issues.push({ code: 'wind', message: `${what}: the gust is on or off for less than ${VALIDATION.WIND_MIN_GUST} s` });
+    }
+    for (const o of windZones.slice(i + 1)) {
+      if (circularOverlap([w.dStart, w.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'wind', message: `${what} overlaps the wind zone at ${o.dStart.toFixed(0)} m` });
+    }
+  });
+  for (const f of fields) {
+    const what = `lightning field at ${f.dStart.toFixed(0)} m`;
+    placed(what, 'lightning', [f.dStart, f.dEnd]);
+    if (f.period < STRIKE_MIN_PERIOD) issues.push({ code: 'lightning', message: `${what}: period ${f.period} s < ${STRIKE_MIN_PERIOD} s (the Rookie warning would not fit)` });
+    if (!(f.count >= 1)) issues.push({ code: 'lightning', message: `${what} has no strike points` });
+    if (laneIntervals(track.halfWidth, f.lane ?? 0, strikeLaneGap(), STRIKE_RADIUS + 0.5).length === 0) issues.push({ code: 'lightning', message: `${what} leaves no room beside its clear lane` });
+    for (const w of windZones) {
+      if (circularOverlap([f.dStart, f.dEnd], [w.dStart, w.dEnd], L)) issues.push({ code: 'lightning', message: `${what} is inside the wind zone at ${w.dStart.toFixed(0)} m` });
     }
   }
 
