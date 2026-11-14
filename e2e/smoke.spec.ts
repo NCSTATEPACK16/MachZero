@@ -74,10 +74,12 @@ test('races Tempest Spire through a wind zone and a lightning field without cons
   const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
 
   // 1,900 m: past the first wind zone (about 850–1,140 m) and the first lightning field (about 1,660–1,860 m).
+  // The upper bound matters: the grid is just behind the line, so on the grid the distance reads about 4,300 m.
   await page.waitForFunction(
     () => {
       const m = (window as unknown as { __machzero: Debug }).__machzero;
-      return m.ships[0].trackU * m.app.session.track.length > 1900;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 1900 && d < 3000;
     },
     undefined,
     { timeout: 240_000 },
@@ -105,10 +107,12 @@ test('races Cinder Forge past the geysers and down the Plunge without console er
   const rimY = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.ships[0].position.y);
 
   // 2,500 m: past the geyser fields (about 800–990 m and 1,520–1,720 m) and the dive (about 2,020–2,280 m).
+  // (An upper bound too: on the grid, just behind the line, the distance reads about 4,500 m.)
   await page.waitForFunction(
     () => {
       const m = (window as unknown as { __machzero: Debug }).__machzero;
-      return m.ships[0].trackU * m.app.session.track.length > 2500;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 2500 && d < 3000;
     },
     undefined,
     { timeout: 240_000 },
