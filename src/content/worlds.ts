@@ -6,7 +6,7 @@
  */
 import type { TrackPalette } from '../track/TrackMesh';
 
-export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire';
+export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire' | 'cinder-forge';
 
 export interface WorldDef {
   id: WorldId;
@@ -94,6 +94,20 @@ export const WORLDS: readonly WorldDef[] = [
     // Storm violet and teal rails, electric yellow for the gimmick (wind streamers, strike circles).
     palette: { left: 0x8a5cff, right: 0x2be0c8, accent: 0xffe14d, pit: 0x7dff3a },
     ui: { from: '#8a5cff', to: '#ffe14d' },
+    built: true,
+    expansion: true,
+    props: false,
+  },
+  {
+    id: 'cinder-forge',
+    order: 7,
+    name: 'CINDER FORGE',
+    tagline: 'A chrome foundry in a volcano crater',
+    gimmick: 'THE PLUNGE',
+    trackId: 'cinder-forge',
+    // Ember orange and cobalt blue rails (the blue keeps it apart from Sunset Mesa), molten yellow for the geysers.
+    palette: { left: 0xff6a1f, right: 0x2b5cff, accent: 0xffd04a, pit: 0x7dff3a },
+    ui: { from: '#ff6a1f', to: '#2b5cff' },
     built: true,
     expansion: true,
     props: false,

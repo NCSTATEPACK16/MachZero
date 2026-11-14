@@ -254,7 +254,18 @@ export type TrackFeature =
    * centred at lateral `lane` (m). Each point strikes once per `period` seconds on the hazard clock; `phase` shifts
    * the whole field.
    */
-  | { type: 'lightning'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
+  | { type: 'lightning'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number }
+  /**
+   * The Plunge (Cinder Forge): a steep dive, a floor section and a climb out, from dStart to dEnd. The magnetic lock
+   * holds ships on the road as everywhere else; here gravity also acts along the road (track/features/plunge.ts), so
+   * ships gain speed on the dive and lose it on the climb, and the top-speed cap is higher.
+   */
+  | { type: 'plunge'; dStart: number; dEnd: number }
+  /**
+   * A field of lava geysers (Cinder Forge): `count` vents between dStart and dEnd, either side of a clear lane centred
+   * at lateral `lane` (m). Each vent erupts once per `period` seconds on the hazard clock; `phase` shifts the field.
+   */
+  | { type: 'geysers'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
 
 /** content/tracks/<id>.json */
 export interface TrackDefinition {

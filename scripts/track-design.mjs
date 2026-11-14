@@ -1,12 +1,15 @@
 // Authoring tool for MachZero's hand-designed tracks: each world's circuit is written below as a sequence of
 // turtle segments (straights and constant-radius arcs, each with an end elevation), which this script turns
 // into the closed Catmull-Rom control points of src/content/tracks/<id>.json, plus the features placed on
-// those segments (corkscrew, jumps, pipes, ice, stone gates, mines, debris, crosswind zones, lightning fields, dash
-// plates, pit) in metres along the
-// lap. A pipe or ice patch may run on past its segment (`len` instead of `to`). A split path (`branches`) is its own
+// those segments (corkscrew, jumps, pipes, ice, stone gates, mines, debris, crosswind zones, lightning fields, lava
+// geysers, dash plates, pit) in metres along the lap. A pipe or ice patch may run on past its segment (`len` instead of `to`). A split path (`branches`) is its own
 // segment list from a `fork` to a `merge` marker on flat main straights; see designBranch(). A `loop` segment is a
 // loop-the-loop on the level: dense control points along the analytic loop of src/track/features/loop.ts, ending
-// `advance` metres on and `side` metres to the side (positive = right) of where it started.
+// `advance` metres on and `side` metres to the side (positive = right) of where it started. A `ramp` segment is a
+// steep straight (the Plunge's dive and climb): it runs from the elevation before it to its `y` along an arc, a
+// straight slope and an arc, never steeper than `pitch` degrees and never tighter than `radius` metres. The dive is
+// marked `plunge: 'in'` and the climb `plunge: 'out'`; the Plunge feature runs from the top of one to the top of the
+// other.
 //
 //   node scripts/track-design.mjs            # write every track
 //   node scripts/track-design.mjs neon-bay   # one track
@@ -25,29 +28,76 @@ const OUT = join(root, 'src/content/tracks');
 const STEP = 18; // max metres between emitted control points
 const ARC_STEP_DEG = 8;
 
-/** @typedef {{ s?: number, r?: number, a?: number, y?: number, loop?: { side: number, advance?: number, height?: number }, adjust?: boolean, f?: object[] }} Segment */
+/** @typedef {{ s?: number, r?: number, a?: number, y?: number, loop?: { side: number, advance?: number, height?: number }, ramp?: { pitch: number, radius: number, plunge?: 'in' | 'out' }, adjust?: boolean, f?: object[] }} Segment */
 
-// Loop shape: keep in step with loopLocal() in src/track/features/loop.ts.
-const LOOP_ADVANCE = 40;
-const LOOP_SIDE_EASE = 0.15;
-const LOOP_HEIGHT = 30;
-const LOOP_POINTS = 80;
-const smoother = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * t * (t * (t * 6 - 15) + 10));
-function loopLocal(t, { advance = LOOP_ADVANCE, height = LOOP_HEIGHT, side }) {
-  const s = smoother(t);
-  const R = height / 2;
-  const th = 2 * Math.PI * s;
-  return [advance * t + R * Math.sin(th), R * (1 - Math.cos(th)), side * smoother((t - LOOP_SIDE_EASE) / (1 - 2 * LOOP_SIDE_EASE))];
-}
-function loopArc(shape) {
-  let len = 0;
-  let prev = loopLocal(0, shape);
-  for (let i = 1; i <= 4000; i++) {
-    const p = loopLocal(i / 4000, shape);
-    len += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]);
-    prev = p;
+const RAMP_STEP = 6; // metres of road between control points on a ramp (dense: the curve must keep the radius)
+const RAMP_EASE = 10; // metres of road over which a ramp's bend builds up to its full curvature, and fades again
+/**
+ * The side profile of a ramp that changes elevation by `rise` (negative = down): a bend of `radius` up to `pitch`,
+ * a straight slope, and a bend back to the level. Each bend eases in and out over RAMP_EASE metres (its curvature is
+ * a trapezoid), so the spline through the points keeps the radius. A rise too small for the full pitch gets two
+ * shallower bends. Returns the road length, the plan length and at(s) → [plan metres, elevation change] at `s`
+ * metres of road.
+ */
+function rampProfile(rise, { pitch, radius: R }) {
+  const H = Math.abs(rise);
+  const sgn = Math.sign(rise);
+  const e = RAMP_EASE;
+  const DS = 0.02;
+  // Curvature of one bend that turns the road through `th`: up over e, held, down over e.
+  const bend = (th) => {
+    const hold = R * th - e;
+    if (hold < 0) throw new Error(`ramp: ${pitch}° at radius ${R} m is too short a bend for a ${e} m ease`);
+    return { length: hold + 2 * e, k: (s) => (s < e ? s / e : s > hold + e ? (hold + 2 * e - s) / e : 1) / R };
+  };
+  /** Integrate the profile for a top pitch `th` and a straight slope of `Ls` metres: samples of [plan, drop] every DS. */
+  const integrate = (th, Ls) => {
+    const b = bend(th);
+    const length = 2 * b.length + Ls;
+    const out = [[0, 0]];
+    let a = 0;
+    let x = 0;
+    let y = 0;
+    for (let s = 0; s < length - 1e-9; s += DS) {
+      const m = s + DS / 2;
+      const k = m < b.length ? b.k(m) : m < b.length + Ls ? 0 : -b.k(m - b.length - Ls);
+      const a1 = a + k * DS;
+      const mid = (a + a1) / 2;
+      x += Math.cos(mid) * DS;
+      y += Math.sin(mid) * DS;
+      a = a1;
+      out.push([x, y]);
+    }
+    return { length, pts: out };
+  };
+  let th = (pitch * Math.PI) / 180;
+  let Ls = 0;
+  let prof = integrate(th, 0);
+  const dropOf = (p) => p.pts[p.pts.length - 1][1];
+  if (dropOf(prof) > H) {
+    let lo = (e / R) * 1.0001;
+    let hi = th;
+    for (let i = 0; i < 40; i++) {
+      th = (lo + hi) / 2;
+      prof = integrate(th, 0);
+      if (dropOf(prof) > H) hi = th;
+      else lo = th;
+    }
+  } else {
+    Ls = (H - dropOf(prof)) / Math.sin(th);
+    prof = integrate(th, Ls);
   }
-  return len;
+  const last = prof.pts[prof.pts.length - 1];
+  const at = (s) => {
+    const f = Math.min(prof.pts.length - 1, s / DS);
+    const i = Math.min(prof.pts.length - 2, Math.floor(f));
+    const t = f - i;
+    const p = prof.pts[i];
+    const q = prof.pts[i + 1];
+    // Scale the elevation so the ramp ends exactly on `rise` (the bisection leaves a few millimetres).
+    return [p[0] + (q[0] - p[0]) * t, (sgn * H * (p[1] + (q[1] - p[1]) * t)) / last[1]];
+  };
+  return { length: prof.length, plan: last[0], pitch: (th * 180) / Math.PI, at };
 }
 
 const TRACKS = {
@@ -71,7 +121,7 @@ const TRACKS = {
       { s: 560, y: 38 },
       { r: 260, a: -60, y: 40 },
       { r: 200, a: 90, y: 40 },
-      { s: 160, y: 40 },
+      { s: 160, y: 38 },
     ],
   },
   // World 2. Chrome-and-sandstone canyon at sunset: a long counter-clockwise lap along the mesa rims with
@@ -217,6 +267,33 @@ const TRACKS = {
       { s: 375, y: 60, adjust: true },
     ],
   },
+  // World 7. A chrome foundry in a volcano crater: a clockwise lap that runs along the crater rim, dives into the
+  // crater (the Plunge: 55° down 110 m), crosses the floor beside the lava and climbs back out. Two geyser
+  // fields on the rim, each with a clear lane, and one jump over a lava river. No geysers on the Plunge.
+  'cinder-forge': {
+    worldId: 'cinder-forge',
+    name: 'CINDER FORGE',
+    elevation: [34, 160],
+    segments: [
+      { s: 340, y: 150, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
+      { r: 240, a: 90, y: 150 },
+      { s: 420, y: 150, adjust: true, f: [{ type: 'dash', at: 60, lateral: 0 }, { type: 'geysers', from: 130, to: 330, count: 5, period: 5, phase: 0, lane: 3 }] },
+      { r: 200, a: 60, y: 150 },
+      { s: 320, y: 150, f: [{ type: 'geysers', from: 50, to: 250, count: 5, period: 4.5, phase: 1.1, lane: -3 }] },
+      { r: 220, a: 30, y: 150 },
+      { s: 120, y: 150 },
+      { ramp: { pitch: 55, radius: 122, plunge: 'in' }, y: 38 },
+      { s: 220, y: 38 },
+      { r: 260, a: 60, y: 38 },
+      { s: 160, y: 38 },
+      { ramp: { pitch: 55, radius: 122, plunge: 'out' }, y: 150 },
+      { s: 150, y: 150 },
+      { r: 130, a: 90, y: 150 },
+      { s: 520, y: 150, adjust: true, f: [{ type: 'jump', lip: 130, gap: 60, kick: 3 }] },
+      { r: 180, a: 30, y: 150 },
+      { s: 200, y: 150, f: [{ type: 'dash', at: 60, lateral: 3 }] },
+    ],
+  },
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -234,14 +311,32 @@ function walk(segments, lengths, emit, start = null) {
   const pts = [];
   const feats = [];
   const poses = [];
+  let plungeStart = null;
   const push = (px, py, pz) => pts.push([+px.toFixed(3), +py.toFixed(3), +pz.toFixed(3)]);
   segments.forEach((seg, i) => {
     const y0 = y;
     const y1 = seg.y ?? y;
     const d0 = d;
-    const segLength = seg.s !== undefined ? lengths[i] : seg.loop ? loopArc(seg.loop) : seg.r * Math.abs((seg.a * Math.PI) / 180);
+    const ramp = seg.ramp ? rampProfile(y1 - y0, seg.ramp) : null;
+    const segLength = seg.s !== undefined ? lengths[i] : seg.loop ? loopArc(seg.loop) : ramp ? ramp.length : seg.r * Math.abs((seg.a * Math.PI) / 180);
     poses.push({ x, z, h, y0, y1, d0, L: segLength, straight: seg.s !== undefined });
-    if (seg.loop) {
+    if (ramp) {
+      const n = Math.max(2, Math.ceil(ramp.length / RAMP_STEP));
+      for (let k = 0; k < n; k++) {
+        const [a, b] = ramp.at((ramp.length * k) / n);
+        if (emit) push(x + Math.cos(h) * a, y0 + b, z + Math.sin(h) * a);
+      }
+      x += Math.cos(h) * ramp.plan;
+      z += Math.sin(h) * ramp.plan;
+      d += ramp.length;
+      if (emit && seg.ramp.plunge === 'in') plungeStart = d0;
+      if (emit && seg.ramp.plunge === 'out') {
+        if (plungeStart === null) throw new Error(`segment ${i}: a plunge 'out' ramp needs a plunge 'in' ramp before it`);
+        feats.push({ type: 'plunge', dStart: +plungeStart.toFixed(2), dEnd: +d.toFixed(2) });
+        plungeStart = null;
+      }
+      if (emit) console.log(`  ramp #${i}: ${(y1 - y0).toFixed(0)} m over ${ramp.length.toFixed(0)} m of road (${ramp.plan.toFixed(0)} m in plan), ${ramp.pitch.toFixed(1)}°`);
+    } else if (seg.loop) {
       if (y1 !== y0) throw new Error(`a loop must be level (segment ${i} climbs ${y0}→${y1})`);
       // forward (cos h, sin h), right = forward × up = (−sin h, cos h)
       for (let k = 0; k < LOOP_POINTS; k++) {
@@ -308,6 +403,8 @@ function walk(segments, lengths, emit, start = null) {
           // A crosswind zone may run on past its segment (`len`), like a pipe.
           const to = f.to ?? f.from + f.len;
           feats.push({ type: 'wind', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + to).toFixed(2), dir: f.dir, accel: f.accel ?? 7, period: f.period, phase: f.phase ?? 0, duty: f.duty });
+        } else if (f.type === 'geysers') {
+          feats.push({ type: 'geysers', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, period: f.period, phase: f.phase ?? 0, lane: f.lane ?? 0 });
         } else if (f.type === 'lightning') {
           feats.push({ type: 'lightning', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, period: f.period, phase: f.phase ?? 0, lane: f.lane ?? 0 });
         } else if (f.type === 'gate') {

@@ -21,6 +21,7 @@ import { buildWinds } from './features/wind';
 import { buildWindVisual } from './features/windVisual';
 import { buildStrikes } from './features/lightning';
 import { buildLightningVisual } from './features/lightningVisual';
+import { PLUNGE_RESPAWN_AFTER, buildPlunges, plungeDiveFoot } from './features/plunge';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -324,8 +325,14 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
     return 'road';
   };
+  // A ship lost on a Plunge's dive comes back on the floor: a slow restart on a 55° slope would be no help.
+  const dives = buildPlunges({ features, length }).map((p) => {
+    const foot = plungeDiveFoot(p, (d) => query.sampleAt(wrap01(d / length)).forward.y);
+    return { uStart: p.uStart, uFoot: wrap01(foot / length), uBack: wrap01((foot + PLUNGE_RESPAWN_AFTER) / length) };
+  });
   const safeRespawnU = (u: number): number => {
     const d = wrap01(u) * length;
+    for (const dive of dives) if (inLoopRange(wrap01(u), dive.uStart, dive.uFoot)) return dive.uBack;
     for (const j of jumps) {
       const from = j.dTakeoff - JUMP_RESPAWN_BEFORE;
       const rel = (((d - from) % length) + length) % length;
