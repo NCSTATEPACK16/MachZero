@@ -19,6 +19,8 @@ const THEMES: Record<string, ThemeFactory> = {
   'orbital-ring': (fog) => new OrbitalRingTheme(fog),
   // Placeholder until assets/reference/worlds/tempest-spire/chosen.jpg arrives (IMPLEMENTATION §X4 step 8).
   'tempest-spire': (fog) => new PlaceholderTheme('tempest-spire', fog),
+  // Placeholder until assets/reference/worlds/cinder-forge/chosen.jpg arrives (IMPLEMENTATION §X5 step 8).
+  'cinder-forge': (fog) => new PlaceholderTheme('cinder-forge', fog),
 };
 
 export function createTheme(worldId: string, fog: FogUniforms): WorldTheme {

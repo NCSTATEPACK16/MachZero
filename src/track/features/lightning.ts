@@ -8,13 +8,8 @@
  *
  * The hit (energy and a boost jam, or the Rookie slow-down; a Shield blocks it) is in physics/PhysicsSystem.
  */
-import * as THREE from 'three';
-import { CONFIG } from '../../core/config';
-import type { TrackData, TrackFeature } from '../../core/contracts';
-import { clamp01 } from '../../core/math';
-import { laneIntervals, spreadLateral } from './mine';
-
-type LightningFeature = Extract<TrackFeature, { type: 'lightning' }>;
+import type { TrackData } from '../../core/contracts';
+import { type TimedPoint, buildTimedPoints, fieldLaneGap, pointActive, pointActiveDuring, pointCycle, pointWarning } from './timedField';
 
 /** Radius of a strike circle on the deck (m). */
 export const STRIKE_RADIUS = 3;
@@ -32,82 +27,36 @@ const STRIKE_RAIL_MARGIN = 0.5;
 /** The shortest period a field may have: the Rookie warning (twice as long) must fit between two bolts. */
 export const STRIKE_MIN_PERIOD = 2 * STRIKE_WARNING + STRIKE_TIME + 0.5;
 
-export interface BuiltStrike {
-  index: number;
-  /** Main-loop metres, u and lateral of the circle's centre. */
-  d: number;
-  u: number;
-  lateral: number;
-  period: number;
-  /** This point's own offset on the hazard clock (the field's phase plus its stagger). */
-  phase: number;
-  /** The circle's centre on the deck, the road's up there, and the centre at hull height (the hit test). */
-  position: THREE.Vector3;
-  up: THREE.Vector3;
-  center: THREE.Vector3;
-}
+/** A strike point: where it is and when it strikes (features/timedField.ts). */
+export type BuiltStrike = TimedPoint;
+
+const SHAPE = { radius: STRIKE_RADIUS, laneMargin: STRIKE_LANE_MARGIN, railMargin: STRIKE_RAIL_MARGIN };
 
 /** Half-width of the clear lane a field leaves: a hull, the margin and a circle's radius. */
 export function strikeLaneGap(): number {
-  return CONFIG.SHIP_WIDTH / 2 + STRIKE_LANE_MARGIN + STRIKE_RADIUS;
+  return fieldLaneGap(SHAPE);
 }
 
 export function buildStrikes(track: Pick<TrackData, 'features' | 'halfWidth' | 'length' | 'sampleAt'>): BuiltStrike[] {
-  const strikes: BuiltStrike[] = [];
-  for (const f of track.features) {
-    if (f.type !== 'lightning') continue;
-    const field = f as LightningFeature;
-    const intervals = laneIntervals(track.halfWidth, field.lane ?? 0, strikeLaneGap(), STRIKE_RAIL_MARGIN + STRIKE_RADIUS);
-    if (intervals.length === 0) throw new Error(`lightning field at ${field.dStart} m leaves no room beside its lane`);
-    const span = field.dEnd - field.dStart;
-    for (let k = 0; k < field.count; k++) {
-      const d = field.dStart + ((k + 0.5) / field.count) * span;
-      const u = (((d / track.length) % 1) + 1) % 1;
-      const lateral = spreadLateral(intervals, k);
-      const s = track.sampleAt(u);
-      const position = s.position.clone().addScaledVector(s.right, lateral);
-      strikes.push({
-        index: strikes.length,
-        d,
-        u,
-        lateral,
-        period: field.period,
-        // Golden-ratio stagger: neighbours never strike together, and the pattern does not repeat along the field.
-        phase: field.phase + ((k * 0.618034) % 1) * field.period,
-        position,
-        up: s.up.clone(),
-        center: position.clone().addScaledVector(s.up, CONFIG.HOVER_HEIGHT),
-      });
-    }
-  }
-  return strikes;
-}
-
-/** Seconds into the point's current cycle: the bolt is the last STRIKE_TIME seconds of each, so no point strikes at t = 0. */
-function cycleTime(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number): number {
-  return (((t + s.phase) % s.period) + s.period) % s.period;
+  return buildTimedPoints(track, 'lightning', SHAPE);
 }
 
 /** Which of the point's strikes time t belongs to (one hit per ship per strike). */
 export function strikeCycle(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number): number {
-  return Math.floor((t + s.phase) / s.period);
+  return pointCycle(s, t);
 }
 
-/** Is the bolt down at time t? */
+/** Is the bolt down at time t? The bolt is the last STRIKE_TIME seconds of each cycle, so no point strikes at t = 0. */
 export function strikeActive(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number): boolean {
-  return cycleTime(s, t) >= s.period - STRIKE_TIME;
+  return pointActive(s, t, STRIKE_TIME);
 }
 
 /** Warning glow 0..1 over the `warning` seconds before the bolt (1 while it is down). */
 export function strikeWarning(s: Pick<BuiltStrike, 'period' | 'phase'>, t: number, warning = STRIKE_WARNING): number {
-  const toStrike = s.period - STRIKE_TIME - cycleTime(s, t);
-  if (toStrike <= 0) return 1;
-  return toStrike <= warning ? clamp01(1 - toStrike / warning) : 0;
+  return pointWarning(s, t, STRIKE_TIME, warning);
 }
 
 /** Is the bolt down at any moment of [t0, t1]? (The AI's arrival check.) */
 export function strikesDuring(s: Pick<BuiltStrike, 'period' | 'phase'>, t0: number, t1: number): boolean {
-  if (t1 - t0 >= s.period - STRIKE_TIME) return true;
-  // Down at t0, or the bolt of this cycle starts before t1.
-  return cycleTime(s, t0) + (t1 - t0) >= s.period - STRIKE_TIME;
+  return pointActiveDuring(s, t0, t1, STRIKE_TIME);
 }

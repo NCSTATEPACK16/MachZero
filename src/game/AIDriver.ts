@@ -21,6 +21,8 @@ import { buildMines, MINE_RADIUS, minePose, type TrackMine } from '../track/feat
 import { type BuiltDebris, buildDebris, debrisHalfAcross, debrisLateral } from '../track/features/debris';
 import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
 import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikesDuring } from '../track/features/lightning';
+import { buildPlunges, plungeClimbFoot, plungeDiveFoot } from '../track/features/plunge';
+import { type BuiltGeyser, buildGeysers, GEYSER_RADIUS, geyserDuring } from '../track/features/geyser';
 
 /** Aggressive pilots lean toward a split path's shortcut by this much over their tier's odds. */
 const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
@@ -53,6 +55,8 @@ const DROPPED_MARGIN = 2.5;
 /** Lightning: a strike point blocks its circle when its bolt lands within this many seconds of the ship's arrival
  *  (the driver's speed, and so its arrival time, changes on the way there). */
 const STRIKE_WINDOW = 0.45;
+/** Geysers: a vent blocks its column when it erupts within this many seconds of the ship's arrival. */
+const GEYSER_WINDOW = 0.6;
 /** Crosswind: how much of the push the driver cancels ahead of time by aiming upwind (the rest is left to its
  *  steering loop), and how fast that aim offset follows the gust (1/s). */
 const WIND_FEED_FORWARD = 1;
@@ -189,6 +193,8 @@ const ICE_LOOKAHEAD = 140; // m of track scanned for ice patches to steer around
 const ICE_MARGIN = 2.5; // m kept from a patch's edge when going round it
 const ICE_GRIP_PLAN = 0.5; // lateral budget multiplier the driver assumes for curves on ice
 const ICE_LATERAL_RATE = 1.5; // 1/s target-lateral smoothing on ice (hold a straight line)
+/** Metres before a Plunge's dive, and past its climb, that are driven like the slopes themselves. */
+const PLUNGE_PAD = 30;
 const PIPE_MAX_LAT = 9; // m: lines inside a pipe stay well off the top seam
 
 // Loops: the deck carries a hull along its line (physics/LoopCompensation.ts), so the AI holds its lateral there
@@ -214,7 +220,7 @@ export class AIDriver implements IAIDriver {
   private readonly rng: Rng;
   private readonly length: number;
   private readonly pitZone: TrackZone | null;
-  /** u ranges (padded) driven near the centreline: corkscrews and jump approaches/gaps. */
+  /** u ranges (padded) driven near the centreline: corkscrews, jump approaches/gaps, loops, and a Plunge's dive and climb. */
   private readonly centreRanges: [number, number][];
   /** Ice patches in metres. */
   private readonly ice: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
@@ -233,6 +239,7 @@ export class AIDriver implements IAIDriver {
   private readonly debris: BuiltDebris[];
   private readonly winds: BuiltWind[];
   private readonly strikes: BuiltStrike[];
+  private readonly geysers: BuiltGeyser[];
   /** Upwind aim offset (m) that cancels the crosswind's steady drift. */
   private windAim = 0;
   private readonly hazardMargin: number;
@@ -314,6 +321,14 @@ export class AIDriver implements IAIDriver {
       ...corks.map(([a, b]): [number, number] => [wrap01(a - pad), wrap01(b + pad)]),
       ...track.jumps.map((j): [number, number] => [wrap01((j.dTakeoff - JUMP_APPROACH) / L), wrap01((j.dLanding + 30) / L)]),
       ...track.loops.map((l): [number, number] => [wrap01(l.uStart - LOOP_PAD / L), wrap01(l.uEnd + LOOP_PAD / L)]),
+      // The Plunge's two slopes (not its floor): no slipstream hunting and no lift at 170 m/s on a 55° road.
+      ...buildPlunges(track).flatMap((p): [number, number][] => {
+        const fy = (d: number): number => track.sampleAt(wrap01(d / L)).forward.y;
+        return [
+          [wrap01((p.dStart - PLUNGE_PAD) / L), wrap01(plungeDiveFoot(p, fy) / L)],
+          [wrap01(plungeClimbFoot(p, fy) / L), wrap01((p.dEnd + PLUNGE_PAD) / L)],
+        ];
+      }),
     ];
 
     this.ice = track.features.flatMap((f) => (f.type === 'ice' ? [f] : []));
@@ -325,6 +340,7 @@ export class AIDriver implements IAIDriver {
     this.debris = buildDebris(track);
     this.winds = buildWinds(track);
     this.strikes = buildStrikes(track);
+    this.geysers = buildGeysers(track);
     this.hazardMargin = this.tier.hazardMargin;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
     this.liveMines = opts.liveMines ?? null;
@@ -684,13 +700,13 @@ export class AIDriver implements IAIDriver {
   }
 
   /**
-   * Move `desired` clear of the mines, debris and lightning strikes the ship will reach in the next
-   * HAZARD_LOOKAHEAD_TIME seconds, at where (and, for lightning, whether) each will be on arrival (hazard clock), to
+   * Move `desired` clear of the mines, debris, lightning strikes and geysers the ship will reach in the next
+   * HAZARD_LOOKAHEAD_TIME seconds, at where (and, for lightning and geysers, whether) each will be on arrival (hazard clock), to
    * the nearest free lateral within ±maxLat.
    */
   private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
     const live = this.liveMines?.();
-    if (this.mines.length === 0 && this.debris.length === 0 && this.strikes.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
+    if (this.mines.length === 0 && this.debris.length === 0 && this.strikes.length === 0 && this.geysers.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
     const here = wrap01(u) * this.length;
     const v = Math.max(speed, 30);
     const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
@@ -735,6 +751,14 @@ export class AIDriver implements IAIDriver {
       const t0 = now + Math.max(0, dist - STRIKE_RADIUS - CONFIG.SHIP_LENGTH / 2) / v - STRIKE_WINDOW;
       const t1 = now + Math.max(0, dist + STRIKE_RADIUS + CONFIG.SHIP_LENGTH / 2) / v + STRIKE_WINDOW;
       if (strikesDuring(k, t0, t1)) bands.push([k.lateral - STRIKE_RADIUS - hull, k.lateral + STRIKE_RADIUS + hull]);
+    }
+    // Geysers: a vent is in the way only if it erupts as the ship crosses it (an eruption lasts over a second).
+    for (const g of this.geysers) {
+      const dist = ahead(g.d);
+      if (dist < -(GEYSER_RADIUS + 4) || dist > reach) continue;
+      const t0 = now + Math.max(0, dist - GEYSER_RADIUS - CONFIG.SHIP_LENGTH / 2) / v - GEYSER_WINDOW;
+      const t1 = now + Math.max(0, dist + GEYSER_RADIUS + CONFIG.SHIP_LENGTH / 2) / v + GEYSER_WINDOW;
+      if (geyserDuring(g, t0, t1)) bands.push([g.lateral - GEYSER_RADIUS - hull, g.lateral + GEYSER_RADIUS + hull]);
     }
     let out = clearOfBands(desired, bands, maxLat);
     if (!live) return out;

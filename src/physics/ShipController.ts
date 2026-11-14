@@ -11,6 +11,8 @@ import { DRAFT } from './Drafting';
 import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 import { STRIKE_DAMAGE, STRIKE_JAM } from '../track/features/lightning';
+import { GEYSER_DAMAGE, GEYSER_KNOCK_UP } from '../track/features/geyser';
+import { PLUNGE_SPEED_CAP, buildPlunges, inPlunge, plungeAccel, type BuiltPlunge } from '../track/features/plunge';
 
 /**
  * Physics-only tuning that is not part of the shared CONFIG. Everything the
@@ -200,6 +202,9 @@ export class ShipController {
   /** Direction of the gust the ship last reported (ship:wind), 0 while none pushes it. */
   private windDir: 0 | 1 | -1 = 0;
 
+  /** The track's Plunges (track/features/plunge.ts): gravity acts along the road there and the speed cap is higher. */
+  private readonly plunges: readonly BuiltPlunge[];
+
   /** Per-ship handling (Balanced Stock = v1 CONFIG). */
   private get stats(): ShipStats {
     return this.state.def.stats;
@@ -224,6 +229,7 @@ export class ShipController {
     const h = collider.halfExtents() ?? { x: CONFIG.SHIP_WIDTH / 2, y: CONFIG.SHIP_HEIGHT / 2, z: CONFIG.SHIP_LENGTH / 2 };
     this.halfExtents = { x: h.x, y: h.y, z: h.z };
     this.sampleHalfWidth = track.halfWidth;
+    this.plunges = buildPlunges(track);
     this.lastValidU = state.trackU;
     this.frameFromQuaternion(state.quaternion);
     this.refreshProjection();
@@ -390,7 +396,9 @@ export class ShipController {
       const topSpeed = this.stats.topSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
       const boostTop = this.stats.boostTopSpeed * pace * (1 + DRAFT.TOP_BONUS * draft);
       const thrustAccel = this.stats.thrustAccel * (1 + DRAFT.ACCEL_BONUS * draft);
-      const limit = boosting ? boostTop : topSpeed;
+      // On a Plunge the cap is higher, so the speed won on the dive lasts until the climb spends it.
+      const plunging = this.plunges.length > 0 && this.hasProjection && s.path === null && inPlunge(this.plunges, s.trackU);
+      const limit = (boosting ? boostTop : topSpeed) * (plunging ? PLUNGE_SPEED_CAP : 1);
       const fPos = Math.max(f, 0);
 
       if (boosting) {
@@ -404,6 +412,9 @@ export class ShipController {
           f += thrustAccel * pace * throttle * (1 - x * x) * authority * dt;
         }
       }
+
+      // The Plunge: gravity along the road. Downhill it adds speed; uphill it takes speed, and never stalls the ship.
+      if (plunging && grounded) f += plungeAccel(CONFIG.MAGNET_G, this.fwd.y, f) * dt;
 
       // Speed above the current limit (after boost / dash) bleeds off smoothly.
       if (f > limit) f -= (f - limit) * (1 - Math.exp(-TUNING.OVERSPEED_RATE * dt));
@@ -602,6 +613,23 @@ export class ShipController {
       this.drainEnergy(STRIKE_DAMAGE * this.stats.damageTakenScale);
       s.empLock = Math.max(s.empLock, STRIKE_JAM);
     } else this.scaleVelocity(hazards.hitSpeedScale);
+  }
+
+  /**
+   * A geyser erupted under the hull (track/features/geyser.ts): a knock up the road's normal (`up`) and GEYSER_DAMAGE
+   * energy under a damaging hazard policy, or else the policy's slow-down and nothing more.
+   */
+  applyGeyser(up: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (!hazards.damage) {
+      this.scaleVelocity(hazards.hitSpeedScale);
+      return;
+    }
+    this.drainEnergy(GEYSER_DAMAGE * this.stats.damageTakenScale);
+    s.velocity.addScaledVector(up, GEYSER_KNOCK_UP);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
   }
 
   /** Scale the ship's velocity (a hazard hit under the Rookie policy). */

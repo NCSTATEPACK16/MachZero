@@ -295,12 +295,21 @@ export class GraphicsSystem implements IGraphicsSystem {
       }),
       bus.on('item:shield', (e) => {
         const model = this.models.get(e.shipId);
-        if (e.blocked === 'mine') this.fx.mineBlast(e.point, null);
+        if (e.blocked === 'mine' || e.blocked === 'geyser') this.fx.mineBlast(e.point, null);
         else if (model) this.fx.empHit(model);
         model?.shieldBlocked();
         if (e.shipId === this.playerId) {
           this.chase.addImpact(0.15);
           this.post.kickAberration(0.5);
+        }
+      }),
+      bus.on('hazard:geyser', (e) => {
+        // A burst at the hull, like a mine: the column itself is drawn with the track (features/geyserVisual.ts).
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.4);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.45);
+          this.post.kickAberration(1);
         }
       }),
       bus.on('hazard:lightning', (e) => {

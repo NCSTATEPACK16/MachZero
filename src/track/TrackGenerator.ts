@@ -21,6 +21,9 @@ import { buildWinds } from './features/wind';
 import { buildWindVisual } from './features/windVisual';
 import { buildStrikes } from './features/lightning';
 import { buildLightningVisual } from './features/lightningVisual';
+import { buildGeysers } from './features/geyser';
+import { buildGeyserVisual } from './features/geyserVisual';
+import { PLUNGE_RESPAWN_AFTER, buildPlunges, plungeDiveFoot } from './features/plunge';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -296,7 +299,13 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const lightningVisual = strikeDefs.length > 0 ? buildLightningVisual(strikeDefs, palette.accent, build.telegraphScale ?? 1) : null;
   if (lightningVisual) group.add(lightningVisual.group);
-  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update].filter((f): f is (t: number) => void => !!f);
+  // Lava geysers (Cinder Forge), on the same clock, in the palette's accent.
+  const geyserDefs = features.some((f) => f.type === 'geysers')
+    ? buildGeysers({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const geyserVisual = geyserDefs.length > 0 ? buildGeyserVisual(geyserDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (geyserVisual) group.add(geyserVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update, geyserVisual?.update].filter((f): f is (t: number) => void => !!f);
   const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
     for (const f of hazardAnimators) f(t);
   };
@@ -324,8 +333,14 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
     return 'road';
   };
+  // A ship lost on a Plunge's dive comes back on the floor: a slow restart on a 55° slope would be no help.
+  const dives = buildPlunges({ features, length }).map((p) => {
+    const foot = plungeDiveFoot(p, (d) => query.sampleAt(wrap01(d / length)).forward.y);
+    return { uStart: p.uStart, uFoot: wrap01(foot / length), uBack: wrap01((foot + PLUNGE_RESPAWN_AFTER) / length) };
+  });
   const safeRespawnU = (u: number): number => {
     const d = wrap01(u) * length;
+    for (const dive of dives) if (inLoopRange(wrap01(u), dive.uStart, dive.uFoot)) return dive.uBack;
     for (const j of jumps) {
       const from = j.dTakeoff - JUMP_RESPAWN_BEFORE;
       const rel = (((d - from) % length) + length) % length;

@@ -8,6 +8,7 @@ import type { TrackReport } from './TrackValidate';
 import { buildDebris } from './features/debris';
 import { buildMines } from './features/mine';
 import { buildStrikes, STRIKE_RADIUS } from './features/lightning';
+import { buildGeysers, GEYSER_RADIUS } from './features/geyser';
 
 const W = 1000;
 const PLAN_H = 760;
@@ -102,6 +103,12 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     else if (f.type === 'debris') label((f.dStart + f.dEnd) / 2, `DEBRIS ×${f.count}`, '#c9a14a');
     else if (f.type === 'wind') label((f.dStart + f.dEnd) / 2, `WIND ${f.dir > 0 ? '→ R' : '← L'} ${(f.dEnd - f.dStart).toFixed(0)} m`, '#ffe14d');
     else if (f.type === 'lightning') label((f.dStart + f.dEnd) / 2, `LIGHTNING ×${f.count}`, '#b98cff');
+    else if (f.type === 'geysers') label((f.dStart + f.dEnd) / 2, `GEYSERS ×${f.count}`, '#ff6a1f');
+    else if (f.type === 'plunge') {
+      let lo = Infinity;
+      for (let d = f.dStart; d <= f.dEnd; d += 5) lo = Math.min(lo, at(d).position.y);
+      label(f.dStart + 60, `PLUNGE −${(at(f.dStart).position.y - lo).toFixed(0)} m`, '#ff6a1f');
+    }
     else if (f.type === 'gate' && !f.branch) label(f.d, `GATE ${f.span.toUpperCase()}`, '#b04dff');
     else if (f.type === 'gate') {
       const br = track.branches.find((x) => x.id === f.branch);
@@ -125,6 +132,10 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
   // Lightning: each strike circle at its true size.
   for (const k of buildStrikes(track)) {
     marks.push(`<circle cx="${px(k.position.x)}" cy="${pz(k.position.z)}" r="${Math.max(2, STRIKE_RADIUS * scale).toFixed(1)}" fill="none" stroke="#b98cff" stroke-width="1.5"/>`);
+  }
+  // Geysers: each vent's column at its true size.
+  for (const g of buildGeysers(track)) {
+    marks.push(`<circle cx="${px(g.position.x)}" cy="${pz(g.position.z)}" r="${Math.max(2, GEYSER_RADIUS * scale).toFixed(1)}" fill="#ff6a1f" fill-opacity="0.5" stroke="#ff6a1f" stroke-width="1"/>`);
   }
   // Crosswind zones: a yellow band over the deck with arrows across the road, pointing the way the gust pushes.
   for (const f of track.features) {
