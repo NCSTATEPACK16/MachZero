@@ -11,6 +11,7 @@ import { DRAFT } from './Drafting';
 import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 import { STRIKE_DAMAGE, STRIKE_JAM } from '../track/features/lightning';
+import { GEYSER_DAMAGE, GEYSER_KNOCK_UP } from '../track/features/geyser';
 import { PLUNGE_SPEED_CAP, buildPlunges, inPlunge, plungeAccel, type BuiltPlunge } from '../track/features/plunge';
 
 /**
@@ -612,6 +613,23 @@ export class ShipController {
       this.drainEnergy(STRIKE_DAMAGE * this.stats.damageTakenScale);
       s.empLock = Math.max(s.empLock, STRIKE_JAM);
     } else this.scaleVelocity(hazards.hitSpeedScale);
+  }
+
+  /**
+   * A geyser erupted under the hull (track/features/geyser.ts): a knock up the road's normal (`up`) and GEYSER_DAMAGE
+   * energy under a damaging hazard policy, or else the policy's slow-down and nothing more.
+   */
+  applyGeyser(up: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (!hazards.damage) {
+      this.scaleVelocity(hazards.hitSpeedScale);
+      return;
+    }
+    this.drainEnergy(GEYSER_DAMAGE * this.stats.damageTakenScale);
+    s.velocity.addScaledVector(up, GEYSER_KNOCK_UP);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
   }
 
   /** Scale the ship's velocity (a hazard hit under the Rookie policy). */
