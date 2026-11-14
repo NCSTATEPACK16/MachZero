@@ -85,3 +85,37 @@ test('races Tempest Spire through a wind zone and a lightning field without cons
   expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+// Cinder Forge (IMPLEMENTATION §X5) is behind the `expansion` flag too. Its geyser vents and lava columns are built
+// with the track, so the warm-up must cover them: the race runs past both geyser fields, down the Plunge's dive and
+// onto the crater floor with no shader compiled on the way.
+test('races Cinder Forge past the geysers and down the Plunge without console errors or mid-race shader compiles', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  await page.goto('/?autopilot=1&debug=1&quality=high&world=cinder-forge');
+  await expect(page.locator('#app canvas')).toBeVisible();
+  type Debug = MachZeroDebug & { app: { session: { track: { id: string; length: number } } }; ships: { trackU: number; position: { y: number } }[] };
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race.state === 'racing', undefined, { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session.track.id)).toBe('cinder-forge');
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
+  const rimY = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.ships[0].position.y);
+
+  // 2,500 m: past the geyser fields (about 800–990 m and 1,520–1,720 m) and the dive (about 2,020–2,280 m).
+  await page.waitForFunction(
+    () => {
+      const m = (window as unknown as { __machzero: Debug }).__machzero;
+      return m.ships[0].trackU * m.app.session.track.length > 2500;
+    },
+    undefined,
+    { timeout: 240_000 },
+  );
+  // The ship is on the crater floor, about 110 m below the rim.
+  const floorY = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.ships[0].position.y);
+  expect(rimY - floorY).toBeGreaterThan(100);
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(errors, errors.join('\n')).toEqual([]);
+});

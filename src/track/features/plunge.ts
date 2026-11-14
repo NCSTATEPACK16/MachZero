@@ -56,6 +56,20 @@ export function plungeDiveFoot(p: Pick<BuiltPlunge, 'dStart' | 'dEnd'>, forwardY
   return d;
 }
 
+/** Metres along the lap of the foot of a Plunge's climb: the last level place before its steepest uphill point. */
+export function plungeClimbFoot(p: Pick<BuiltPlunge, 'dStart' | 'dEnd'>, forwardY: (d: number) => number): number {
+  let steepest = p.dEnd;
+  let high = 0;
+  for (let d = p.dEnd; d >= p.dStart; d -= 1) {
+    const y = forwardY(d);
+    if (y > high) [high, steepest] = [y, d];
+    else if (high > 0.2 && y < 0.02) break;
+  }
+  let d = steepest;
+  while (d > p.dStart && forwardY(d) > 0.02) d -= 1;
+  return d;
+}
+
 export function inPlunge(plunges: readonly BuiltPlunge[], u: number): boolean {
   for (const p of plunges) if (inLoopRange(u, p.uStart, p.uEnd)) return true;
   return false;

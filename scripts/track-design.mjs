@@ -267,9 +267,10 @@ const TRACKS = {
       { s: 375, y: 60, adjust: true },
     ],
   },
-  // World 7. A chrome foundry in a volcano crater: a clockwise lap that runs along the crater rim, dives into the
-  // crater (the Plunge: 55° down 110 m), crosses the floor beside the lava and climbs back out. Two geyser
-  // fields on the rim, each with a clear lane, and one jump over a lava river. No geysers on the Plunge.
+  // World 7. A chrome foundry in a volcano crater: a clockwise lap that runs along the crater rim through an S-bend,
+  // dives into the crater (the Plunge: 55° down 112 m), crosses the floor beside the lava and climbs back out. Two
+  // geyser fields on the rim, each with a clear lane, and one jump over a lava river. No geysers on the Plunge.
+  // The rim is level: outside a Plunge the road may not be steep (gravity along the road exists only there).
   'cinder-forge': {
     worldId: 'cinder-forge',
     name: 'CINDER FORGE',
@@ -277,13 +278,16 @@ const TRACKS = {
     segments: [
       { s: 340, y: 150, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
       { r: 240, a: 90, y: 150 },
-      { s: 420, y: 150, adjust: true, f: [{ type: 'dash', at: 60, lateral: 0 }, { type: 'geysers', from: 130, to: 330, count: 5, period: 5, phase: 0, lane: 3 }] },
+      { s: 380, y: 150, adjust: true, f: [{ type: 'dash', at: 35, lateral: 0 }, { type: 'geysers', from: 85, to: 275, count: 5, period: 5, phase: 0, lane: -2 }] },
+      { r: 180, a: -30, y: 150 },
+      { r: 180, a: 30, y: 150 },
+      { s: 60, y: 150 },
       { r: 200, a: 60, y: 150 },
-      { s: 320, y: 150, f: [{ type: 'geysers', from: 50, to: 250, count: 5, period: 4.5, phase: 1.1, lane: -3 }] },
+      { s: 320, y: 150, f: [{ type: 'geysers', from: 50, to: 250, count: 5, period: 5.5, phase: 1.1, lane: -2 }] },
       { r: 220, a: 30, y: 150 },
       { s: 120, y: 150 },
       { ramp: { pitch: 55, radius: 122, plunge: 'in' }, y: 38 },
-      { s: 220, y: 38 },
+      { s: 260, y: 38 },
       { r: 260, a: 60, y: 38 },
       { s: 160, y: 38 },
       { ramp: { pitch: 55, radius: 122, plunge: 'out' }, y: 150 },

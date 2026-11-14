@@ -360,6 +360,9 @@ export class HUD implements IHUD {
       bus.on('hazard:lightning', (e) => {
         if (e.shipId === PLAYER_ID) this.toast('⚡ LIGHTNING STRIKE', 'bad');
       }),
+      bus.on('hazard:geyser', (e) => {
+        if (e.shipId === PLAYER_ID) this.toast('🌋 LAVA GEYSER', 'bad');
+      }),
       bus.on('item:emp', (e) => {
         if (e.from === PLAYER_ID) this.toast(`EMP → ${e.targetName}`, 'good');
         else if (e.target === PLAYER_ID) this.toast('EMP HIT', 'bad');
@@ -371,7 +374,7 @@ export class HUD implements IHUD {
         if (e.shipId === PLAYER_ID) this.toast(e.kind === 'shield' ? '🛡 SHIELD UP' : '✷ MINE DROPPED', 'good', true);
       }),
       bus.on('item:shield', (e) => {
-        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : e.blocked === 'mine' ? '🛡 MINE BLOCKED' : '🛡 LIGHTNING BLOCKED', 'good');
+        if (e.shipId === PLAYER_ID) this.toast(e.blocked === 'emp' ? '🛡 EMP BLOCKED' : e.blocked === 'mine' ? '🛡 MINE BLOCKED' : e.blocked === 'geyser' ? '🛡 GEYSER BLOCKED' : '🛡 LIGHTNING BLOCKED', 'good');
       }),
     );
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));

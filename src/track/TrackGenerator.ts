@@ -21,6 +21,8 @@ import { buildWinds } from './features/wind';
 import { buildWindVisual } from './features/windVisual';
 import { buildStrikes } from './features/lightning';
 import { buildLightningVisual } from './features/lightningVisual';
+import { buildGeysers } from './features/geyser';
+import { buildGeyserVisual } from './features/geyserVisual';
 import { PLUNGE_RESPAWN_AFTER, buildPlunges, plungeDiveFoot } from './features/plunge';
 import type { TrackProjection } from '../core/contracts';
 
@@ -297,7 +299,13 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const lightningVisual = strikeDefs.length > 0 ? buildLightningVisual(strikeDefs, palette.accent, build.telegraphScale ?? 1) : null;
   if (lightningVisual) group.add(lightningVisual.group);
-  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update].filter((f): f is (t: number) => void => !!f);
+  // Lava geysers (Cinder Forge), on the same clock, in the palette's accent.
+  const geyserDefs = features.some((f) => f.type === 'geysers')
+    ? buildGeysers({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const geyserVisual = geyserDefs.length > 0 ? buildGeyserVisual(geyserDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (geyserVisual) group.add(geyserVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update, geyserVisual?.update].filter((f): f is (t: number) => void => !!f);
   const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
     for (const f of hazardAnimators) f(t);
   };
