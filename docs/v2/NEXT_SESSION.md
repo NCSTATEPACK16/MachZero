@@ -1,15 +1,15 @@
-# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; X0–X3 merged, X4 gameplay half built)
+# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; X0–X3 merged, X4 and X5 gameplay halves built)
 
 Paste the prompt at the bottom into a fresh Claude Code session opened on
 `/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
 
-## Where things stand (2026-11-11, after the X4 gameplay half)
+## Where things stand (2026-11-14, after the X5 gameplay half)
 
-- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire: the gameplay half is built, PR #37 (draft, branch `v2/x4-tempest-spire`, base `main`).** Read IMPLEMENTATION §X4 "As built: the gameplay half" first.
-  - **If `assets/reference/worlds/tempest-spire/chosen.jpg` exists:** finish X4 on its branch (commit point 5): `graphics/themes/tempestSpire.ts`, `build_tempest_spire` in `blender/props/build_props.py`, the `envfx` set, the perf table on the real look, the shots; swap the placeholder line in `themes/index.ts`, delete `props: false` from the world entry, then mark the PR ready.
-  - **If it does not:** start X5 Cinder Forge's gameplay half on `v2/x5-cinder-forge`, stacked on `v2/x4-tempest-spire`. It can reuse `themes/placeholder.ts`, `worldsFor`, `WorldDef.props: false` and `perf-desktop --world`.
+- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire and X5 Cinder Forge each have their gameplay half built, as draft PRs: #37 (`v2/x4-tempest-spire`, base `main`) and #38 (`v2/x5-cinder-forge`, stacked on #37).** Both worlds run on the placeholder theme. Read IMPLEMENTATION §X4 and §X5 "As built: the gameplay half" first.
+  - **For each world whose `assets/reference/worlds/<id>/chosen.jpg` exists** (`tempest-spire`, `cinder-forge`): finish its look on its own branch: the theme in `graphics/themes/`, its builder in `blender/props/build_props.py`, the `envfx` set, the perf table on the real look, the shots; swap the placeholder line in `themes/index.ts`, delete `props: false` from the world entry, then mark the PR ready. Do Tempest Spire first: Cinder Forge's branch is stacked on it, so merge `v2/x4-tempest-spire` into `v2/x5-cinder-forge` afterwards.
+  - **If neither image exists:** start X6 Abyss Line's gameplay half on `v2/x6-abyss-line`, stacked on `v2/x5-cinder-forge`. It can reuse `themes/placeholder.ts`, `worldsFor`, `WorldDef.props: false`, `perf-desktop --world`, and `track/features/timedField.ts` for the pressure jets. The Storm Cup becomes available when Abyss Line is `built`.
 - **`expansion` is still off.** Turn it on when the user approves the look of X3's parts. A world also needs its own look approved before its card shows on `main`.
-- **Device builds of flagged features:** `VITE_FEATURES=expansion npm run ios:sync` (docs/IOS_TESTFLIGHT.md). Without it the app hides Tempest Spire.
+- **Device builds of flagged features:** `VITE_FEATURES=expansion npm run ios:sync` (docs/IOS_TESTFLIGHT.md). Without it the app hides Tempest Spire and Cinder Forge.
 - **Close by hand:** #24, #28, #31, #32 and #33 are still open, and their content is in `main` through #36.
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.

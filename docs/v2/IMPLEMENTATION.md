@@ -1060,7 +1060,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X2 ✅ built (#34) | Environment effects framework | `v2/x2-envfx` | — | Look approval of Neon Bay; device gate (fps) |
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
-| X5 | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | `chosen.jpg`; look approval; device gate |
+| X5 🟡 gameplay half built (PR #38) | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
 
@@ -1390,7 +1390,46 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X5 — World 7: Cinder Forge (the Plunge and lava geysers)
+### X5 — World 7: Cinder Forge (the Plunge and lava geysers) — 🟡 GAMEPLAY HALF BUILT (PR #38, draft, stacked on #37; the look waits for `assets/reference/worlds/cinder-forge/chosen.jpg`)
+
+**As built: the gameplay half (PR #38)** (read before X6, and before building the look):
+- **What is done:** build steps 1–7 and the placeholder theme of step 8. **What is left:** the real theme, the props, the effect set, the perf table on the real look and the shots. All of it needs `chosen.jpg`.
+- **The Plunge** (`track/features/plunge.ts`): `buildPlunges`, `inPlunge`, `plungeAccel`, `plungeDiveFoot`, `plungeClimbFoot`. In `ShipController.simulate`, a grounded ship on the main road inside a Plunge gets `−MAGNET_G · PLUNGE_GRAVITY · forward.y` along its heading (`forward.y` is the world-up part of the ship's own heading, so a ship that points downhill speeds up and one that points uphill slows down). The speed limit there is `PLUNGE_SPEED_CAP` (1.2) × top speed, or × boost top speed while boosting, for the whole feature: the dive, the floor and the climb.
+  - **A climb never stalls a ship.** Uphill the pull is full above 60 m/s and fades to nothing at 30 m/s (`PLUNGE_STALL_SPEED`). A ship stopped on the climb does not roll back, and it drives out from rest.
+  - **Respawn:** `safeRespawnU` sends a ship lost on the dive to 20 m past the foot of the dive. On the floor and the climb a ship comes back where it was.
+- **Plunge numbers** (`sim/plunge.hold.sim.test.ts`, 30 cases): at 40, 90, 140 and 180 m/s on five lines a ship holds its line within 1.3 m (0.03 m down the dive hands-off), height error at most 0.06 m, never airborne, no rail hit, no respawn. A ship that enters at top speed (140 m/s) reaches 169 m/s at the foot of the dive, crosses the floor at 167 m/s and leaves the climb at 138 m/s. A coasting ship goes from 33 to 80 m/s on the dive. A boosting ship reaches 202 m/s (cap 228). From rest at the foot of the climb a ship leaves at 107 m/s. The chase camera stays 3.4 m or more above the deck with the ship on screen. The same run twice is identical.
+- **Ramp segments in the authoring tool** (`scripts/track-design.mjs`): `{ ramp: { pitch, radius, plunge?: 'in' | 'out' }, y }` is a plan-straight segment from the elevation before it to `y`: a bend, a straight slope and a bend back to the level. Each bend's curvature is a trapezoid (it builds up and fades over `RAMP_EASE` = 10 m), and control points are 6 m apart. The `'in'` ramp starts the `plunge` feature and the `'out'` ramp ends it. A ramp's metres are road metres, not plan metres.
+- **Geysers** (`track/features/geyser.ts`): the same field and timeline as lightning, with other numbers: radius 2.5 m, 1.5 s warning (× `telegraphScale`), 1.2 s eruption at the end of each cycle, one hit per ship per eruption. `PhysicsSystem.checkGeysers` → `ShipController.applyGeyser`: 8 energy × `damageTakenScale` and a 10 m/s knock up the road's normal; Rookie rules: velocity × 0.85 only, no knock. A Shield takes it (`item:shield` with `blocked: 'geyser'`). Event: `hazard:geyser { shipId, geyser, point }`.
+  - **`track/features/timedField.ts` is new and shared.** Lightning and geysers both build their points and read their timeline through it (`buildTimedPoints`, `pointActive`, `pointWarning`, `pointActiveDuring`, `pointCycle`). `lightning.ts` keeps its exports. `PhysicsSystem.hitTimedPoint` is the one hit test for both. X6's pressure jets can use the same module.
+  - **The magnetic lock holds the knock to a bump.** At 120 m/s a hit lifts the hull from 1.2 m to 1.5 m and it settles in half a second (`hazards.sim.test.ts`). The cost of a geyser is the energy, the camera kick and the line change, not a flight.
+- **Track** (`content/tracks/cinder-forge.json`): 4,571 m, about 34.5 s a lap at Pilot pace in the race sims (the validator's flat-road estimate is 38.7 s), minimum radius 105 m, elevation 38–154 m. The rim is level at 150 m: an S-bend, two geyser fields of 5 vents (periods 5 s and 5.5 s, clear lanes at −2 m), the Plunge (112 m down at 54.9°, a 260 m floor straight, a 260 m-radius sweeper, a 160 m straight, the climb), a 130 m-radius corner, one 60 m jump, the pit and two dash plates (none on the Plunge).
+- **Validator** (`TrackValidate.ts`, issue codes `plunge` and `geyser`): a Plunge is straight in plan and unbanked wherever it slopes, no steeper than 57°, with a vertical radius of at least 115 m, level at both ends, with no other feature, dash plate, wind zone or hazard field on it. **Outside a Plunge, a jump or a loop the road may not be steeper than 12°** (gravity along the road exists only on a Plunge). A geyser field follows the lightning rules, and is never on a Plunge, in a wind zone or over a lightning field; its period is at least 4.7 s.
+- **AI** (`AIDriver`): the Plunge's two slopes (not its floor) are centre sections, as the corkscrew and the loop are: no slipstream hunting, no tier mistakes, a line near the centre. `avoidHazards` adds a band for a vent only when it erupts within 0.6 s of the hull crossing it. The corner after the climb needed no change: the climb takes the dive's speed back, so the ship arrives at its normal speed.
+- **World entry:** `cinder-forge`, order 7, `expansion: true`, `props: false`, the placeholder theme (`themes/index.ts`). Palette: ember orange and cobalt blue rails, molten yellow for the vents. **Replace the placeholder line and delete `props: false` when the real theme exists.** The Storm Cup still waits for Abyss Line.
+- **Telegraph visuals** (`geyserVisual.ts`, built with the track, 2 draw calls for the whole track): each vent is a dim ring that brightens with a quickening pulse over the warning; the eruption is a 16 m column that shoots up, holds and falls.
+- **Feedback:** toast `🌋 LAVA GEYSER` (`🛡 GEYSER BLOCKED` with a Shield), the mine's burst effect at the hull, a camera kick, a heavy haptic tap, pad rumble, and the mine's sound until M6.
+- **Sims** (`sim/cinder-forge.sim.test.ts`, 8 races, about 10 s): Rookie and Legend fits finish with no respawn; the tier matrix passes (Pilot and Ace fields clean; mixed field mean position Legend 2.0, Rookie 6.7; Rookie-assisted autopilot on the podium from P8; Pilot autopilot P4, 0.01 s off the median); an Ace race replays to the same standings and hits. A field of 8 takes 1 geyser hit in a Rookie race and 5 to 8 in the others (240 vent passes).
+- **Tests:** 594 unit and sim tests in 64 files (X4: 533 in 61); e2e 17/17 (one new: a Cinder Forge race past both geyser fields and down the dive, no console error, no shader compiled mid-race).
+- **Desktop perf on the placeholder theme** (`perf-desktop --audit`, 8 ships, 15 s; not the gate, which is measured on the real look):
+
+  | World, preset | fps | p50 / p95 / p99 ms | Grid-frame draw calls | Race median draw calls | Triangles |
+  |---|---|---|---|---|---|
+  | Cinder Forge, High | 59.9 | 16.7 / 16.7 / 16.8 | 148 | 121 | 115k |
+  | Cinder Forge, Med | 60.0 | 16.7 / 16.7 / 16.8 | 148 | 122 | 115k |
+  | Cinder Forge, Low | 60.0 | 16.7 / 16.7 / 16.8 | 127 | 88 | 109k |
+  | Neon Bay, High (shared code; #37 was 170) | 59.9 | 16.7 / 16.7 / 16.8 | 170 | 138 | 141k |
+  | Neon Bay, Low (#37 was 147) | 60.0 | 16.7 / 16.8 / 16.8 | 147 | 101 | 118k |
+
+  The geyser vents and columns are 2 draw calls for the whole track. Ship draw calls did not change.
+- **X4's smoke test was passing on the grid.** It waited for "more than 1,900 m", and on the grid, just behind the line, the distance already reads about 4,300 m. Both world smoke tests now wait for a window (`d > 1900 && d < 3000`), so they race through their hazards. Tempest Spire's still passes.
+- **Deviations from the plan:**
+  - **The dive is 112 m at 54.9° on a vertical radius of 119 m.** The plan said about 55°, roughly 90 m and a radius of at least 120 m. Those three do not fit together: two 120 m bends to 55° already drop 102 m, and the bends must ease in and out or the spline through the control points overshoots (a plain arc–arc profile measured 94–110 m). The pitch was kept, the drop grew, and the validator's limit is 115 m. The hull's height error on the Plunge is 0.06 m, so the hold has a wide margin.
+  - **The frames needed no pitch-axis rule.** The dive and the climb are straight in plan, so the rotation-minimising frame has no roll there (the hold sim checks `right.y` < 0.01). `TrackFrames` is unchanged.
+  - **The speed cap covers the floor too,** so the speed won on the dive lasts until the climb. The plan did not say where the cap ends.
+  - **The Rookie geyser hit has no knock** (slow-down only, as for lightning). The plan gave the Rookie rule as "no energy loss, velocity × 0.85".
+  - Per-track elevation bounds already existed (`TrackDefinition.elevation`), so step 4 had nothing to add there.
+  - The clear lanes are at −2 m, on the line ships hold out of the corner before each field. With lanes at +3 m and −3 m a Legend field took 13 hits in a race, most of them by ships that had to cross the road right after the corner.
+- **Not asked for, in this PR:** `features/timedField.ts` (the lightning code moved into it so geysers did not copy it); the 12° slope rule in the validator; the toast, haptics, rumble and sound on a geyser hit.
 
 **Design decisions:**
 - **Look:** a chrome foundry in a volcano crater; lava rivers, smelter towers, ember clouds. Palette: ember orange / cobalt blue / basalt black (the blue keeps it apart from Sunset Mesa). From `assets/reference/worlds/cinder-forge/chosen.jpg`.
@@ -1416,7 +1455,12 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 5. AI. 6. World entry and Appendix B. 7. `sim/cinder-forge.sim.test.ts` (tier matrix).
 8. Placeholder theme, then **(needs `chosen.jpg`)** `themes/cinderForge.ts`, props, and `envfx` (embers, heat shimmer, a lava-lit height fog, sparks behind ships, drifting crucible gantries, light shafts through smoke).
 
-**Done when:** the same list as X4, with the Plunge hold test in place of the wind test, and the device gate on Cinder Forge.
+**Done when** (the same list as X4, with the Plunge hold test in place of the wind test):
+- [x] The Plunge hold test and the hazard tests pass; hazards are deterministic.
+- [x] The 4-tier sims pass: all 8 ships finish, order roughly follows tier, the SPEC §9 balance targets hold.
+- [x] `tracks:check` passes; the SVG preview is committed; lap 30–45 s.
+- [ ] World assets ≤ 2.5 MB; `public/game` ≤ 15 MB; effects within X2's budget. *(Waits for the look: the world has no assets yet.)*
+- [ ] **The user approves the look**, and the **device gate** passes on Cinder Forge. *(Waits for `chosen.jpg`.)*
 
 ---
 
