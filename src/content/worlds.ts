@@ -6,7 +6,7 @@
  */
 import type { TrackPalette } from '../track/TrackMesh';
 
-export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire' | 'cinder-forge';
+export type WorldId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire' | 'cinder-forge' | 'abyss-line';
 
 export interface WorldDef {
   id: WorldId;
@@ -108,6 +108,20 @@ export const WORLDS: readonly WorldDef[] = [
     // Ember orange and cobalt blue rails (the blue keeps it apart from Sunset Mesa), molten yellow for the geysers.
     palette: { left: 0xff6a1f, right: 0x2b5cff, accent: 0xffd04a, pit: 0x7dff3a },
     ui: { from: '#ff6a1f', to: '#2b5cff' },
+    built: true,
+    expansion: true,
+    props: false,
+  },
+  {
+    id: 'abyss-line',
+    order: 8,
+    name: 'ABYSS LINE',
+    tagline: 'An undersea city of glass domes and brass',
+    gimmick: 'THE SPINE',
+    trackId: 'abyss-line',
+    // Aqua and coral pink rails, brass gold for the Spine's rings and the pressure jets.
+    palette: { left: 0x2ff3e0, right: 0xff6f91, accent: 0xffc24a, pit: 0x7dff3a },
+    ui: { from: '#2ff3e0', to: '#ff6f91' },
     built: true,
     expansion: true,
     props: false,

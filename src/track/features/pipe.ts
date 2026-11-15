@@ -9,6 +9,11 @@
  * the deck edges ±W meet at the top. Arc length along the deck is preserved, which keeps `lateral` meaningful
  * everywhere: inside the tube it is the position around the circumference. The bend is centred on the
  * centreline, so lateral 0 (the tube floor) never moves.
+ *
+ * **The curl is signed.** A negative curl is the Spine (Abyss Line): κ < 0 bends the deck *down* round a tube of the
+ * same circumference below the centreline, the same formula with the circle's centre at (0, 1/κ). The deck normal
+ * (−sin φ, cos φ) then points away from the tube's axis, so ships ride the outside; lateral 0 is the crown and ±W
+ * the bottom seam. Everything that reads the curl takes its magnitude for "how closed" and its sign for which way.
  */
 import { CONFIG } from '../../core/config';
 import { smootherstep } from '../../core/math';
@@ -28,6 +33,11 @@ export interface PipeSpan {
   transition: number;
 }
 
+/** Is the cross-section flat at this curl (either sign)? */
+export function isFlatCurl(curl: number): boolean {
+  return Math.abs(curl) < CURL_EPS;
+}
+
 /** Curl at distance d (metres along the lap) for one pipe; 0 outside it. Handles spans that wrap the start line. */
 export function pipeCurlAt(d: number, pipe: PipeSpan, length: number): number {
   let x = d - pipe.dStart;
@@ -38,15 +48,17 @@ export function pipeCurlAt(d: number, pipe: PipeSpan, length: number): number {
   return smootherstep(0, t, x) * (1 - smootherstep(span - t, span, x));
 }
 
-/** Per-sample curl for `count` samples spaced `ds` metres apart. */
-export function curlSamples(count: number, ds: number, pipes: readonly PipeSpan[]): Float64Array {
+/** Per-sample signed curl for `count` samples spaced `ds` metres apart: pipes curl up (+), spines curl down (−). */
+export function curlSamples(count: number, ds: number, pipes: readonly PipeSpan[], spines: readonly PipeSpan[] = []): Float64Array {
   const curl = new Float64Array(count);
-  if (pipes.length === 0) return curl;
+  if (pipes.length === 0 && spines.length === 0) return curl;
   const length = count * ds;
   for (let i = 0; i < count; i++) {
-    let c = 0;
-    for (const p of pipes) c = Math.max(c, pipeCurlAt(i * ds, p, length));
-    curl[i] = c;
+    let up = 0;
+    let down = 0;
+    for (const p of pipes) up = Math.max(up, pipeCurlAt(i * ds, p, length));
+    for (const p of spines) down = Math.max(down, pipeCurlAt(i * ds, p, length));
+    curl[i] = up - down;
   }
   return curl;
 }
@@ -59,9 +71,9 @@ export interface CurledPoint {
   phi: number;
 }
 
-/** Bend profile point (x, y) by `curl` (writes `out`). */
+/** Bend profile point (x, y) by `curl` (signed; writes `out`). */
 export function curlPoint(x: number, y: number, curl: number, out: CurledPoint): CurledPoint {
-  if (curl < CURL_EPS) {
+  if (isFlatCurl(curl)) {
     out.x = x;
     out.y = y;
     out.phi = 0;
@@ -79,7 +91,7 @@ export function curlPoint(x: number, y: number, curl: number, out: CurledPoint):
 
 /** Inverse of `curlPoint`: local (x, y) in the (right, up) plane → lateral (arc position), height and φ. */
 export function uncurlPoint(x: number, y: number, curl: number, out: { lateral: number; height: number; phi: number }): void {
-  if (curl < CURL_EPS) {
+  if (isFlatCurl(curl)) {
     out.lateral = x;
     out.height = y;
     out.phi = 0;
@@ -87,11 +99,11 @@ export function uncurlPoint(x: number, y: number, curl: number, out: { lateral: 
   }
   const k = curl * PIPE_FULL_KAPPA;
   const r0 = 1 / k;
-  // Centre of the bend circle is (0, r0); the deck at angle φ sits at centre + r0·(sin φ, −cos φ).
-  const dx = x;
-  const dy = r0 - y;
-  const phi = Math.atan2(dx, dy);
+  // Centre of the bend circle is (0, r0); the deck at angle φ sits at centre + r0·(sin φ, −cos φ). With κ < 0 (a
+  // spine) r0 is negative, the centre is below the deck and the normal points away from it: flip both components.
+  const sg = Math.sign(k);
+  const phi = Math.atan2(sg * x, sg * (r0 - y));
   out.phi = phi;
   out.lateral = phi * r0;
-  out.height = r0 - Math.hypot(dx, dy);
+  out.height = sg * (Math.abs(r0) - Math.hypot(x, r0 - y));
 }

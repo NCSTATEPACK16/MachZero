@@ -1,11 +1,15 @@
 /**
- * Timed hazard fields: the part lightning fields (Tempest Spire) and geyser fields (Cinder Forge) share.
+ * Timed hazard fields: the part lightning fields (Tempest Spire), geyser fields (Cinder Forge) and pressure-jet fields
+ * (Abyss Line) share.
  *
  * A field places its points evenly along [dStart, dEnd], either side of a clear lane centred at lateral `lane`.
  * Each point goes off once per `period` seconds on the hazard clock (physics seconds since the race reset, never
  * wall-clock), so physics, graphics and the AI agree on it and a race replays the same. A point warns for some
  * seconds, then is active for `active` seconds: **the active time is the end of each cycle**, so no point goes off
  * at t = 0 without a warning. The points of a field go off at different moments.
+ *
+ * Jets sit on a Spine, where the deck is curled round a tube: their points are placed with `surfacePoint` (lateral is
+ * the arc position round the tube) and `up` is the curled surface's normal there.
  */
 import * as THREE from 'three';
 import { CONFIG } from '../../core/config';
@@ -22,7 +26,7 @@ export interface TimedPoint {
   period: number;
   /** This point's own offset on the hazard clock (the field's phase plus its stagger). */
   phase: number;
-  /** The centre on the deck, the road's up there, and the centre at hull height (the hit test). */
+  /** The centre on the deck, the deck's normal there, and the centre at hull height (the hit test). */
   position: THREE.Vector3;
   up: THREE.Vector3;
   center: THREE.Vector3;
@@ -45,10 +49,12 @@ export function fieldLaneGap(shape: TimedFieldShape): number {
 }
 
 export function buildTimedPoints(
-  track: Pick<TrackData, 'features' | 'halfWidth' | 'length' | 'sampleAt'>,
-  type: 'lightning' | 'geysers',
+  track: Pick<TrackData, 'features' | 'halfWidth' | 'length' | 'sampleAt'> & Partial<Pick<TrackData, 'surfacePoint'>>,
+  type: 'lightning' | 'geysers' | 'jets',
   shape: TimedFieldShape,
 ): TimedPoint[] {
+  const onTube = type === 'jets';
+  if (onTube && !track.surfacePoint) throw new Error('jets need the track surface (surfacePoint)');
   const points: TimedPoint[] = [];
   for (const f of track.features) {
     if (f.type !== type) continue;
@@ -61,6 +67,8 @@ export function buildTimedPoints(
       const lateral = spreadLateral(intervals, k);
       const s = track.sampleAt(u);
       const position = s.position.clone().addScaledVector(s.right, lateral);
+      const up = s.up.clone();
+      if (onTube) track.surfacePoint!(u, lateral, position, up);
       points.push({
         index: points.length,
         d,
@@ -70,8 +78,8 @@ export function buildTimedPoints(
         // Golden-ratio stagger: neighbours never go off together, and the pattern does not repeat along the field.
         phase: f.phase + ((k * 0.618034) % 1) * f.period,
         position,
-        up: s.up.clone(),
-        center: position.clone().addScaledVector(s.up, CONFIG.HOVER_HEIGHT),
+        up,
+        center: position.clone().addScaledVector(up, CONFIG.HOVER_HEIGHT),
       });
     }
   }

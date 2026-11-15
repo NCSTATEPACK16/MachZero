@@ -195,7 +195,8 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
   const corkscrewFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'corkscrew' }> => f.type === 'corkscrew');
   const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
   const pipeSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'pipe' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
-  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans);
+  const spineSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'spine' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
+  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans, spineSpans);
   const loopFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'loop' }> => f.type === 'loop');
   const loops = loopFeatures.map((f) => ({ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length) }));
   const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl, loops);
@@ -268,6 +269,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     corkscrews: corkDists,
     loops: loopFeatures.map((f) => ({ dStart: f.dStart, dEnd: f.dEnd })),
     pipes: pipeSpans,
+    spines: spineSpans,
     ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
     telegraphScale: build.telegraphScale ?? 1,
     branches,
@@ -310,12 +312,14 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     for (const f of hazardAnimators) f(t);
   };
 
-  const pipes = pipeSpans.map((p) => ({
+  const curledExtent = (p: PipeSpan) => ({
     uStart: wrap01(p.dStart / length),
     uEnd: wrap01(p.dEnd / length),
     uClosedStart: wrap01((p.dStart + p.transition) / length),
     uClosedEnd: wrap01((p.dEnd - p.transition) / length),
-  }));
+  });
+  const pipes = pipeSpans.map(curledExtent);
+  const spines = spineSpans.map(curledExtent);
   const ice = features.flatMap((f) =>
     f.type === 'ice' ? [{ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip }] : [],
   );
@@ -331,6 +335,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     for (const j of jumps) if (inLoopRange(uw, j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
     for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return 'ice';
     for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
+    for (const p of spines) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'spine';
     return 'road';
   };
   // A ship lost on a Plunge's dive comes back on the floor: a slow restart on a 55° slope would be no help.
@@ -377,6 +382,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     jumps,
     branches,
     pipes,
+    spines,
     loops,
     airGravityScale: layout.airGravityScale,
     surfaceKindAt,

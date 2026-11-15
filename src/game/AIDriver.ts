@@ -666,6 +666,7 @@ export class AIDriver implements IAIDriver {
 
   private inPipe(u: number): boolean {
     for (const p of this.track.pipes) if (inLoopRange(u, p.uStart, p.uEnd)) return true;
+    for (const p of this.track.spines) if (inLoopRange(u, p.uStart, p.uEnd)) return true;
     return false;
   }
 

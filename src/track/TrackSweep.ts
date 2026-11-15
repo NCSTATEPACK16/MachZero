@@ -16,7 +16,7 @@ import type { TriMesh } from '../core/contracts';
 import type { FrameSet } from './TrackFrames';
 import type { TrackQuery } from './TrackQuery';
 import { wrap01 } from '../core/math';
-import { CURL_EPS, curlPoint, type CurledPoint } from './features/pipe';
+import { curlPoint, isFlatCurl, type CurledPoint } from './features/pipe';
 
 export interface SweepFrames {
   /** Number of distinct rings (excluding the duplicated seam ring of a closed loop). */
@@ -268,13 +268,13 @@ export function framesFromRange(query: TrackQuery, length: number, dStart: numbe
 /** Bend a profile point for ring `ri` into `out` (identity on flat rings). */
 function bendInto(frames: SweepFrames, ri: number, x: number, y: number, bend: BendOptions | undefined, out: CurledPoint): CurledPoint {
   const c = frames.curl ? frames.curl[ri] : 0;
-  if (c < CURL_EPS) {
+  if (isFlatCurl(c)) {
     out.x = x;
     out.y = y;
     out.phi = 0;
     return out;
   }
-  const yy = y > 0 && bend?.heightScale ? y * bend.heightScale(c) : y;
+  const yy = y > 0 && bend?.heightScale ? y * bend.heightScale(Math.abs(c)) : y;
   return curlPoint(x, yy, c, out);
 }
 

@@ -332,7 +332,7 @@ export class ShipController {
       this.right.crossVectors(this.fwd, up);
     }
 
-    if (grounded && this.hasProjection && this.track.pipes.length > 0 && s.path === null) {
+    if (grounded && this.hasProjection && (this.track.pipes.length > 0 || this.track.spines.length > 0) && s.path === null) {
       // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
       // (see PipeCompensation), the pipe counterpart of the twist compensation above.
       const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
@@ -445,8 +445,8 @@ export class ShipController {
       // Crosswind (track/features/wind.ts): a push across the road on a grounded ship. Aero parts cut it.
       if (this.windPush !== 0 && grounded) lat += this.windPush * this.stats.pushScale * this.sampleRight.dot(this.right) * dt;
 
-      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth) and the rails come back
-      // there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
+      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth; under a spine, the bottom)
+      // and the rails come back there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
       const guard = this.seamGuard();
       if (guard !== 0) lat += guard * TUNING.SEAM_GUARD_ACCEL * dt;
 
@@ -996,18 +996,20 @@ export class ShipController {
     if (s.energy >= this.lowEnergyLevel) this.lowEnergyFired = false;
   }
 
-  /** −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the top seam of an opening pipe, else 0. */
+  /**
+   * −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the seam of an opening pipe (its top) or spine (its
+   * bottom), else 0.
+   */
   private seamGuard(): number {
-    const pipes = this.track.pipes;
+    const { pipes, spines } = this.track;
     const s = this.state;
-    if (pipes.length === 0 || !this.hasProjection || s.path !== null) return 0;
+    if ((pipes.length === 0 && spines.length === 0) || !this.hasProjection || s.path !== null) return 0;
     const lead = TUNING.SEAM_GUARD_LEAD / this.track.length;
-    for (const p of pipes) {
-      if (!inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) continue;
-      const w = this.sampleHalfWidth;
-      const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
-      return -Math.sign(s.lateral) * k;
-    }
+    const w = this.sampleHalfWidth;
+    const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
+    if (k === 0) return 0;
+    for (const p of pipes) if (inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) return -Math.sign(s.lateral) * k;
+    for (const p of spines) if (inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) return -Math.sign(s.lateral) * k;
     return 0;
   }
 
