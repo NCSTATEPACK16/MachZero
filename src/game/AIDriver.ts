@@ -23,6 +23,7 @@ import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
 import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikesDuring } from '../track/features/lightning';
 import { buildPlunges, plungeClimbFoot, plungeDiveFoot } from '../track/features/plunge';
 import { type BuiltGeyser, buildGeysers, GEYSER_RADIUS, geyserDuring } from '../track/features/geyser';
+import { type BuiltJet, buildJets, JET_RADIUS, jetDuring } from '../track/features/jet';
 
 /** Aggressive pilots lean toward a split path's shortcut by this much over their tier's odds. */
 const SHORTCUT_AGGRESSIVE_LEAN = 0.2;
@@ -57,6 +58,8 @@ const DROPPED_MARGIN = 2.5;
 const STRIKE_WINDOW = 0.45;
 /** Geysers: a vent blocks its column when it erupts within this many seconds of the ship's arrival. */
 const GEYSER_WINDOW = 0.6;
+/** Pressure jets: a vent blocks its column when it fires within this many seconds of the ship's arrival. */
+const JET_WINDOW = 0.5;
 /** Crosswind: how much of the push the driver cancels ahead of time by aiming upwind (the rest is left to its
  *  steering loop), and how fast that aim offset follows the gust (1/s). */
 const WIND_FEED_FORWARD = 1;
@@ -240,6 +243,7 @@ export class AIDriver implements IAIDriver {
   private readonly winds: BuiltWind[];
   private readonly strikes: BuiltStrike[];
   private readonly geysers: BuiltGeyser[];
+  private readonly jets: BuiltJet[];
   /** Upwind aim offset (m) that cancels the crosswind's steady drift. */
   private windAim = 0;
   private readonly hazardMargin: number;
@@ -341,6 +345,7 @@ export class AIDriver implements IAIDriver {
     this.winds = buildWinds(track);
     this.strikes = buildStrikes(track);
     this.geysers = buildGeysers(track);
+    this.jets = buildJets(track);
     this.hazardMargin = this.tier.hazardMargin;
     this.hazardClock = opts.hazardClock ?? (() => this.time);
     this.liveMines = opts.liveMines ?? null;
@@ -556,7 +561,8 @@ export class AIDriver implements IAIDriver {
     });
 
     // --- mines and debris: steer round those in the way on arrival ---
-    if (ship.path === null) desired = this.avoidHazards(u, speed, desired, maxLat);
+    // (On a Spine the jet vents sit round the tube's sides: the way round them stays off the bottom seam too.)
+    if (ship.path === null) desired = this.avoidHazards(u, speed, desired, inPipe ? Math.min(maxLat, PIPE_MAX_LAT) : maxLat);
 
     // --- pit ---
     this.updatePit(u, ship);
@@ -701,13 +707,13 @@ export class AIDriver implements IAIDriver {
   }
 
   /**
-   * Move `desired` clear of the mines, debris, lightning strikes and geysers the ship will reach in the next
-   * HAZARD_LOOKAHEAD_TIME seconds, at where (and, for lightning and geysers, whether) each will be on arrival (hazard clock), to
+   * Move `desired` clear of the mines, debris, lightning strikes, geysers and jets the ship will reach in the next
+   * HAZARD_LOOKAHEAD_TIME seconds, at where (and, for lightning, geysers and jets, whether) each will be on arrival (hazard clock), to
    * the nearest free lateral within ±maxLat.
    */
   private avoidHazards(u: number, speed: number, desired: number, maxLat: number): number {
     const live = this.liveMines?.();
-    if (this.mines.length === 0 && this.debris.length === 0 && this.strikes.length === 0 && this.geysers.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
+    if (this.mines.length === 0 && this.debris.length === 0 && this.strikes.length === 0 && this.geysers.length === 0 && this.jets.length === 0 && !live?.some((m) => m.owner !== null && m.armed)) return desired;
     const here = wrap01(u) * this.length;
     const v = Math.max(speed, 30);
     const reach = Math.max(HAZARD_LOOKAHEAD_MIN, v * HAZARD_LOOKAHEAD_TIME);
@@ -760,6 +766,14 @@ export class AIDriver implements IAIDriver {
       const t0 = now + Math.max(0, dist - GEYSER_RADIUS - CONFIG.SHIP_LENGTH / 2) / v - GEYSER_WINDOW;
       const t1 = now + Math.max(0, dist + GEYSER_RADIUS + CONFIG.SHIP_LENGTH / 2) / v + GEYSER_WINDOW;
       if (geyserDuring(g, t0, t1)) bands.push([g.lateral - GEYSER_RADIUS - hull, g.lateral + GEYSER_RADIUS + hull]);
+    }
+    // Pressure jets (on a Spine): the same, for a jet that fires as the ship passes its vent.
+    for (const j of this.jets) {
+      const dist = ahead(j.d);
+      if (dist < -(JET_RADIUS + 4) || dist > reach) continue;
+      const t0 = now + Math.max(0, dist - JET_RADIUS - CONFIG.SHIP_LENGTH / 2) / v - JET_WINDOW;
+      const t1 = now + Math.max(0, dist + JET_RADIUS + CONFIG.SHIP_LENGTH / 2) / v + JET_WINDOW;
+      if (jetDuring(j, t0, t1)) bands.push([j.lateral - JET_RADIUS - hull, j.lateral + JET_RADIUS + hull]);
     }
     let out = clearOfBands(desired, bands, maxLat);
     if (!live) return out;

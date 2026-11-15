@@ -327,7 +327,12 @@ const TRACKS = {
       { r: 400, a: 50, y: 54 },
       { s: 200, y: 54 },
       { r: 180, a: 100, y: 48 },
-      { s: 400, y: 42, adjust: true, f: [{ type: 'dash', at: 200, lateral: 3 }] },
+      { s: 300, y: 42, adjust: true, f: [{ type: 'dash', at: 150, lateral: 3 }] },
+      // The glass tunnel through the city: an S-bend that breaks up the back straight (one long boost zone after the
+      // Spine's would let boost timing alone spread the field).
+      { r: 240, a: 35, y: 42 },
+      { r: 240, a: -35, y: 41 },
+      { s: 120, y: 40 },
       { r: 220, a: -40, y: 40 },
       { r: 220, a: 40, y: 40 },
       { s: 200, y: 40 },
