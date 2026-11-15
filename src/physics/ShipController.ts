@@ -12,6 +12,7 @@ import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 import { STRIKE_DAMAGE, STRIKE_JAM } from '../track/features/lightning';
 import { GEYSER_DAMAGE, GEYSER_KNOCK_UP } from '../track/features/geyser';
+import { JET_DAMAGE, JET_KNOCK, JET_KNOCK_ROOKIE } from '../track/features/jet';
 import { PLUNGE_SPEED_CAP, buildPlunges, inPlunge, plungeAccel, type BuiltPlunge } from '../track/features/plunge';
 
 /**
@@ -628,6 +629,25 @@ export class ShipController {
     }
     this.drainEnergy(GEYSER_DAMAGE * this.stats.damageTakenScale);
     s.velocity.addScaledVector(up, GEYSER_KNOCK_UP);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
+  }
+
+  /**
+   * A pressure jet hit the hull (track/features/jet.ts): a knock along `dir` (unit, round the tube away from the vent)
+   * of JET_KNOCK × pushScale and JET_DAMAGE energy under a damaging hazard policy; otherwise the policy's slow-down and
+   * a smaller knock (JET_KNOCK_ROOKIE × pushScale), and no energy.
+   */
+  applyJet(dir: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (hazards.damage) {
+      this.drainEnergy(JET_DAMAGE * this.stats.damageTakenScale);
+      s.velocity.addScaledVector(dir, JET_KNOCK * this.stats.pushScale);
+    } else {
+      s.velocity.multiplyScalar(hazards.hitSpeedScale);
+      s.velocity.addScaledVector(dir, JET_KNOCK_ROOKIE * this.stats.pushScale);
+    }
     this.body.setLinvel(s.velocity, true);
     this.updateSpeeds();
   }

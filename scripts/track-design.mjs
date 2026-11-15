@@ -320,8 +320,8 @@ const TRACKS = {
         y: 52,
         f: [
           { type: 'spine', from: 20, len: 690, transition: 90 },
-          { type: 'jets', from: 150, to: 300, count: 4, period: 5, phase: 0, lane: 6 },
-          { type: 'jets', from: 390, to: 560, count: 4, period: 5.5, phase: 1.7, lane: -6 },
+          { type: 'jets', from: 150, to: 300, count: 4, period: 5, phase: 0, lane: 3 },
+          { type: 'jets', from: 390, to: 560, count: 4, period: 5.5, phase: 1.7, lane: -3 },
         ],
       },
       { r: 400, a: 50, y: 54 },

@@ -35,7 +35,7 @@
       "count": 4,
       "period": 5,
       "phase": 0,
-      "lane": 6
+      "lane": 3
     },
     {
       "type": "jets",
@@ -44,7 +44,7 @@
       "count": 4,
       "period": 5.5,
       "phase": 1.7,
-      "lane": -6
+      "lane": -3
     },
     {
       "type": "dash",

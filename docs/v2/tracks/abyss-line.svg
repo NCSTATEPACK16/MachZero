@@ -520,14 +520,14 @@
 <circle cx="804.1" cy="515.5" r="5" fill="#ff6f91"/><text x="776.1" y="513.8" fill="#ff6f91" font-size="15" font-family="monospace" text-anchor="middle">JETS ×4</text>
 <circle cx="761.9" cy="622.7" r="5" fill="#ff6f91"/><text x="740.2" y="604.8" fill="#ff6f91" font-size="15" font-family="monospace" text-anchor="middle">JETS ×4</text>
 <circle cx="491.9" cy="604.1" r="5" fill="#ffe066"/><text x="516.2" y="590.0" fill="#ffe066" font-size="15" font-family="monospace" text-anchor="middle">DASH</text>
-<circle cx="806.5" cy="489.2" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="804.3" cy="506.7" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="805.0" cy="524.4" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="802.6" cy="542.0" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="778.0" cy="597.6" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="766.6" cy="613.8" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="806.6" cy="489.2" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="802.7" cy="506.7" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="805.1" cy="524.4" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="802.5" cy="542.0" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="777.8" cy="597.5" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="766.7" cy="613.8" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
 <circle cx="754.0" cy="628.9" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
-<circle cx="741.0" cy="643.8" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
+<circle cx="742.6" cy="645.6" r="2.0" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>
 <line x1="804.5" y1="419.5" x2="804.5" y2="422.3" stroke="#ffc24a" stroke-opacity="0.45" stroke-width="17.0"/>
 <line x1="804.5" y1="422.3" x2="804.5" y2="425.1" stroke="#ffc24a" stroke-opacity="0.45" stroke-width="17.0"/>
 <line x1="804.5" y1="425.1" x2="804.5" y2="428.0" stroke="#ffc24a" stroke-opacity="0.45" stroke-width="17.0"/>

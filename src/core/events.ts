@@ -37,6 +37,8 @@ export interface GameEvents {
   'hazard:lightning': { shipId: ShipId; strike: number; point: THREE.Vector3 };
   /** A lava geyser hit a ship (Cinder Forge): `geyser` is its index in PhysicsSystem.geysers. */
   'hazard:geyser': { shipId: ShipId; geyser: number; point: THREE.Vector3 };
+  /** A pressure jet hit a ship (Abyss Line's Spine): `jet` is its index in PhysicsSystem.jets. */
+  'hazard:jet': { shipId: ShipId; jet: number; point: THREE.Vector3 };
   /** A crosswind gust started (active) or stopped pushing a ship; `dir` is 1 toward the right rail, −1 toward the left. */
   'ship:wind': { shipId: ShipId; active: boolean; dir: 1 | -1 };
   /** A ship entered (active) or left another's slipstream (physics/Drafting.ts hysteresis). */
@@ -52,7 +54,7 @@ export interface GameEvents {
   /** A CPU fired an EMP at `target`: it lands CONFIG.EMP_WARN_TIME later unless a shield goes up. */
   'item:warn': { from: ShipId; target: ShipId };
   /** A raised shield took an EMP, a mine hit, a lightning strike or a geyser and dropped. */
-  'item:shield': { shipId: ShipId; blocked: 'emp' | 'mine' | 'lightning' | 'geyser'; point: THREE.Vector3 };
+  'item:shield': { shipId: ShipId; blocked: 'emp' | 'mine' | 'lightning' | 'geyser' | 'jet'; point: THREE.Vector3 };
   /** App → HUD/Audio: credits paid to the player's profile at the results. */
   'economy:credits': { delta: number; total: number };
   /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */

@@ -23,6 +23,8 @@ export interface TimedPoint {
   d: number;
   u: number;
   lateral: number;
+  /** Centre of its field's clear lane (lateral, m). */
+  lane: number;
   period: number;
   /** This point's own offset on the hazard clock (the field's phase plus its stagger). */
   phase: number;
@@ -74,6 +76,7 @@ export function buildTimedPoints(
         d,
         u,
         lateral,
+        lane: f.lane ?? 0,
         period: f.period,
         // Golden-ratio stagger: neighbours never go off together, and the pattern does not repeat along the field.
         phase: f.phase + ((k * 0.618034) % 1) * f.period,
