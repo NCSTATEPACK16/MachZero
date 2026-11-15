@@ -23,6 +23,8 @@ import { buildStrikes } from './features/lightning';
 import { buildLightningVisual } from './features/lightningVisual';
 import { buildGeysers } from './features/geyser';
 import { buildGeyserVisual } from './features/geyserVisual';
+import { buildJets } from './features/jet';
+import { buildJetVisual } from './features/jetVisual';
 import { PLUNGE_RESPAWN_AFTER, buildPlunges, plungeDiveFoot } from './features/plunge';
 import type { TrackProjection } from '../core/contracts';
 
@@ -307,7 +309,19 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const geyserVisual = geyserDefs.length > 0 ? buildGeyserVisual(geyserDefs, palette.accent, build.telegraphScale ?? 1) : null;
   if (geyserVisual) group.add(geyserVisual.group);
-  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update, geyserVisual?.update].filter((f): f is (t: number) => void => !!f);
+  // Pressure jets (Abyss Line): vents on the curled Spine, so they are placed with the curled surface.
+  const jetDefs = features.some((f) => f.type === 'jets')
+    ? buildJets({
+        features,
+        length,
+        halfWidth: CONFIG.TRACK_HALF_WIDTH,
+        sampleAt: (u, out) => query.sampleAt(u, out),
+        surfacePoint: (u, lateral, out, outUp) => query.surfacePoint(u, lateral, out, outUp),
+      })
+    : [];
+  const jetVisual = jetDefs.length > 0 ? buildJetVisual(jetDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (jetVisual) group.add(jetVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update, geyserVisual?.update, jetVisual?.update].filter((f): f is (t: number) => void => !!f);
   const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
     for (const f of hazardAnimators) f(t);
   };
