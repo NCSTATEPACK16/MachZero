@@ -1,7 +1,76 @@
-# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; X0–X3 merged, X4, X5 and X6 gameplay halves built)
+# Next-session brief: MachZero (M7 and M8 designed 2026-11-16; X4, X5 and X6 gameplay halves built; next build: M7a)
 
-Paste the prompt at the bottom into a fresh Claude Code session opened on
-`/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
+Two prompts are in this file. **"Paste this prompt: M7a"** (directly below the build order) starts the M7 and M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+
+## M7 and M8: designed, not started (2026-11-16)
+
+- **M7 (touch, tilt, assists, comfort) and M8 (World Tour, Time Trial and ghosts, the championship, the tutorial, the release) are designed and agreed** (45 decisions, two rounds with the owner). Read SPEC §11 and §12 (what and why) and IMPLEMENTATION §M7 and §M8 (decisions, build steps with tests first, budgets, "done when", device gates). They are written to be built with no further questions.
+- **Build order, one stacked PR each:**
+
+  | # | PR | Branch | Save | Flag |
+  |---|---|---|---|---|
+  | 1 | M7a: the four assists work, the assists screen | `v2/m7a-assists` | v7 → v8 | none |
+  | 2 | M7b: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
+  | 3 | M7c: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
+  | 4 | M8a: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
+  | 5 | M8b: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
+  | 6 | M8c: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
+  | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
+
+- **The world looks (X4–X6) and X7 fit in whenever their images or approvals arrive.** They block nothing, and M7 and M8 do not wait for them. `expansion` stays off until each world's look is approved (the owner's answer to the open question on #39).
+- **Found while designing (IMPLEMENTATION §M7 has the details):** the four assists do nothing in the live game today, although the Rookie preset promises them. M7a repairs that first, with no flag.
+- **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
+- **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
+
+### Paste this prompt: M7a
+
+```
+You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
+/Users/johnbradner/Documents/ClaudeWork/MachZero. It is live at https://machzero.netlify.app and on TestFlight
+as an iOS app (Capacitor 8). The owner tests on an iPhone 18 Pro Max and an iPad Air 11" with an 8BitDo pad.
+
+READ FIRST, in this order, before writing any code:
+  1. docs/v2/NEXT_SESSION.md: current state, the build order and the environment table. Trust the table.
+  2. docs/v2/SPEC.md §2, §3 and §11: what M7 is and why. Every decision is settled; do not re-open one.
+  3. docs/v2/IMPLEMENTATION.md §0 (operating rules) and §M7 (the whole section, then "M7a" closely).
+  4. The code M7a changes: src/physics/Assists.ts, src/app/RaceSession.ts, src/app/App.ts (raceSetup,
+     bindStats, applySettings), src/physics/ShipController.ts (every drainEnergy call), src/game/RaceManager.ts
+     (boostUnlocked), src/save/schema.ts and migrations.ts, src/settings/Settings.ts,
+     src/ui/screens/SettingsScreen.tsx, src/sim/worldRace.ts and tierMatrix.ts.
+
+GOAL: build M7a exactly as IMPLEMENTATION §M7a says: save v8 (with every M7 field), the four assists acting
+in real races, the ASSISTS tab, the sims and the e2e test. One PR on branch v2/m7a-assists, stacked on the
+newest open stack branch (run gh pr list; today that is v2/x6-abyss-line, PR #39). Follow the build steps in
+order, tests first. When M7a's PR is pushed and its checks are green, continue with M7b on v2/m7b-touch,
+stacked on M7a, from §M7b; then M7c. Stop at each PR's device gate only for what the gate needs from the owner,
+and carry on with the next PR meanwhile.
+
+HOW TO WORK (agreed with the owner; follow exactly):
+- You implement everything yourself, in order. Sub-agents only for read-only lookups.
+- Never merge a PR, push to main or enable auto-merge. The owner playtests each preview and merges.
+- main is live. M7a has no flag (it repairs what the Rookie preset already promises), so a Classic profile
+  with a pad or keyboard must play exactly as before: every existing test passes unchanged.
+- Before every push: npm run typecheck && npm test && npm run build && npm run size && npm run smoke.
+  On this shared Mac use npm test -- --maxWorkers=3 and npm run smoke -- --workers=1. Fix red CI before
+  moving on. Never loosen an assertion to go green; find the root cause.
+- Confirm current library APIs with Context7 before relying on them. Use jCodemunch for code navigation.
+- Local dev server: npm run dev -- --port 5180.
+- Never commit ios/App/App.xcodeproj/project.pbxproj. Leave docs/v2/FABLE_PROMPT*.md alone.
+- No session IDs or attribution lines in commits or PR bodies. Run npm run codebase at the end of each PR.
+
+AT EACH PR: the body holds what shipped, the "done when" list from IMPLEMENTATION ticked or explained, test
+counts and sim summaries, sizes from npm run size, screenshots where visual, any change nobody asked for, and
+the device-gate steps. End the hand-off with the preview URL
+(https://deploy-preview-<PR#>--machzero.netlify.app) and the iOS build command for the PR's branch:
+git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open
+(put VITE_FEATURES=touch,expansion before npm run ios:sync for M7b; VITE_FEATURES=expansion for M7c).
+
+AT THE END OF THE SESSION: report the PRs opened (links and preview URLs), what each device gate needs from
+the owner, any deviation from the spec with its reason, and update IMPLEMENTATION.md (mark each built PR, add
+its "As built" notes) and this file so the next session can resume from the docs alone.
+
+Start now: run gh pr list, read the files above, then write the SaveStore tests for save v8.
+```
 
 ## Where things stand (2026-11-15, after the X6 gameplay half)
 
@@ -103,8 +172,8 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
   - V1 COMET ✅ (gate passed 2026-11-08). **V2 parts + V3 the other 5 chassis are next: one session, two stacked PRs, per §V.7.**
   - It needs the user's Gemini concepts first: `assets/reference/ships/<id>/chosen.jpg` (prompts in `docs/v2/VEHICLE_CONCEPTS.md`). Don't model a chassis without one.
 - **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
-- **M7, touch and comfort (#11):** touch and tilt controls, comfort settings, assist toggles, and the portrait HUD overlap seen on phones. Needs a design session first.
-- **M8, modes and polish (#12):** World Tour, Time Trial, ghosts, world map, onboarding, the balance pass, and turning every flag on. Needs a design session first.
+- **M7, touch and comfort (#11):** designed 2026-11-16 (SPEC §11, IMPLEMENTATION §M7). Ready to build: see the top of this file.
+- **M8, modes and polish (#12):** designed 2026-11-16 (SPEC §12, IMPLEMENTATION §M8). Ready to build after M7.
 - **Smaller ideas worth raising with the user:**
   - more scenery for the existing worlds;
   - the optional separate-WASM Rapier task (IMPLEMENTATION §M0), which would cut about 1.6 MB of base64 from the JS;
@@ -127,7 +196,7 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
 | Low preset | Washed out on every world (§H item 2); judge visuals at Med or High until it's fixed |
 | Assets | `npm run assets` (Blender + glTF Transform) rebuilds `public/game/`. Commit the GLBs; CI only validates them |
 
-## Paste this prompt
+## Paste this prompt: the 2.1 expansion (world looks and X7)
 
 ```
 You are the Principal Engineer building MachZero 2.0, a Three.js + Rapier + Vite anti-gravity racer (F-Zero-like)
