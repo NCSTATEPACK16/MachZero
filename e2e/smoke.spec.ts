@@ -123,3 +123,35 @@ test('races Cinder Forge past the geysers and down the Plunge without console er
   expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+// Abyss Line (IMPLEMENTATION §X6) is behind the `expansion` flag too. Its jet vents, bubble streams and water columns
+// are built with the track, so the warm-up must cover them: the race runs round the Spine and past both jet fields
+// with no shader compiled on the way.
+test('races Abyss Line round the Spine and past the jets without console errors or mid-race shader compiles', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  await page.goto('/?autopilot=1&debug=1&quality=high&world=abyss-line');
+  await expect(page.locator('#app canvas')).toBeVisible();
+  type Debug = MachZeroDebug & { app: { session: { track: { id: string; length: number } } }; ships: { trackU: number }[] };
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race.state === 'racing', undefined, { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session.track.id)).toBe('abyss-line');
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
+
+  // 2,400 m: past the Spine (about 1,590–2,280 m) and its two jet fields. (An upper bound too: on the grid, just
+  // behind the line, the distance reads about 4,800 m.)
+  await page.waitForFunction(
+    () => {
+      const m = (window as unknown as { __machzero: Debug }).__machzero;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 2400 && d < 2900;
+    },
+    undefined,
+    { timeout: 240_000 },
+  );
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(errors, errors.join('\n')).toEqual([]);
+});

@@ -20,7 +20,7 @@ interface Debug {
 
 type PadWindow = Window & { __pad: { buttons: { pressed: boolean; value: number }[]; polls: number } };
 
-const PAD = { A: 0, B: 1, START: 9, UP: 12, DOWN: 13 };
+const PAD = { A: 0, B: 1, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 
 async function installPad(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -132,5 +132,65 @@ test('a Grand Prix cup by pad: race 1, standings, reload, CONTINUE CUP, race 2 o
   const grid = await dbg(page, (d) => d.ships!.map((s) => [s.def.id, s.def.gridIndex]));
   const leaderId = cup1!.results[0].indexOf(1); // the race-1 winner leads the cup
   expect(grid.find(([id]) => id === leaderId)?.[1]).toBe(7);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/**
+ * The Storm Cup by pad only, start to finish (IMPLEMENTATION §X6): with the `expansion` flag on and Abyss Line built,
+ * the Grand Prix screen offers it beside the Neon Cup. Pick its tab, start it, and run all five races (each to the
+ * finish on autopilot, Ⓐ on the results, Ⓐ on NEXT RACE) in its world order, ending on Abyss Line, to the final
+ * standings. No console error on the way.
+ */
+test('the Storm Cup by pad: pick it, five races in order, final standings', async ({ page }) => {
+  test.setTimeout(600_000);
+  const errors: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
+  await installPad(page);
+  await page.goto('/?features=profiles,expansion&debug=1&quality=low');
+  const screen = page.locator('[data-screen]');
+  await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('STORMY', 2, 'classic'));
+  await expect(screen).toHaveAttribute('data-screen', 'menu');
+
+  await focusButton(page, 'GRAND PRIX');
+  await padPress(page, PAD.A);
+  await expect(screen).toHaveAttribute('data-screen', 'gp');
+  await expect(page.locator('[data-cup="storm"]')).toBeVisible();
+  // Up from START to the cup tabs, across to STORM CUP, Ⓐ to show it, then back down to START.
+  for (let i = 0; i < 8; i++) {
+    if (await page.locator('[data-cup="storm"]').evaluate((el) => el === document.activeElement)) break;
+    const onTab = await page.evaluate(() => !!(document.activeElement as HTMLElement | null)?.dataset.cup);
+    await padPress(page, onTab ? PAD.RIGHT : PAD.UP);
+  }
+  await expect(page.locator('[data-cup="storm"]')).toBeFocused();
+  await padPress(page, PAD.A);
+  await expect(page.locator('[data-cup-shown="storm"]')).toBeVisible();
+  for (let i = 0; i < 8; i++) {
+    if (await page.locator('[data-gp-start]').evaluate((el) => el === document.activeElement)) break;
+    await padPress(page, PAD.DOWN);
+  }
+  await expect(page.locator('[data-gp-start]')).toHaveText('START STORM CUP · PILOT');
+  await padPress(page, PAD.A);
+
+  const order = ['sunset-mesa', 'tempest-spire', 'jade-ruins', 'cinder-forge', 'abyss-line'];
+  for (let race = 0; race < order.length; race++) {
+    await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/countdown|racing/);
+    expect(await dbg(page, (d) => d.app.currentWorld?.id)).toBe(order[race]);
+    expect((await dbg(page, (d) => d.app.cup))?.cupId).toBe('storm');
+    await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
+    await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 120_000 }).toBe('results');
+    await padPress(page, PAD.A);
+    await expect(screen).toHaveAttribute('data-screen', 'cup');
+    if (race < order.length - 1) {
+      await expect(page.locator(`[data-cup-done="${race + 1}"]`)).toBeVisible();
+      await expect(page.locator('[data-cup-next]')).toBeFocused();
+      await padPress(page, PAD.A);
+    }
+  }
+  // The final standings: the cup is over and out of the save.
+  await expect(page.locator('[data-cup-final]')).toBeVisible();
+  await expect(page.locator('.mzu-cup-row[data-ship]')).toHaveCount(8);
+  expect(await dbg(page, (d) => d.app.cup)).toBeNull();
   expect(errors, errors.join('\n')).toEqual([]);
 });
