@@ -1061,7 +1061,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 🟡 gameplay half built (PR #38) | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
-| X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
+| X6 🟡 gameplay half built (PR #39) | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
 
 **Rules for every X milestone** (in addition to §0):
@@ -1464,7 +1464,43 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X6 — World 8: Abyss Line (the Spine and pressure jets), and the Storm Cup
+### X6 — World 8: Abyss Line (the Spine and pressure jets), and the Storm Cup — 🟡 GAMEPLAY HALF BUILT (PR #39, draft, stacked on #38; the look waits for `assets/reference/worlds/abyss-line/chosen.jpg`)
+
+**As built: the gameplay half (PR #39)** (read before X7, and before building the look):
+- **What is done:** build steps 1–7 and the placeholder theme of step 8. **What is left:** the real theme, the props, the effect set, the perf table on the real look and the shots. All of it needs `chosen.jpg`. **The `expansion` flag is still off:** whether it turns on here is the owner's call at review (the plan's default was "on here"; see the PR).
+- **The Spine** is the pipe's curl with a sign (`track/features/pipe.ts`): `curlSamples(count, ds, pipes, spines)` writes `up − down`, so a spine is −1 on its closed stretch. `isFlatCurl` and the magnitude of the curl drive `TrackQuery`, `TrackSweep` and `TrackFrames`; `uncurlPoint` takes the curl's sign, so `project` inverts `surfacePoint` on the outside of the tube. Lateral is the arc position round the tube (0 = the crown, ±W = the bottom seam); the tube's radius is `PIPE_RADIUS` (W/π ≈ 4.46 m) below the centreline. `TrackData.spines` holds the extents (`uStart`, `uEnd`, `uClosedStart`, `uClosedEnd`); `surfaceKindAt` reports `'spine'`.
+  - **Shared with the pipe, unchanged in behaviour:** the magnetic lock, `PipeCompensation` (it iterates pipes and spines; its clamp is now −1..1), the seam guard (`ShipController.seamGuard`: the same ease off the seam before the tube opens), collision 40 pieces across, rails that end at |curl| ≥ 0.85, the AI's ±9 m line limit (`PIPE_MAX_LAT`). Pylons skip each spine ±20 m.
+  - **Layout rule found by the hold sim:** a spine must leave its bend before the tube opens. Opening right at the bend's end, a ship holding 154° round the side came out of the bend still heading out and met the rails rising at the seam. The validator's spine rule: both transitions, plus `SPINE_STRAIGHT_CLOSED` (50 m) of closed tube beside each, on a straight.
+- **Spine numbers** (`sim/spine.hold.sim.test.ts`, 12 cases): on five lines (±12, ±7 and 0 m round the tube, up to 154° either side) at 70 and 125 m/s, the height error and the distance from the tube axis are within 0.16 m, the hull stays aligned to the surface (dot ≥ 0.986), never airborne, no respawn, and a ship leaves at the speed it came in (118–125 m/s at 125). A spiral drives 46.5 m round the outside (more than a full turn). The chase camera stays 4.2 m or more outside the tube, rolls with the ship (dot ≥ 0.93) and keeps it on screen. The pipe hold test passes unchanged.
+- **Pressure jets** (`track/features/jet.ts`): `timedField` (shared with lightning and geysers) with a `jets` type. Vents are placed on the curled surface (`buildJets` needs `TrackData.surfacePoint`; `TimedPoint` gains `lane`), radius 2.2 m, 1.5 s warning (× `telegraphScale`), 0.8 s jet, one hit per ship per jet, never within 1.5 m of the bottom seam, a clear lane of 1.5 m margin beside the hull. `PhysicsSystem.checkJets` → `ShipController.applyJet`: the knock is round the tube (forward × the surface normal at the hull), away from the vent (toward the lane for a hull right on it), 9 m/s × `pushScale`, plus 5 energy × `damageTakenScale`; Rookie rules: velocity × 0.85, then a 5 m/s knock, no energy. A Shield takes it (`item:shield` with `blocked: 'jet'`). Event: `hazard:jet { shipId, jet, point }`.
+  - **The knock moves a ship, it does not fling it.** At 120 m/s the full 9 m/s arrives round the tube, and lateral grip bleeds it off in about a tenth of a second: 0.5 s on, the hit ship is 0.81 m further toward the lane than the same pass with the vent idle, at a height error of 0.15 m (`hazards.sim.test.ts`, which compares against that control run). The cost of a jet is the energy, the camera kick and the line change. If the owner wants a bigger shove, raise `JET_KNOCK`.
+- **Track** (`content/tracks/abyss-line.json`): 4,807 m, about 35.7 s a lap at Pilot pace in the race sims (the validator's estimate is 40.7 s), minimum radius 146 m, elevation 40–54 m. The pit straight, a 300 m sweeper, an S-bend, the Spine (690 m: 90 m closing on a straight, 510 m closed through a 400 m-radius 50° bend, 90 m opening on a straight) with two jet fields of 4 vents (periods 5 s and 5.5 s, clear lanes at +3 m and −3 m), a hairpin, the glass-tunnel S-bend on the back straight, two sweepers back to the line, the pit and two dash plates. No jump, no corkscrew.
+- **Validator** (`TrackValidate.ts`, issue codes `spine` and `jets`): a spine follows the pipe rules (transitions, closed length, a plan radius of at least 300 m), plus the straight rule above, and the bottom of its tube stays above the world's lowest elevation. A jet field lies on the closed stretch of a spine, has a period of at least `JET_MIN_PERIOD` (the Rookie warning must fit between two jets), leaves room beside its lane and off the seam, and overlaps no other hazard field or wind zone.
+- **AI** (`AIDriver`): the pipe's `inPipe` covers spines (lines within ±9 m). `avoidHazards` adds a band for a vent only when it fires within 0.5 s of the hull crossing it; inside a spine the way round stays within ±9 m.
+- **World entry:** `abyss-line`, order 8, `expansion: true`, `props: false`, the placeholder theme. **Replace the placeholder line and delete `props: false` when the real theme exists.** With Abyss Line built, the **Storm Cup** is available whenever the flag is on (X1's rule, unchanged).
+- **Telegraph visuals** (`jetVisual.ts`, built with the track, 3 draw calls for the whole track): each vent is a dim ring on the tube that brightens with a quickening pulse over the warning while a bubble stream rises from it; the jet is an 11 m column of white water straight out of the tube that shoots out, holds and collapses.
+- **Feedback:** toast `🫧 PRESSURE JET` (`🛡 JET BLOCKED` with a Shield), the mine's burst at the hull, a camera kick (a little smaller than a geyser's), a heavy haptic tap, pad rumble, and the mine's sound until M6.
+- **Sims:**
+  - `sim/abyss-line.sim.test.ts` (8 races): Rookie and Legend fits finish with no respawn; the tier matrix passes (Pilot and Ace fields clean; mixed field mean position Legend 2.0, Rookie 7.0; Rookie-assisted autopilot on the podium from P8; Pilot autopilot P2, 0.7% off the median); an Ace race replays to the same standings and hits. A field of 8 takes 4 jet hits in a Rookie race and none in a Legend race (192 vent passes).
+  - `sim/stormCup.sim.test.ts`: the whole Storm Cup headless, with a reload mid-cup (the whole-cup sim moved into `sim/cupSim.ts`, shared with the Neon Cup's `grandPrix.sim.test.ts`).
+- **Tests:** 630 unit and sim tests in 68 files (X5: 594 in 64). e2e: two new, the Storm Cup by pad (pick its tab, five races in order to the final standings) and an Abyss Line race round the Spine and past both jet fields with no console error and no shader compiled mid-race.
+- **Desktop perf on the placeholder theme** (`perf-desktop --audit`, 8 ships, 15 s; not the gate, which is measured on the real look):
+
+  | World, preset | fps | p50 / p95 / p99 ms | Grid-frame draw calls | Race median draw calls | Triangles |
+  |---|---|---|---|---|---|
+  | Abyss Line, High | 59.4 | 16.7 / 16.7 / 16.8 | 150 | 120 | 146k |
+  | Abyss Line, Med | 59.8 | 16.7 / 16.8 / 16.8 | 150 | 116 | 146k |
+  | Abyss Line, Low | 59.9 | 16.7 / 16.7 / 16.8 | 129 | 87 | 140k |
+  | Neon Bay, High (shared code; #38 was 170) | 59.9 | 16.7 / 16.8 / 16.8 | 170 | 138 | 141k |
+  | Neon Bay, Low (#38 was 147) | 60.0 | 16.7 / 16.8 / 16.8 | 147 | 102 | 118k |
+
+  The jet vents, streams and columns are 3 draw calls for the whole track. Ship draw calls did not change.
+- **Deviations from the plan:**
+  - **The Spine is 690 m (510 m closed), not 500 m,** so the closed tube runs onto a straight before it opens (the layout rule above).
+  - **The glass tunnel is an S-bend on the back straight,** not a covered section (that is the look's job). Without it the back straight was 735 m: with the Spine's gentle bend that made one long boost zone, and the Pilot field spread by boost timing alone (the Pilot autopilot finished 1.7% off the median, against the 1.5% target). With it the lap is 4,807 m (the plan said about 4.4 km; the lap time is inside 36–41 s).
+  - **The Rookie jet hit keeps a 5 m/s knock,** as the plan says (unlike the geyser's and lightning's Rookie hits, which only slow the ship).
+  - **The clear lanes are at ±3 m,** so each field has vents on both sides of its lane (at ±4 m or ±6 m one side had no room off the seam).
+- **Not asked for, in this PR:** the whole-cup sim moved into `sim/cupSim.ts`; the toast, haptics, rumble and sound on a jet hit.
 
 **Design decisions:**
 - **Look:** an undersea city of glass domes and brass; kelp, light shafts, bubbles. Palette: aqua / brass gold / coral pink. From `assets/reference/worlds/abyss-line/chosen.jpg`.
