@@ -43,8 +43,9 @@ Two **independent** dials:
   - **Reduced motion** turns off radial blur, camera shake, chromatic aberration and speed lines, and gives a gentler FOV change.
   - **Colour-blind-safe mode** uses a HUD and track-marker palette plus shape cues (arrows, icons), not colour alone.
   - Separate master, music and SFX volume.
-  - **Large-text HUD.**
-  - **Remappable keyboard.**
+  - **HUD size:** normal, large or extra large (§11; it replaces the large-text toggle).
+  - **Remappable keyboard and pad.**
+  - Details of every assist and comfort setting: §11.
 - Icon-first UI: a 7-year-old who can't read "BOOST UNLOCKS LAP 2" can still see a locked padlock over the boost icon.
 
 ## 3. Platforms, input and performance
@@ -56,11 +57,11 @@ Two **independent** dials:
 | Android tablets and phones | Touch, optional tilt | Best effort, same presets |
 
 - **Landscape only** on phones and tablets (a rotate-device prompt appears in portrait).
-- **Touch layout:**
-  - Left thumb: steering slider (or tilt).
-  - Right thumb: brake, boost and accelerate (accelerate is hidden when auto-accelerate is on).
-  - Air-brakes: two shoulder buttons at the top corners.
-  - Pause: top centre.
+- **Touch layout** (decided in §11, 2026-11-16, which replaces the first sketch of this list):
+  - Left thumb: a floating steering slider (or tilt).
+  - Right thumb: boost, brake and the item button (plus accelerate when auto-accelerate is off).
+  - Air-brakes: push the slider past full lock, or two buttons (a setting).
+  - Pause: at the top, beside the lap box.
 - **Tilt-to-steer** is optional. iOS asks for motion permission, which is requested from a tap inside Settings.
 - **Web app manifest**, so "Add to Home Screen" gives full-screen landscape play on iPhone (Safari has no Fullscreen API on iPhone).
 - **Quality presets** Low, Med and High are picked automatically on first launch from a short benchmark plus device hints, and can be changed in Settings. Presets scale render resolution, MSAA, bloom resolution, motion blur, shadows, scenery density, particle count, ship level of detail and draw distance. See IMPLEMENTATION §M1.
@@ -336,3 +337,62 @@ This extends §5.2. Tiers, prices and the design rule in §4.4 are unchanged: **
 - Each sidegrade pair passes the 1% balance rule in the sims.
 - The device budget in §10.3 holds at every gate. The §9 size budgets hold: app JS ≤ 600 KB gzipped, game content ≤ 15 MB loaded per world.
 - Saves from every earlier version load with nothing lost.
+
+## 11. M7: touch, tilt, assists and comfort (agreed 2026-11-16)
+
+> Status: **agreed** (design interview, 2026-11-16). This section completes §2 and §3. It reopens nothing else. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) §M7 has the build plan in three PRs.
+
+### 11.1 What M7 adds, and why
+
+| Part | What | Why |
+|---|---|---|
+| **Assists that work** | Auto-accelerate, steering help, No-KO and boost from lap 1 act in real races, with a screen to change them | The "I'm new to racing games" preset already promises them, and until M7 only the test sims used them. Pillar 2: anyone can finish |
+| **Touch driving** | A steering slider, boost, brake, items and pause under two thumbs, on the iPhone, the iPad and mobile web | Until M7 the game is playable on iOS only with a controller |
+| **Tilt** | Optional steering by turning the device like a wheel | Some players, and many children, find it more natural than a slider |
+| **Comfort** | Reduced motion, colour-blind mode, HUD size, haptics on/off, pad remapping | Ages 7 to 70 on the same iPad (§2) |
+
+### 11.2 Assists
+
+- The four assists and the two presets are as §2 says. They are saved per profile.
+- A player can change an assist at any time, in the pause menu too, and in the middle of a cup.
+- **Assists never cost anything:** no fewer credits, no blocked trophy, no blocked medal.
+- **No-KO** halves damage, and damage never takes energy below 1. It also selects the Rookie hazard rules of §6 from the next race.
+- **Boost from lap 1** applies to the player only.
+
+### 11.3 Driving by touch
+
+- **Where:** the iOS app and mobile web. Android is best effort. Pad and keyboard keep working, and the player can change device in the middle of a race; the prompts and the layout follow the device used last.
+- **Landscape only**, with a rotate overlay on the web.
+- **Auto-accelerate is on for every touch player.** It is a setting of the device, separate from the profile's assist. With it off, an accelerate button appears.
+- **Steering:** a floating slider on the left half of the screen. The origin is where the thumb lands. Three sensitivities.
+- **Right thumb:** a large boost button, a brake button, and the item button above them. A small chip switches the item. The pit needs no button.
+- **Air-brakes:** by default, pushing the slider past full lock applies that side's air-brake. Two buttons are the other option. The owner chooses the final default on the devices.
+- **The HUD on touch:** power and speed move to one strip at the bottom centre, between the thumbs. Nothing a player must read sits under a thumb.
+- **Sizes** are physical: a button is as large on the iPad as on the iPhone. Settings: button size (S, M, L) and a left-handed layout.
+- **Haptics:** a light tick on each button press, on top of the hit and boost haptics.
+
+### 11.4 Tilt
+
+- Steering is the device's roll, like a wheel, read from gravity. There is a calibrate button, a small deadzone and three sensitivities.
+- **On curled road** (the corkscrew, the pipe, the loop, the Spine) the camera rolls with the ship, so right on the screen is always right for the ship. Tilt reads real gravity only: upside down in the pipe, tilting right still steers right on the screen.
+- Permission is asked from a tap. Without it the slider is used.
+- With tilt, the left thumb gets two air-brake buttons.
+
+### 11.5 Menus by touch
+
+Every target is at least 44 points. The Garage ship turns with a drag and zooms with a pinch. Lists scroll with a drag. Keyboard and pad hints are hidden on touch.
+
+### 11.6 Comfort
+
+- **Reduced motion** turns off motion blur, camera shake, colour fringing, speed lines, lightning flashes, hit flashes and menu transitions, and calms the field of view. The camera still rolls with the ship. A new save starts with it on when the device asks for reduced motion.
+- **Colour-blind mode** is one blue-and-orange palette plus shapes: an icon and a clear-side arrow for every hazard warning, shapes for the ships on the minimap, a marker on low power.
+- **HUD size:** normal, large, extra large.
+- **Remapping:** the keyboard and the pad's driving buttons.
+- **Haptics** can be turned off.
+
+### 11.7 Success criteria (M7 done)
+
+- A full race, and the whole Storm Cup, can be played by fingers alone on the iPhone and the iPad at 60 fps.
+- A scripted two-thumb driver finishes 3 laps on all 8 tracks in the sims, with and without the Rookie preset.
+- Every menu can be used by touch alone, with targets of at least 44 points.
+- A Rookie-preset player cannot be knocked out. A Classic player with a pad or keyboard plays exactly as before.
