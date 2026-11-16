@@ -1,6 +1,6 @@
 # MachZero 2.0 — Implementation Guide (for the Opus 5.5 build sessions)
 
-Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7. The **2.1 expansion** (SPEC §10: cups, environment effects, upgrades, three new worlds) is section **X**, after §V.
+Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. **M7 and M8 were designed on 2026-11-16** (SPEC §11 and §12) and are full build plans, in the style of §X. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7. The **2.1 expansion** (SPEC §10: cups, environment effects, upgrades, three new worlds) is section **X**, after §V.
 
 ---
 
@@ -1859,24 +1859,395 @@ export interface SettingsData {
 
 ---
 
-## M8 — Progression, modes, ghosts, polish → 2.0 complete
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; not started)
 
-- **Modes** (`game/modes/*`) drive `RaceSession` setup and results handling:
-  - **WorldTour:** unlock rules, per-tier trophies, credits.
-  - **GrandPrix:** built early in §GP above. M8 adds its unlock (World Tour world 5 cleared at any tier).
-  - **TimeTrial:** solo, with ghosts and medals.
-- **Ghosts:**
-  - `GhostRecorder` samples the pose at 20 Hz (position Float32 ×3 plus quaternion as smallest-three int16), about 20 KB per 3-lap run, and stores it in IndexedDB through `GhostStore`.
-  - `Ghosts.ts` renders translucent, unlit, depth-tested ships with a fade near the camera.
-  - **Dev ghosts:** `npm run ghosts:bake` runs a headless Legend autopilot on each track, writes `public/game/ghosts/<trackId>.json` and fills `devTime`. Commit the output. Medals are gold ≤ devTime × 1.02, silver ≤ 1.08, bronze ≤ 1.18.
-- **World map screen:** the 5 worlds as planets or islands on a retro starmap, showing lock state, trophies per tier and best times.
-- **Results:** credit tally animation, unlock fanfare, pilot quotes.
-- **Onboarding** for a first-time profile:
-  - "New to racing?" → Rookie preset.
-  - A 30-second interactive tutorial overlay on the first Neon Bay race (steer, boost, pit, air-brake), which can be skipped.
-- **Balance pass:** tune `content/*` against the SPEC §9 targets using the sims, then play every world on Rookie with assists and on Legend without.
-- **Flags:** turn every 2.0 feature flag on for `main`, then remove dead flag code.
-- Update the README, `docs/TDD.md` (a v2 architecture section) and `CODEBASE.md`. PR titled **"MachZero 2.0"** with a feature summary, screenshots from each world and the full QA checklist.
+SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
+
+**Four PRs, in build order, each stacked on the one before (M8a on the last M7 PR, or on `main` once M7 is merged):**
+
+| # | PR | Branch | Save | Flag | Needs from the owner |
+|---|---|---|---|---|---|
+| M8a | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
+| M8b | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
+| M8c | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
+| M8d | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
+
+**Release order (agreed):** M7a → M7b → M7c → M8a → M8b → M8c → M8d. The world looks (X4–X6) and X7 are built whenever their images or approvals arrive. They block nothing, and M8 does not wait for them.
+
+**Facts checked on 2026-11-16 (`v2/x6-abyss-line`):**
+- **Save versions:** M7a takes v8. M8a takes **v9**.
+- **Today every world and every cup is open.** `WorldSelect.tsx` shows `worldsFor(features)`; `CupDef` has no `requires` field. `Profile.records[trackId].bestLap` is the only per-world progress a v7 or v8 save holds.
+- **The results panel is part of the HUD** (`game/HUD.ts`, plain DOM), not a menu screen. `App.bindStats` pays a race on `race:results` through `settleRace` and emits `economy:credits`.
+- **`game/modes/Championship.ts` is pure and unused** (`seasonCups`, `seasonStandings`, `seasonFinished`, `seasonChampion`).
+- **`MEDAL_CREDITS`** (300 / 600 / 1,000) is in `content/economy.ts` and unused. `MENU_PLACEHOLDERS` (`app/routes.ts`) holds the TIME TRIAL "coming soon" card behind `modes`.
+- **A solo race works already:** `sim/partsBalance.sim.test.ts` runs `RaceManager` with one ship.
+- **Flags:** nothing reads `tiers` or (before M7b) `touch`. `profiles`, `garage` and `worlds` are on and have readers in `App.ts`, `MainMenu.tsx` and `routes.ts`. `modes` only shows the placeholder card.
+- **Measured race lengths:** a 3-lap race lasts 81 s (Cryo Station) to 116 s (Orbital Ring).
+- **Measured credits per race** (headless, 8 tracks, an autopilot at the tier's own skill standing in for the player):
+
+  | Tier | Stock | Mk II kit | Mk III kit |
+  |---|---|---|---|
+  | Rookie (Rookie preset) | 940 (P1–P2) | | |
+  | Pilot | 800–860 (P2–P4) | 890 | |
+  | Ace | 290–360 (P4–P8) | 710 | 970 |
+  | Legend | 270 (P7–P8) | 320 | 600 |
+
+- **Kit prices:** one part in each of the 5 slots costs 3,000 (Mk II), 7,500 (Mk III), 16,000 (Prototype). Every part and variant costs 47,700.
+- **Measured solo times** (a Legend autopilot alone on the track, COMET, 3 laps, seconds). "Dev" is the dev-ghost ship: `RIVAL_FITS.legend`, variant A.
+
+  | Track | Dev | Stock | Mk II kit | Mk III kit | Prototype kit |
+  |---|---|---|---|---|---|
+  | neon-bay | 91.79 | 95.52 (×1.041) | 94.55 (×1.030) | 92.97 (×1.013) | 91.35 (×0.995) |
+  | sunset-mesa | 92.11 | 97.06 (×1.054) | 95.80 (×1.040) | 93.92 (×1.020) | 91.88 (×0.997) |
+  | cryo-station | 77.38 | 80.74 (×1.043) | 79.88 (×1.032) | 78.43 (×1.013) | 77.25 (×0.998) |
+  | jade-ruins | 103.89 | 110.08 (×1.060) | 109.18 (×1.051) | 105.11 (×1.012) | 104.60 (×1.007) |
+  | orbital-ring | 109.06 | 112.57 (×1.032) | 112.01 (×1.027) | 110.78 (×1.016) | 108.87 (×0.998) |
+  | tempest-spire | 93.58 | 97.71 (×1.044) | 96.36 (×1.030) | 94.65 (×1.011) | 93.87 (×1.003) |
+  | cinder-forge | 98.19 | 103.23 (×1.051) | 101.70 (×1.036) | 99.55 (×1.014) | 97.99 (×0.998) |
+  | abyss-line | 101.29 | 105.80 (×1.045) | 104.24 (×1.029) | 102.54 (×1.012) | 100.61 (×0.993) |
+
+**Rules for every M8 PR** (in addition to §0):
+- **`main` stays as it is until M8d.** With `modes` off the menu, the world select and the open cups are unchanged. The save migration runs for everyone, and nothing reads the new fields while the flag is off.
+- **No real money, no online features** (SPEC non-goals).
+- **Sounds:** M8 adds none. Each step that wants a sound names a **sound hook**: emit the bus event and leave the sound to M6. The hooks are listed in M8a step 8.
+- **Budgets:** app JS ≤ 600 KB gzip; `public/game` ≤ 15 MB. The world map and every new screen are DOM and SVG: no draw calls. A ghost is one draw call. Device gates: 60 fps, with p95 no more than 1 ms above the build before the PR.
+- Every sim file stays under 60 s on CI. An assertion is never loosened to go green.
+- Every new screen works with pad, keyboard and touch (targets of at least 44 points, M7c's test).
+- **The `expansion` flag stays off** until each new world's look is approved (the owner's decision on #39). Every rule below is written for "the worlds the player can see" (`worldsFor(features)`), so 2.0 can ship with 5 worlds and grows to 8 with no further change.
+
+---
+
+### M8a — World Tour, the world map, the results screen (save v9)
+
+**Design decisions:**
+- **World Tour is the world map.** The main menu becomes, in order: CONTINUE CUP (when a cup is running), **WORLD TOUR**, GRAND PRIX, TIME TRIAL, GARAGE, SETTINGS. RACE and WORLDS go away. There is no separate single-race mode.
+- **The unlock chain:** the visible worlds unlock in tour order. World 1 is always open. **A top-3 finish at any tier clears a world and opens the next one.** Worlds 6–8 continue the same chain after world 5.
+- **Trophies:** a top-3 finish at a tier earns that world's trophy for that tier **and every lower tier**. "Cleared" means the world has at least one trophy.
+- **Rookie never grinds:** the Rookie-preset stand-in finishes P1–P2 on every track in the sims, so 8 races clear the Tour.
+- **Old saves:** a migrated profile keeps every world up to the last one it has a lap record on (a "granted" world: open, with no trophy yet). Cup trophies are untouched.
+- **Cups:** the Neon Cup opens when Orbital Ring is cleared; the Storm Cup when Abyss Line is cleared. A profile that already holds a trophy of a cup keeps that cup open.
+- **Rewards:** race payouts and the tier multiplier are unchanged. **The first clear of a world pays 1,000 credits, once per world** (no tier multiplier). The cup bonus stays 3,000 × the tier multiplier.
+- **The world map** shows the visible worlds as planets on a starmap, joined by a path in tour order. Each planet shows its lock, its four tier trophies, the best lap and the best medal. Picking a world opens its card: the tier picker, RACE, and TIME TRIAL (from M8b).
+- **A locked world** shows its name and gimmick and the line "Finish top 3 on <previous world> to unlock".
+- **The old v1 track** and the bonus tracks stay reachable only by `?seed=N`. No menu entry.
+- **The results screen** is a menu screen: a credit tally line by line, then any unlock or trophy, then the winner's quote. Buttons: NEXT WORLD (when one was just unlocked), RACE AGAIN, GARAGE, WORLD MAP.
+
+**Save v9 (this PR carries every M8 field, so M8b and M8c need no migration):**
+
+```ts
+// save/schema.ts
+export const SAVE_VERSION = 9;
+export type Medal = 'bronze' | 'silver' | 'gold';
+
+export interface TrackRecord {
+  bestLap?: number;
+  /** Time Trial: best 3-lap total (s) and the best medal reached. */
+  trialTime?: number;
+  medal?: Medal;
+}
+
+export interface TourState {
+  /** Worlds opened by the 8 → 9 migration (raced before World Tour existed). */
+  granted: WorldId[];
+  /** World Tour trophies: tiers at which the world was finished in the top 3 (lower tiers filled in), in tier order. */
+  trophies: Partial<Record<WorldId, AITier[]>>;
+}
+
+export interface SeasonState {
+  tier: AITier;
+  /** The season's finished cups, in order. The cup in progress is Profile.cup. */
+  done: CupState[];
+}
+
+export interface Profile {
+  // …unchanged fields…
+  tour: TourState;             // default { granted: [], trophies: {} }
+  season: SeasonState | null;  // default null (M8c)
+  champion: AITier[];          // Champion trophies, in tier order; default [] (M8c)
+  tutorialDone: boolean;       // default false for a new profile (M8c)
+}
+
+export interface SettingsData {
+  // …unchanged fields…
+  ghosts: { best: boolean; dev: boolean }; // default both true (M8b)
+}
+```
+
+- **Migration 8 → 9** (`save/migrations.ts`), per profile:
+  - `tour.granted` = every world whose `order` is ≤ the highest `order` among the worlds with `records[trackId].bestLap`; empty when there is no such record. (World 1 needs no grant.)
+  - `tour.trophies = {}`, `season = null`, `champion = []`.
+  - `tutorialDone = stats.races > 0`.
+  - `settings.ghosts = { best: true, dev: true }`.
+- **Sanitizers:** unknown world ids and tiers are dropped; trophies are sorted in `AI_TIERS` order with no duplicates; `season` is dropped when its tier is unknown or a `done` cup fails `sanitizeCup`; `medal` must be one of the three; `trialTime` must be a positive finite number.
+
+**Build steps (tests first):**
+1. **Save v9.** `SaveStore` tests first: a v8 profile with lap records on worlds 1, 2 and 4 loads with `granted` = worlds 1–4; a profile with no records loads with `granted: []`; trophies and credits are untouched; bad `tour`, `season` and `medal` values fall back to the defaults; an export from v9 imports unchanged. Then the schema, the migration and `createProfile`.
+2. **`game/modes/WorldTour.ts`** (new, pure), unit tests first:
+
+   ```ts
+   export const FIRST_CLEAR_BONUS = 1000;
+   export const CLEAR_POSITION = 3;
+   export function tourWorlds(features: { expansion: boolean }): readonly WorldDef[];           // worldsFor, in order
+   export function worldCleared(tour: Readonly<TourState>, id: WorldId): boolean;
+   export function worldUnlocked(tour: Readonly<TourState>, id: WorldId, worlds: readonly WorldDef[]): boolean;
+   export function tourTrophies(tour: Readonly<TourState>, id: WorldId): readonly AITier[];
+   export interface TourResult { tour: TourState; firstClear: boolean; newTrophies: AITier[]; unlocked: WorldId | null; bonus: number }
+   export function bookTourRace(tour: Readonly<TourState>, id: WorldId, tier: AITier, me: RacerStanding | undefined, worlds: readonly WorldDef[]): TourResult;
+   ```
+
+   - `worldUnlocked`: the first visible world; or a granted world; or the visible world before it is cleared.
+   - `bookTourRace`: a clear needs `me.status === 'finished'` and `me.position ≤ 3`. It adds the tier and every lower tier. `firstClear` is true when the world had no trophy. `unlocked` is the next visible world when this race opened it (it was locked before), else null. `bonus` is 1,000 on a first clear, else 0.
+   - Tests: 4th place changes nothing; a destroyed ship in 3rd changes nothing; an Ace clear gives Rookie, Pilot and Ace; a second clear pays no bonus; a granted world that is cleared later still pays its bonus once; the chain with 5 and with 8 visible worlds; a world hidden by the flag neither blocks nor unlocks anything.
+3. **Cup unlocks** (`content/cups.ts`): `CupDef` gains `requires: WorldId` (`neon` → `orbital-ring`, `storm` → `abyss-line`). `cupUnlocked(cup, profile)` is true when `requires` is cleared **or** the profile holds any trophy of that cup. `ui/screens/GrandPrix.tsx` shows a locked cup as a card with a padlock and "Clear <world> to unlock"; `App.startCup` refuses a locked cup. With `modes` off every cup is open, as today. Tests for each case.
+4. **The world map** (`ui/screens/WorldMap.tsx`, new; route `{ name: 'tour' }`):
+   - One SVG, `viewBox="0 0 1000 480"`, over the menu backdrop. Planet centres, in tour order: (90,330) (230,170) (380,300) (520,130) (650,310) (770,150) (870,300) (940,110). A hidden world's planet is not drawn; the path ends at the last visible world.
+   - A planet is a circle filled with the world's `ui.from → ui.to` gradient, with its order number. Radius 34; the picked planet 42 with a ring. A locked planet is grey with a padlock. The path is a dashed polyline, bright up to the last unlocked world.
+   - Under each unlocked planet: four trophy pips (filled for a held tier, in the tier's colour **and** with the tier's initial, so colour alone tells nothing) and a medal dot once M8b lands.
+   - The world card (a side panel on a wide screen, a bottom sheet under 500 points tall): name, tagline, gimmick chip, the mini map (move `miniMap` from `WorldSelect.tsx` to `ui/miniMap.ts`), best lap, trophies, the `TierPicker`, and RACE. For a locked world: the padlock line and no RACE.
+   - Navigation: left and right move along the chain; confirm opens the card; in the card up and down move between the tier picker and RACE; back closes the card, then returns to the menu. Taps do the same. The planet of `profile.world` has focus on entry.
+   - With `modes` on, `MainMenu.tsx` shows WORLD TOUR (sub-line: `<cleared> OF <visible> WORLDS CLEARED`) in place of RACE and WORLDS, and `App.openWorlds` opens the map. `WorldSelect.tsx` stays for `modes` off and is deleted in M8d.
+   - `App.selectWorld` refuses a locked world.
+5. **Booking a Tour race** (`App.bindStats`): on `race:results`, for a race that is not a cup race, a Time Trial or a `?seed` race, call `bookTourRace` inside the same save update as `settleRace`, and add `bonus` to the credits. Build an `app.lastResult` signal (step 6) from the outcome. A cup race books the cup as today and **also** books the Tour (a top 3 in a cup race clears that world).
+6. **The results screen** (`ui/screens/Results.tsx`, new; route `{ name: 'results' }`):
+
+   ```ts
+   export interface TallyLine { label: string; amount: number }
+   export interface RaceResult {
+     mode: 'tour' | 'cup' | 'trial';
+     worldId: WorldId; tier: AITier;
+     standings: RacerStanding[]; playerId: ShipId;
+     tally: TallyLine[];            // e.g. "2ND PLACE" 750, "PILOT ×1.3" 230, "FIRST CLEAR" 1000, "CUP BONUS" 3900
+     credits: number;               // the profile's credits after the tally
+     unlocked: WorldId | null; newTrophies: AITier[];
+     medal?: { reached: Medal | null; previous: Medal | null; time: number; best: boolean }; // M8b
+     quote: { pilot: string; text: string } | null; // the winner's catchphrase when a rival won
+   }
+   ```
+
+   - Layout: the standings table (as the HUD panel has it: position, portrait, name, time) on the left; on the right the tally lines appearing one after another (0.35 s apart), a credit counter that runs up to the total, then the unlock card ("TEMPEST SPIRE UNLOCKED" with the planet) and trophy pips, then the quote.
+   - Any input shows everything at once. With reduced motion everything is shown at once from the start.
+   - Buttons: NEXT WORLD (only when `unlocked` is set; it selects that world and opens its card), RACE AGAIN, GARAGE, WORLD MAP. In a cup race the buttons are STANDINGS only, as today's rule says.
+   - `HUD` gains the option `results: false`: with menus on, the HUD does not build its own results panel, and `App` moves to the `results` route when `race:results` arrives (after the existing results delay). The no-menu flows (`?autopilot=1`, `?seed=N`) keep the HUD panel.
+   - `App.fixed`'s results handling (confirm, back, restart) moves to the screen's buttons.
+7. **Tests:**
+   - `sim/worldTour.sim.test.ts` (new): the Rookie-preset stand-in (`runWorldRace(…, { player: { tier: 'rookie', pace: 1, assisted: true } })`, Rookie hazards) races the 8 worlds in order and `bookTourRace` after each: after 8 races all 8 worlds are cleared and 8 first-clear bonuses were paid. It may reuse the per-world balance races' results through a shared helper so no race is run twice in one file.
+   - e2e (`e2e/worldtour.spec.ts`, `?features=modes`): a new profile sees world 1 open and world 2 locked; a save fixture with world 1 cleared shows world 2 open; the card's RACE starts a race; an autopilot race to the end shows the results screen with a tally; a v8 fixture with records on three worlds shows three worlds open.
+8. **Sound hooks** (add to `core/events.ts`; `AudioSystem` ignores them until M6): `results:tally { amount }` (each line), `results:total { credits }`, `results:unlock { worldId }`, `results:trophy { tier }`, `results:medal { medal }`, `results:champion { tier }`, `ui:locked {}` (a tap on a locked world or cup), `tutorial:step { step }`, `tutorial:done {}`.
+
+**Done when:**
+- [ ] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card.
+- [ ] 4th place pays its credits and unlocks nothing.
+- [ ] An Ace top 3 shows the Rookie, Pilot and Ace pips.
+- [ ] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open.
+- [ ] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared.
+- [ ] With `modes` off nothing changes on the live site (the existing e2e tests pass unchanged).
+- [ ] Map, card and results work with pad, keyboard and touch; the 44-point test covers them.
+
+**Device check:** on the iPhone and the iPad (`VITE_FEATURES=modes,expansion`), by pad and by touch: the map with 8 worlds, a locked world's message, a race from the card, the results screen, NEXT WORLD. **The owner approves the look of the map and the results screen.** No fps gate: nothing in a race renders differently.
+
+---
+
+### M8b — Time Trial and ghosts
+
+**Design decisions:**
+- **Time Trial:** solo, 3 laps, on any track whose world is unlocked, with the player's own ship and parts. No rivals, no items. RESTART at any time.
+- **Assists are allowed and medals still count.** Hazards follow the same rule as in a race (the Rookie rules with No-KO on, else normal).
+- **A ghost is a pose recording** (position and rotation at 20 Hz), not an input replay. It does not depend on the physics giving the same result on the iPhone and the desktop.
+- **Storage:** one best ghost per track per profile, in IndexedDB. A profile export does **not** include ghosts; best times and medals are in the export.
+- **Dev ghosts** are baked for all 8 tracks from a solo Legend autopilot on a COMET with the Legend rival parts (`RIVAL_FITS.legend`, variant A), and committed.
+- **Medals** are measured against the dev ghost's total time, the same for every ship and kit, and count whatever tier the profile is set to:
+
+  | Medal | Total time | Who reaches it (from the table at the top of §M8) |
+  |---|---|---|
+  | Gold | ≤ dev × 1.02 | Near-Prototype parts and clean driving (a perfect Mk III lap just makes it) |
+  | Silver | ≤ dev × 1.06 | About Mk II to Mk III parts (a perfect stock run just makes it) |
+  | Bronze | ≤ dev × 1.12 | Stock parts, with 6% or more in hand over a perfect stock run |
+
+  This replaces the first sketch's 1.02 / 1.08 / 1.18: the measured gap between stock and Prototype is only 5%, so the old silver and bronze would have asked for nothing.
+- **Each medal pays once per track:** 300 / 600 / 1,000 (`MEDAL_CREDITS`). A run pays every medal it newly reaches (gold on a first run pays 1,900).
+- **Both ghosts show by default**, each with an on/off toggle (`settings.ghosts`).
+- **A ghost is translucent and unlit, one draw call**, and fades out near the camera.
+
+**Ghost format (`game/ghost/ghostCodec.ts`):**
+
+```ts
+export const GHOST_HZ = 20;      // one sample every 6 fixed steps (FIXED_DT = 1/120 s)
+export const GHOST_VERSION = 1;
+export interface GhostData {
+  version: 1; trackId: string; chassisId: string;
+  totalTime: number; lapTimes: number[];
+  count: number;
+  min: [number, number, number]; size: [number, number, number]; // the samples' bounding box (m)
+  pos: Int16Array;   // 3 per sample: (p − min) / size, scaled to −32767..32767
+  quat: Int16Array;  // 3 per sample: the three smallest components × √2, scaled to ±32767
+  largest: Uint8Array; // 1 per sample: the index of the dropped (largest) component, made positive
+}
+export function encodeGhost(g: GhostData): ArrayBuffer;   // a small JSON header (length-prefixed) + the three arrays
+export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a bad or unknown version
+```
+
+- 13 bytes per sample: an 81–116 s run is **21–30 KB**. (The first sketch said 20 KB at 18 bytes per sample; that would be 29–42 KB.) Eight dev ghosts are about 210 KB of `public/game`.
+- Position error is under 2 cm on a track 1.3 km across.
+
+**Build steps (tests first):**
+1. **Codec and recorder** (`game/ghost/ghostCodec.ts`, `game/ghost/GhostRecorder.ts`, `game/ghost/GhostPlayer.ts`; unit tests first):
+   - `GhostRecorder`: `start()`, `sample(ship)` called every fixed step (it keeps every 6th), `finish(totalTime, lapTimes): GhostData`. It grows its arrays in blocks; no allocation per sample.
+   - `GhostPlayer(ghost)`: `pose(t, outPos, outQuat): boolean` gives the pose at race time `t` (linear for position, normalised linear for rotation); false after the ghost's end.
+   - Tests: encode → decode is exact; a recorded circle plays back within 2 cm and 0.5°; a truncated buffer decodes to null; the size of a 100 s recording is under 30 KB.
+2. **`save/GhostStore.ts`** (new): `get(profileId, trackId): Promise<GhostData | null>`, `put(profileId, trackId, ghost)`, `deleteProfile(profileId)`. Database `machzero-ghosts`, version 1, object store `best`, key `<profileId>:<trackId>`, value the encoded `ArrayBuffer`. Plain IndexedDB, no library. When IndexedDB is missing or fails, an in-memory map is used and nothing throws. `App.deleteProfile` calls `deleteProfile`. Tests with the dev dependency `fake-indexeddb` (dev only; it never reaches the bundle): put → get, the better ghost replaces the old one, a profile's ghosts are deleted, the fallback.
+3. **`game/modes/TimeTrial.ts`** (new, pure), unit tests first:
+
+   ```ts
+   export const MEDAL_FACTORS = { gold: 1.02, silver: 1.06, bronze: 1.12 } as const;
+   export function medalTimes(devTime: number): Record<Medal, number>;
+   export function medalFor(total: number, devTime: number): Medal | null;
+   /** Credits for the medals reached now and not held before. */
+   export function medalPayout(previous: Medal | null, reached: Medal | null): number;
+   export function bookTrial(rec: Readonly<TrackRecord>, total: number, devTime: number): { record: TrackRecord; pay: number; best: boolean; reached: Medal | null };
+   ```
+
+4. **Dev ghosts and times:**
+   - `npm run ghosts:bake` runs `BAKE_GHOSTS=1 vitest run src/sim/ghostBake.sim.test.ts`. For each track in `TRACK_DEFS` it runs the solo dev race (COMET, `RIVAL_FITS.legend`, variant A, tier `legend`, personality `steady`, seed 12345, normal hazards; the harness in `sim/partsBalance.sim.test.ts` is the model: move it to `sim/soloRace.ts`), records the ghost, and writes `public/game/ghosts/<trackId>.bin` and the generated file `src/content/devTimes.ts` (`export const DEV_TIMES: Readonly<Record<string, number>>`). Commit both.
+   - Without `BAKE_GHOSTS` the same file is a guard: for each track, a fresh solo dev run is within 0.5% of `DEV_TIMES[trackId]`, and the committed `.bin` decodes with the same `totalTime`. A failure means "the track or the physics changed: run `npm run ghosts:bake`".
+   - The times in the table at the top of §M8 are what the bake should give today.
+   - `scripts/check-size.mjs` already counts `public/game`.
+5. **The Time Trial race** (`App`, `RaceSession`):
+   - `RaceSetup` gains `trial?: { ghosts: { kind: 'best' | 'dev'; data: GhostData }[] }`. In a trial the field is the player alone (`buildRaceField` with `rivals: 0`, a new option), `items` is undefined, and the grid slot is pole.
+   - `RaceSession` owns a `GhostRecorder` in a trial, samples the player in `fixed`, and on the player's finish hands the `GhostData` to `App`. It gives the ghost poses for the frame to the graphics through `FrameContext.ghosts` (a reused array of `{ kind, position, quaternion, visible }`).
+   - `App.startTrial(worldId)`: loads the two ghosts (the best from `GhostStore`, the dev ghost by `fetch` of `ghosts/<trackId>.bin`, cached), honours `settings.ghosts`, builds the race. A missing ghost is simply not shown.
+   - On `race:results` in a trial: `bookTrial`, pay the medals, save the ghost when `best`, and show the results screen with `mode: 'trial'` (the tally lines are the medals paid; the standings table is replaced by lap times, the total, the three medal times and the gap to the best).
+   - RESTART is offered on the pause panel and on the results (RACE AGAIN). The grid intro card is skipped in a trial.
+6. **`graphics/GhostShips.ts`** (new): for each ghost, one mesh: the chassis' merged hull geometry (the path rivals use on Low: one geometry per ship) with a single `MeshBasicMaterial` (`transparent`, `opacity 0.35`, `depthWrite: false`, fog on). Colour: the best ghost cyan `#19f0ff`, the dev ghost gold `#ffc23a`; in colour-blind mode blue and orange, and the dev ghost also carries a small "DEV" tag sprite drawn in the HUD layer (DOM, no draw call). Opacity falls to 0 between 12 m and 4 m from the camera. No parts, no trail, no shadow, no bloom contribution beyond the material's own. **One draw call per ghost**; none when a ghost is off or past its end.
+7. **HUD in a trial** (`game/HUD.ts`): no position, no items, no rival list on the minimap (ghosts show as hollow markers). The lap box adds TARGET: the next medal's total time and its icon. At each lap line a split shows the gap to the best ghost (`−0.42` green or blue, `+0.42` red or orange, with ▲ / ▼ so colour is not the only cue) for 3 s.
+8. **The Time Trial screen** (`ui/screens/TimeTrial.tsx`; route `{ name: 'trial' }`; the menu's TIME TRIAL entry and the world card's TIME TRIAL button open it): one row per visible world: name, mini map, your best time, your medal, the three medal times. A locked world's row shows the padlock line. Two toggles: MY BEST GHOST, DEV GHOST. Remove the placeholder from `MENU_PLACEHOLDERS`. The world map's medal dot reads `records[trackId].medal`.
+9. **Tests:**
+   - `sim/medals.sim.test.ts` (new), using `sim/soloRace.ts` on all 8 tracks: a stock run is ≤ dev × 1.07 (bronze has 5% in hand); a stock run is > dev × 1.02 (gold is not free); a Prototype-kit run is ≤ dev × 1.01 (gold has 1% in hand); a Mk II-kit run is ≤ dev × 1.06 (silver is reachable). If a track fails, tune that track or the parts with the owner; do not move the factors per track.
+   - e2e (`e2e/timetrial.spec.ts`, `?features=modes`): open TIME TRIAL, start Neon Bay on autopilot, finish, see a time and a medal state; start again and see `window.__machzero.ghosts()` report two ghosts with the best one present; reload and the best time is still there.
+
+**Done when:**
+- [ ] A Time Trial run records a ghost; the next run shows it and the dev ghost; each toggle hides its ghost.
+- [ ] A better time replaces the ghost; a worse one does not.
+- [ ] Medals are paid once each, and the results screen shows which were paid.
+- [ ] The 8 dev ghosts and `devTimes.ts` are committed, and the guard test passes.
+- [ ] The medal sims pass on all 8 tracks.
+- [ ] A ghost adds one draw call (the perf table in the PR body shows a trial with two ghosts).
+- [ ] Deleting a profile deletes its ghosts. An exported save imports on a clean browser with times and medals and no ghosts, without an error.
+
+**Device gate (`VITE_FEATURES=modes,expansion`), iPhone and iPad:** a Time Trial on Neon Bay and on Abyss Line with both ghosts on and the performance panel on: 60 fps, p95 no more than 1 ms above an 8-ship race on the build before. Close the app, reopen it, and the best ghost is still there.
+
+---
+
+### M8c — The championship season and the tutorial
+
+**Design decisions (championship):**
+- **A season is every available cup, in `CUPS` order, at one tier.** With two cups that is 10 races.
+- **It opens when the profile holds a trophy of every available cup, at any tier, and at least two cups are available.** With only the Neon Cup visible there is no championship entry.
+- It sits on the GRAND PRIX screen as a third card, **CHAMPIONSHIP**.
+- **Inside a season each cup plays exactly as a cup does** (points, grid order, retire rule, no restarts, the cup trophy and the cup bonus). After a cup's final standings comes the season table, then the next cup.
+- **Scoring** is `Championship.ts` as built: the sum of cup points; ties break on cups won, then the best cup rank, then ship id.
+- **Reward:** the player who ends the season in 1st gets the **Champion trophy** for that tier and **5,000 × the tier multiplier** credits, once per tier. A later win at a tier already held pays nothing more.
+- **One thing at a time:** while a season runs, the menu shows CONTINUE SEASON, and a single cup cannot be started. A season can be abandoned (QUIT SEASON, with a confirm); nothing already paid is taken back.
+
+**Design decisions (tutorial):**
+- It runs **once per profile, on the first World Tour race, for a profile created with the Rookie preset.** A Classic profile gets a one-line note on its first race: "Tutorial: Settings → Race".
+- **Prompts appear over the real race**; the race is never paused. Each prompt clears when the player does the action. There is a SKIP button, and the pause panel has SKIP TUTORIAL.
+- The steps: **steer, boost, air-brake, pit, item.** Prompts show the last-used device's control (key, pad button or touch zone), with an icon as well as text.
+- **So that the item step has an item, a profile's first tutorial race starts with one free Shield** if the profile holds no item.
+- It can be replayed: Settings → Race → REPLAY TUTORIAL (it runs on the next World Tour race).
+
+**Build steps (tests first):**
+1. **Season state** (`game/modes/Championship.ts`, additions; unit tests first):
+
+   ```ts
+   export const CHAMPION_BONUS = 5000;
+   export function seasonUnlocked(trophies: Readonly<Trophies>, cups?: readonly CupDef[]): boolean;
+   export function newSeason(tier: AITier): SeasonState;
+   export function seasonCup(season: Readonly<SeasonState>, cups?: readonly CupDef[]): CupDef | null; // the cup to play now
+   export function bookSeasonCup(season: Readonly<SeasonState>, finished: CupState): SeasonState;
+   export function championBonus(tier: AITier, held: readonly AITier[]): number; // 0 when the tier is held
+   ```
+
+   Tests: unlock needs every available cup and at least two; cups come in `CUPS` order; a cup at another tier is refused; the bonus is paid once per tier; the existing standings and tiebreak tests stay.
+2. **App flow:** `App.startSeason(tier)` sets `profile.season` and starts the first cup through the existing cup code (`profile.cup = newCup(cupId, tier)`). When a cup finishes while `profile.season` is set: book the cup as today, then `bookSeasonCup`; if the season is finished, compute `seasonChampion`; if it is the player, add the Champion trophy and the bonus, emit `results:champion`; clear `season`. `App.quitSeason()` clears `season` and `cup`. `sanitizeProfile` drops a `season` whose current cup is missing or at another tier.
+3. **Screens:** `GrandPrix.tsx` gains the CHAMPIONSHIP card (locked with "Win every cup to unlock", or the tier picker and START; or CONTINUE SEASON). `CupStandings.tsx` shows "SEASON · CUP n OF m" when a season runs, and after a cup's final standings a **season table** view (rank, portrait, name, points, cups won) with NEXT CUP or, at the end, the champion card. `MainMenu.tsx` reads CONTINUE SEASON. The pilot card shows Champion trophies (a crown per tier, with the tier's initial).
+4. **`sim/season.sim.test.ts`** (new): a whole season at Pilot from the shared cup sim (`sim/cupSim.ts`): 10 races, a reload in the middle of the second cup, the season table equals `seasonStandings` of the two cups, and the champion is paid once. If the file cannot stay under 60 s, drive the second cup from recorded standings of `stormCup.sim.test.ts` rather than racing it again.
+5. **`game/Tutorial.ts`** (new, pure state machine; unit tests first):
+
+   ```ts
+   export type TutorialStep = 'steer' | 'boost' | 'airbrake' | 'pit' | 'item';
+   export interface TutorialView { step: TutorialStep | null; done: boolean }
+   export class Tutorial {
+     constructor(track: TrackData, opts: { hasItem: boolean });
+     /** Call every fixed step with the player's state and raw input. */
+     update(dt: number, ship: ShipState, input: ControlInput, race: { state: string; lap: number }): TutorialView;
+     skip(): void;
+   }
+   ```
+
+   | Step | Shown when | Cleared when | Gives up after |
+   |---|---|---|---|
+   | steer | the lights go out | \|steer\| > 0.3 for 1 s in total | 12 s |
+   | boost | the boost is unlocked and the road ahead is straight for 2 s | `ship.boosting` | 2 showings of 8 s |
+   | airbrake | 1.5 s before a bend the track marks as sharp (use the AI's curvature look-ahead) | an air-brake input > 0.5 for 0.3 s | 2 showings of 6 s |
+   | pit | energy < 70%, or lap 2 starts, and the pit strip is within 300 m | the ship is on the pit strip | 2 showings of 8 s |
+   | item | 3 s after the steps before it are done, on a straight, when `hasItem` | the item is used | 10 s |
+
+   One prompt at a time, in this order; a step that gives up is marked done. The tutorial is done when every step is done or the race ends. Tests drive each row with a scripted ship.
+6. **Wiring:** `RaceSession` owns a `Tutorial` when `RaceSetup.tutorial` is set (`App` sets it for a Tour race of a profile with `tutorialDone === false` that was created with the Rookie preset, or after REPLAY TUTORIAL). The HUD draws the prompt (`.mz-tutorial`: an icon, a short line, the control in the device's form, and SKIP), above the bottom strip and clear of the touch controls. On done or skip `App` sets `tutorialDone = true`. `Profile` needs to know its preset for the Classic note: use `assists` at creation (all four on = Rookie); no new field. The free Shield is added to `profile.items` when the tutorial race is built and the bag is empty.
+7. **Tests:** e2e (`e2e/tutorial.spec.ts`, `?features=modes`): a new Rookie profile's first Tour race shows the steer prompt; SKIP removes it and a reload does not show it again; REPLAY TUTORIAL brings it back; a Classic profile sees the note and no prompt. `e2e/grandprix.spec.ts`: the CHAMPIONSHIP card is locked for a new profile and open for a fixture with both cup trophies.
+
+**Done when:**
+- [ ] A season runs both cups in order with the season table between them, survives a reload at any point, and pays the Champion trophy and bonus once.
+- [ ] With one cup visible there is no CHAMPIONSHIP card.
+- [ ] A new Rookie profile gets the five prompts in a real race, each clearing on the action; SKIP and REPLAY work.
+- [ ] Prompts show the right control for keyboard, pad and touch, and never cover the power, speed or a touch control.
+- [ ] `modes` off: nothing changes on the live site.
+
+**Device check:** on the iPad by touch and on the iPhone by pad (`VITE_FEATURES=modes,expansion`): a new Rookie profile's first race with the tutorial. If a child or a first-time player is at hand, let them play it without help and note where they stop. Then start a season from a fixture profile and play one race.
+
+---
+
+### M8d — Balance pass, flags on, the "MachZero 2.0" release
+
+**Design decisions:**
+- **Prices and payouts stay as they are.** The measurements at the top of §M8 already meet the targets:
+  - a first Mk II part (600) after 1 Rookie race (the stand-in earns 750–1,000);
+  - a full Mk III kit (7,500) after about 10 Pilot races (800–860 a race on stock);
+  - a full Prototype kit (16,000) after about 25 more Ace races (710 a race on a Mk II kit, 970 on Mk III; cups, first clears and medals shorten it).
+- **SPEC §4.4 holds:** stock wins on Rookie and is mid-pack on Pilot; on Ace and Legend a stock ship finishes near the back, so upgrades matter there.
+- **Flags:** `modes` turns on. Then the flags `profiles`, `garage`, `worlds`, `tiers`, `touch` and `modes` are **removed** with their dead branches. `music` (M6) and `expansion` (the world looks) stay.
+- **A world without an approved look stays hidden.** 2.0 ships with the worlds visible on that day.
+
+**Build steps:**
+1. **`sim/economy.sim.test.ts`** (new; the numbers are bands around today's measurements, so a later change to payouts, pace or parts that breaks the economy fails here):
+   - Rookie preset, stock, Neon Bay: the first race pays ≥ 600.
+   - Pilot, stock, the mean over the visible-in-`expansion` 8 tracks: 650–1,000 credits a race.
+   - Ace, Mk II kit: 550–900. Ace, Mk III kit: 750–1,150.
+   - Ace, stock: ≤ 450. Legend, stock: ≤ 400.
+   - It uses `runWorldRace` with a new option `player.loadout` (replacing the fixed `defaultLoadout()`); 5 cases × 8 races is about 90 s of sim, so split it into two files.
+2. **The §9 matrix on 8 tracks × 4 tiers:** every per-world sim file already runs `describeTierMatrix`. Confirm all 8 are green with M7's assists in play, and record the table (finishing positions of the two balance stand-ins per track) in the PR body. If a target fails, tune `content/tiers.ts` or the track, never the assertion.
+3. **The other guards, all green:** `sim/medals.sim.test.ts` (M8b), `sim/worldTour.sim.test.ts` (M8a), `sim/season.sim.test.ts` (M8c), `sim/touchScheme.sim.test.ts` (M7b), `sim/partsBalance.sim.test.ts` (X3).
+4. **Play pass (the builder, in the browser, then the owner on the devices):** every visible world on the Rookie preset with touch emulation and on Legend with no assists. Write what was changed, if anything, in the as-built notes.
+5. **Flags:** set `FEATURE_DEFAULTS.modes = true` in one commit (so it can be reverted alone). In the next commit reduce `FEATURE_NAMES` to `['music', 'expansion']` and delete: every `features.profiles` / `garage` / `worlds` / `modes` / `touch` branch (`App.ts`, `MainMenu.tsx`, `routes.ts`, `TouchControls`), `MENU_PLACEHOLDERS`, the `soon` route and its screen, `ui/screens/WorldSelect.tsx`, and the v1 title screen inside the HUD if only the no-profile flow used it (`?autopilot=1` and `?seed=N` must still start a race directly: the smoke test depends on it). `?features=all` keeps working for the two flags left; unknown names are ignored as today. Update `__features.test.ts` and every e2e URL that names a removed flag.
+6. **Docs:** README (what the game is now, the modes, the controls for keyboard, pad and touch); `docs/TDD.md` gains a v2 architecture section (the app shell, saves and migrations, modes, ghosts, input devices); mark M7 and M8 done in this file; update `NEXT_SESSION.md`; `npm run codebase`.
+7. **The release PR**, titled **"MachZero 2.0"**: a feature summary, a screenshot of each visible world, the map, the results screen, a Time Trial with ghosts, the touch layout on iPhone and iPad sizes; the sim tables; the sizes from `npm run size`; and the QA checklist below.
+
+**Done when (SPEC §9 and §12):**
+- [ ] Every visible world is playable in World Tour, Grand Prix and Time Trial with keyboard, pad and touch.
+- [ ] All sims are green: the 8 × 4 matrix, the balance targets, economy, medals, World Tour, season, touch scheme.
+- [ ] `FEATURE_NAMES` is `music` and `expansion` only, and no dead flag branch remains (`grep -rn "features\.\(profiles\|garage\|worlds\|tiers\|touch\|modes\)" src` finds nothing).
+- [ ] Saves from v1 to v8 load as v9 with nothing lost (the migration tests).
+- [ ] Sizes: app JS ≤ 600 KB gzip, Rapier ≤ 1.7 MB gzip, `public/game` ≤ 15 MB. No console errors in the smoke test.
+
+**Device gate (the owner; the full QA checklist), iPhone 18 Pro Max and iPad Air:**
+1. A new Rookie profile by touch: tutorial, clear Neon Bay, the unlock, buy a Mk II part, clear world 2.
+2. A Classic profile by pad: a Pilot race, the Neon Cup's first race, close and reopen, CONTINUE CUP.
+3. Time Trial with both ghosts: 60 fps, p95 no more than 1 ms above the M8c build.
+4. An old save from the live site (export it before updating) imports with its worlds open and its trophies kept.
+5. Reduced motion, colour-blind mode and EXTRA LARGE once each on the map, the results and a Time Trial.
+6. An 8-ship race on each visible world at the device's own preset: 60 fps.
+
+**What needs the owner in M8:** the look of the map and the results screen (M8a), the device gates above, and the merge of the release PR. Everything else is built without questions.
 
 ---
 
