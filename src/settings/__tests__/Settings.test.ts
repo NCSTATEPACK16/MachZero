@@ -5,7 +5,7 @@ import { Settings } from '../Settings';
 
 describe('Settings', () => {
   it('snapshots what it was given', () => {
-    const d = { ...defaultSettings(), largeText: true, sfxVolume: 0.25 };
+    const d = { ...defaultSettings(), hudSize: 'large' as const, sfxVolume: 0.25 };
     expect(new Settings(d).snapshot()).toEqual(d);
   });
 
@@ -32,7 +32,7 @@ describe('Settings', () => {
     });
     expect(() => {
       s.muted.value = true;
-      s.largeText.value = true;
+      s.hudSize.value = 'large';
     }).not.toThrow();
     expect(store.value).toBe(2);
   });

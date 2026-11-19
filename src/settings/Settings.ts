@@ -4,7 +4,20 @@
  */
 import { batch, effect, signal, untracked } from '@preact/signals';
 import type { KeyBindings } from '../core/contracts';
-import { DEFAULT_KEY_BINDINGS, RESERVED_CODES, cloneBindings, sanitizeSettings, type QualitySetting, type SettingsData, type TouchSteer } from '../save/schema';
+import {
+  DEFAULT_KEY_BINDINGS,
+  DEFAULT_PAD_BINDINGS,
+  RESERVED_CODES,
+  cloneBindings,
+  clonePadBindings,
+  defaultTouch,
+  sanitizeSettings,
+  type HudSize,
+  type PadBindings,
+  type QualitySetting,
+  type SettingsData,
+  type TouchSettings,
+} from '../save/schema';
 
 export class Settings {
   readonly masterVolume = signal(0);
@@ -13,12 +26,14 @@ export class Settings {
   readonly muted = signal(false);
   readonly reducedMotion = signal(false);
   readonly colorBlind = signal(false);
-  readonly largeText = signal(false);
+  readonly hudSize = signal<HudSize>('normal');
+  readonly haptics = signal(true);
   readonly perfPanel = signal(false);
   readonly keyBindings = signal<KeyBindings>(cloneBindings(DEFAULT_KEY_BINDINGS));
   readonly quality = signal<QualitySetting>('auto');
   readonly detectedQuality = signal<SettingsData['detectedQuality']>(null);
-  readonly touchSteer = signal<TouchSteer>('slider');
+  readonly touch = signal<TouchSettings>(defaultTouch());
+  readonly padBindings = signal<PadBindings>(clonePadBindings(DEFAULT_PAD_BINDINGS));
 
   constructor(initial: SettingsData) {
     this.replace(initial);
@@ -34,12 +49,14 @@ export class Settings {
       this.muted.value = d.muted;
       this.reducedMotion.value = d.reducedMotion;
       this.colorBlind.value = d.colorBlind;
-      this.largeText.value = d.largeText;
+      this.hudSize.value = d.hudSize;
+      this.haptics.value = d.haptics;
       this.perfPanel.value = d.perfPanel;
       this.keyBindings.value = d.keyBindings;
       this.quality.value = d.quality;
       this.detectedQuality.value = d.detectedQuality;
-      this.touchSteer.value = d.touchSteer;
+      this.touch.value = d.touch;
+      this.padBindings.value = d.padBindings;
     });
   }
 
@@ -51,12 +68,14 @@ export class Settings {
       muted: this.muted.value,
       reducedMotion: this.reducedMotion.value,
       colorBlind: this.colorBlind.value,
-      largeText: this.largeText.value,
+      hudSize: this.hudSize.value,
+      haptics: this.haptics.value,
       perfPanel: this.perfPanel.value,
       keyBindings: cloneBindings(this.keyBindings.value),
       quality: this.quality.value,
       detectedQuality: this.detectedQuality.value,
-      touchSteer: this.touchSteer.value,
+      touch: { ...this.touch.value },
+      padBindings: clonePadBindings(this.padBindings.value),
     };
   }
 
@@ -86,6 +105,11 @@ export class Settings {
     }
     this.keyBindings.value = sanitizeSettings({ ...this.snapshot(), keyBindings: next }).keyBindings;
     return true;
+  }
+
+  /** Change some touch settings (sanitised; the rest stay). */
+  setTouch(patch: Partial<TouchSettings>): void {
+    this.touch.value = sanitizeSettings({ ...this.snapshot(), touch: { ...this.touch.value, ...patch } }).touch;
   }
 
   resetKeyBindings(): void {

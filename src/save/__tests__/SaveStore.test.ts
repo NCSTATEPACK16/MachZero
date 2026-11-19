@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../../core/config';
 import { SaveStore, type StorageLike } from '../SaveStore';
 import { MIGRATIONS, migrate } from '../migrations';
-import { DEFAULT_KEY_BINDINGS, SAVE_KEY, SAVE_VERSION, createProfile, defaultSettings, emptySave, sanitizeSave } from '../schema';
+import { DEFAULT_KEY_BINDINGS, DEFAULT_PAD_BINDINGS, SAVE_KEY, SAVE_VERSION, createProfile, defaultSettings, defaultTouch, emptySave, sanitizePadBindings, sanitizeSave } from '../schema';
 
 class MemStorage implements StorageLike {
   readonly map = new Map<string, string>();
@@ -34,7 +34,7 @@ describe('SaveStore', () => {
     p.credits = 1234;
     data.profiles.push(p);
     data.activeProfileId = p.id;
-    data.settings.largeText = true;
+    data.settings.hudSize = 'large';
     data.settings.keyBindings.boost = ['KeyB'];
     store.save(data);
     const again = new SaveStore(mem).load();
@@ -282,5 +282,83 @@ describe('SaveStore', () => {
     expect(() => store.importJson('nope')).toThrow(/not valid JSON/);
     expect(() => store.importJson('{"hello":1}')).toThrow(/not a MachZero save/);
     expect(() => store.importJson(JSON.stringify({ version: SAVE_VERSION + 5 }))).toThrow(/newer version/);
+  });
+});
+
+describe('save v8 (IMPLEMENTATION §M7a)', () => {
+  const v7Settings = (extra: Record<string, unknown>): Record<string, unknown> => {
+    const s: Record<string, unknown> = { ...defaultSettings(), ...extra };
+    delete s.hudSize;
+    delete s.haptics;
+    delete s.touch;
+    delete s.padBindings;
+    return s;
+  };
+
+  it('a v7 save with LARGE TEXT and tilt loads as v8 with HUD size LARGE and tilt steering', () => {
+    const p = createProfile('ada', 3, 'rookie');
+    p.credits = 777;
+    const mem = new MemStorage();
+    mem.setItem(SAVE_KEY, JSON.stringify({ version: 7, profiles: [p], activeProfileId: p.id, settings: v7Settings({ largeText: true, touchSteer: 'tilt', colorBlind: true }) }));
+    const d = new SaveStore(mem).load();
+    expect(d.version).toBe(8);
+    expect(d.settings.hudSize).toBe('large');
+    expect(d.settings.touch).toEqual({ ...defaultTouch(), steer: 'tilt' });
+    expect(d.settings.haptics).toBe(true);
+    expect(d.settings.padBindings).toEqual(DEFAULT_PAD_BINDINGS);
+    expect(d.settings.colorBlind).toBe(true);
+    expect('largeText' in d.settings).toBe(false);
+    expect('touchSteer' in d.settings).toBe(false);
+    expect(d.profiles[0]).toEqual(p); // profiles do not change
+  });
+
+  it('a v7 save with neither loads with the defaults', () => {
+    const out = migrate({ version: 7, profiles: [], activeProfileId: null, settings: v7Settings({ largeText: false, touchSteer: 'slider' }) }) as Record<string, unknown>;
+    expect(out.version).toBe(8);
+    const d = sanitizeSave(out);
+    expect(d.settings).toEqual(defaultSettings());
+    // A v7 save with no settings object at all.
+    expect(sanitizeSave(migrate({ version: 7, profiles: [] })).settings).toEqual(defaultSettings());
+  });
+
+  it('bad touch and pad-binding values fall back to the defaults', () => {
+    const bad = sanitizeSave({
+      version: SAVE_VERSION,
+      profiles: [],
+      settings: {
+        ...defaultSettings(),
+        hudSize: 'huge',
+        haptics: 'yes',
+        touch: { steer: 'wheel', autoAccelerate: 3, sensitivity: 7, airbrake: 'flaps', buttonSize: 'xl', leftHanded: null, tiltSensitivity: -1, tiltNeutral: 99, hintSeen: 'no' },
+        padBindings: { throttle: [99, -1, 'a'], brake: 'x', boost: [7, 7, 8, 9] },
+      },
+    });
+    expect(bad.settings.hudSize).toBe('normal');
+    expect(bad.settings.haptics).toBe(true);
+    expect(bad.settings.touch).toEqual({ ...defaultTouch(), tiltNeutral: 20 }); // a number out of range is clamped
+    // throttle had nothing valid → its defaults; boost keeps two buttons that are free (7 is throttle's).
+    expect(bad.settings.padBindings.throttle).toEqual([7, 0]);
+    expect(bad.settings.padBindings.brake).toEqual([6, 1]);
+    expect(bad.settings.padBindings.boost).toEqual([8, 9]);
+    expect(sanitizeSave({ version: SAVE_VERSION, settings: { touch: 'x', padBindings: null } }).settings.padBindings).toEqual(DEFAULT_PAD_BINDINGS);
+  });
+
+  it('pad bindings: at most two per control, and no button on two controls', () => {
+    const b = sanitizePadBindings({ throttle: [0, 1, 2], brake: [1, 6], airLeft: [4], airRight: [5], boost: [3], item: [3, 2], itemPrev: [14], itemNext: [15] });
+    expect(b.throttle).toEqual([0, 1]);
+    expect(b.brake).toEqual([6]);
+    expect(b.boost).toEqual([3]);
+    expect(b.item).toEqual([2]);
+    const all = Object.values(b).flat();
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('an export from v8 imports unchanged', () => {
+    const store = new SaveStore(new MemStorage());
+    const d = emptySave();
+    d.profiles.push(createProfile('max', 5, 'rookie'));
+    d.activeProfileId = d.profiles[0].id;
+    d.settings = { ...defaultSettings(), hudSize: 'xl', haptics: false, touch: { ...defaultTouch(), steer: 'tilt', leftHanded: true, tiltNeutral: -7.5, hintSeen: true }, padBindings: { ...DEFAULT_PAD_BINDINGS, boost: [10] } };
+    expect(store.importJson(store.exportJson(d))).toEqual(d);
   });
 });

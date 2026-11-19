@@ -300,3 +300,19 @@ describe('RaceManager finish, retire and results', () => {
     expect(TIERS.rookie.paceScale * TIERS.rookie.rubberBand.max).toBeLessThan(1);
   });
 });
+
+describe('RaceManager boost from lap 1 (IMPLEMENTATION §M7a)', () => {
+  it('a ship with earlyBoost has its boost unlocked from the grid and at GO; others still wait for lap 2', () => {
+    const r = rig();
+    r.player.earlyBoost = true;
+    r.race.reset();
+    expect(r.player.boostUnlocked).toBe(true);
+    expect(r.ships[1].boostUnlocked).toBe(false);
+    goRacing(r);
+    expect(r.player.boostUnlocked).toBe(true);
+    expect(r.ships[1].boostUnlocked).toBe(false);
+    r.player.earlyBoost = false;
+    r.race.reset();
+    expect(r.player.boostUnlocked).toBe(false);
+  });
+});

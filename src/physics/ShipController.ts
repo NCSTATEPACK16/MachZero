@@ -546,7 +546,7 @@ export class ShipController {
       const target = CONFIG.RAIL_RESTITUTION * closing;
       if (vnPost < target) v.addScaledVector(n, target - vnPost);
       bounce = closing;
-      if (damageActive) this.drainEnergy(CONFIG.RAIL_DAMAGE_PER_MS * this.stats.damageTakenScale * closing);
+      if (damageActive) this.takeDamage(CONFIG.RAIL_DAMAGE_PER_MS * this.stats.damageTakenScale * closing);
     }
 
     // Tangential handling (bleed on impact, drag while scraping).
@@ -558,7 +558,7 @@ export class ShipController {
       if (impact) keep *= 1 - clamp(TUNING.WALL_BLEED_PER_MS * closing, 0, TUNING.WALL_BLEED_MAX);
       v.addScaledVector(tangent, keep - 1);
       tangentSpeed *= keep;
-      if (damageActive) this.drainEnergy(TUNING.WALL_SCRAPE_DAMAGE * tangentSpeed * dt);
+      if (damageActive) this.takeDamage(TUNING.WALL_SCRAPE_DAMAGE * tangentSpeed * dt);
     }
 
     // Steer the nose off the wall (glance instead of grinding head-on).
@@ -611,7 +611,7 @@ export class ShipController {
     const s = this.state;
     if (!isActiveStatus(s.status)) return;
     if (hazards.damage) {
-      this.drainEnergy(STRIKE_DAMAGE * this.stats.damageTakenScale);
+      this.takeDamage(STRIKE_DAMAGE * this.stats.damageTakenScale);
       s.empLock = Math.max(s.empLock, STRIKE_JAM);
     } else this.scaleVelocity(hazards.hitSpeedScale);
   }
@@ -627,7 +627,7 @@ export class ShipController {
       this.scaleVelocity(hazards.hitSpeedScale);
       return;
     }
-    this.drainEnergy(GEYSER_DAMAGE * this.stats.damageTakenScale);
+    this.takeDamage(GEYSER_DAMAGE * this.stats.damageTakenScale);
     s.velocity.addScaledVector(up, GEYSER_KNOCK_UP);
     this.body.setLinvel(s.velocity, true);
     this.updateSpeeds();
@@ -642,7 +642,7 @@ export class ShipController {
     const s = this.state;
     if (!isActiveStatus(s.status)) return;
     if (hazards.damage) {
-      this.drainEnergy(JET_DAMAGE * this.stats.damageTakenScale);
+      this.takeDamage(JET_DAMAGE * this.stats.damageTakenScale);
       s.velocity.addScaledVector(dir, JET_KNOCK * this.stats.pushScale);
     } else {
       s.velocity.multiplyScalar(hazards.hitSpeedScale);
@@ -666,7 +666,7 @@ export class ShipController {
   applyMineHit(side: THREE.Vector3, up: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
     const s = this.state;
     if (!isActiveStatus(s.status)) return;
-    if (hazards.damage) this.drainEnergy(CONFIG.MINE_DAMAGE * this.stats.damageTakenScale);
+    if (hazards.damage) this.takeDamage(CONFIG.MINE_DAMAGE * this.stats.damageTakenScale);
     else s.velocity.multiplyScalar(hazards.hitSpeedScale);
     s.velocity.addScaledVector(side, CONFIG.MINE_KNOCK_SIDE).addScaledVector(up, CONFIG.MINE_KNOCK_UP);
     this.body.setLinvel(s.velocity, true);
@@ -676,7 +676,7 @@ export class ShipController {
   /** Apply damage from a ship-ship collision. */
   applyShipDamage(closingSpeed: number): void {
     if (!isActiveStatus(this.state.status)) return;
-    this.drainEnergy(CONFIG.SHIP_DAMAGE_PER_MS * this.stats.damageTakenScale * closingSpeed);
+    this.takeDamage(CONFIG.SHIP_DAMAGE_PER_MS * this.stats.damageTakenScale * closingSpeed);
   }
 
   /** Preserved pre-solver velocity for impact computations. */
@@ -1086,6 +1086,21 @@ export class ShipController {
     this.bus.emit('ship:respawn', { shipId: s.def.id });
   }
 
+  /**
+   * Energy lost to damage (rails and scrapes, ships, mines, lightning, geysers, jets). With the No-KO assist
+   * (IMPLEMENTATION §M7a) the amount is halved and never takes the energy below 1, so damage alone cannot destroy
+   * the ship. Spending energy on a boost is not damage (it calls drainEnergy).
+   */
+  takeDamage(amount: number): void {
+    const s = this.state;
+    if (!s.noKO) {
+      this.drainEnergy(amount);
+      return;
+    }
+    if (!(amount > 0) || s.energy <= NO_KO_FLOOR) return;
+    this.drainEnergy(Math.min(amount * NO_KO_SCALE, s.energy - NO_KO_FLOOR));
+  }
+
   /** Reduce energy (never below 0) and emit ship:lowEnergy once when crossing the threshold. */
   private drainEnergy(amount: number): void {
     if (!(amount > 0)) return;
@@ -1097,6 +1112,10 @@ export class ShipController {
     }
   }
 }
+
+/** No-KO: share of damage taken, and the energy damage never goes below. */
+export const NO_KO_SCALE = 0.5;
+export const NO_KO_FLOOR = 1;
 
 const twistCache = new WeakMap<TrackData, Float32Array>();
 

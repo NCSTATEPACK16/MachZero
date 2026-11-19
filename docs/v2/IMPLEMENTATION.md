@@ -1569,7 +1569,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; not started)
+## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; M7a built)
 
 SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
 
@@ -1577,7 +1577,7 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
-| M7a | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
+| M7a ✅ built | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
 | M7b | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
 | M7c | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
 
@@ -1600,7 +1600,7 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M7a — The four assists work, and the assists screen
+### M7a — The four assists work, and the assists screen — ✅ BUILT (branch `v2/m7a-assists`; waiting on the owner's device check)
 
 **Design decisions:**
 - **All four assists become real** for the human player: auto-accelerate, steering assist (off / light 30% / strong 60%), No-KO, boost from lap 1. The numbers in `physics/Assists.ts` (`ASSIST`) do not change.
@@ -1689,6 +1689,19 @@ export interface SettingsData {
 - [ ] The Rookie balance sims pass on all 8 tracks with No-KO and boost from lap 1 in play.
 
 **Device check (no fps gate; nothing renders differently):** on the iPhone with the 8BitDo, a Rookie-preset profile races Orbital Ring: drive into mines and rails on purpose, never explode, boost on lap 1. Then pause → SETTINGS → ASSISTS → CLASSIC PRESET, resume, and the next rail hit drains energy as before.
+
+**As built (2026-11-19, branch `v2/m7a-assists`):**
+- **Save v8** (`save/schema.ts`, `save/migrations.ts` step 7): every M7 field is in, as specified. `defaultTouch()`, `DEFAULT_PAD_BINDINGS`, `PAD_CONTROLS`, `clonePadBindings`, `sanitizeTouch` and `sanitizePadBindings` are exported. A pad control whose buttons are all taken and whose defaults are taken too makes the whole binding set fall back to the defaults (it cannot be left empty). `Settings` has `hudSize`, `haptics`, `touch` (with `setTouch(patch)`) and `padBindings`.
+- **`effectiveAssists`** is in `physics/Assists.ts`. `InputDevice` has `'touch'`, which nothing produces yet.
+- **`RaceSession`** builds one `PlayerAssists` and has `setAssists(a)` and `activeAssists`. `App` passes `assists` in the setup and keeps them current with one signal effect (profile assists, input device, touch settings), and again when a session finishes building. `App.setAssists(patch)` updates the active profile.
+- **No-KO:** `ShipController.takeDamage(amount)` is the one damage path: rail impacts and scrapes (the stone gates and debris are rail contacts), lightning, geysers, jets, mines and ship-to-ship. With `noKO` it takes half and stops at 1 energy (`NO_KO_SCALE`, `NO_KO_FLOOR`). The boost still calls `drainEnergy`. The Rookie hazard rules apply when the tier is Rookie or the profile's No-KO is on. They are fixed when a race is built. A RESTART of the same race keeps them; the next race from the menu picks up the change, because the hazard mode is in the session key.
+- **Boost from lap 1:** `RaceManager` sets `boostUnlocked = earlyBoost` on the grid and unlocks it at GO. The HUD's "BOOST UNLOCKS LAP 2" goes away by itself. Turning the assist on mid-race unlocks the boost at once. Turning it off mid-race leaves an unlocked boost unlocked until the next start.
+- **The ASSISTS tab** sits between RACE and SOUND and is hidden with no profile. `Toggle` and `Segmented` (`ui/components.tsx`) take an optional `icon` (and `Segmented` a `hint`). Each assist row has an icon. The tab's footnote says assists never cost credits or trophies. Screenshots: `docs/v2/shots/m7a/assists-desk.jpg`, `assists-phone.jpg` (956 × 440).
+- **Sims and tests:** `sim/assists.sim.test.ts` has (a) to (e) and also checks that a boost still costs full energy under No-KO. For (a), the ship starts worn down to 12 energy, because a fresh ship loses only about 50 energy in 20 s of slamming rail to rail and would survive with or without No-KO. Without No-KO the run destroys it; with No-KO it bottoms out at 1 and finishes. In `sim/worldRace.ts` the assisted stand-in has No-KO and boost from lap 1. The Rookie balance test passes on all 8 tracks. There are new tests for the save, `effectiveAssists`, early boost in `RaceManager`, and assisted controls in `RaceSession` (the items still get the raw input object), plus `e2e/assists.spec.ts`, which also changes the assists from the pause menu mid-race.
+- **Changes nobody asked for:**
+  - `ShipState.noKO` and `earlyBoost` are optional (absent = off), so the ship literals in existing tests did not change.
+  - The Comfort tab's LARGE TEXT switch writes `hudSize` ('large' / 'normal') until M7c replaces it with HUD SIZE. `e2e/menus.spec.ts` and two unit tests now read `hudSize` and `mz-hud-large`, as the v8 migration requires.
+  - BOOST FROM LAP 1 has a hint: "Your boost is ready when the lights go out, not on lap 2."
 
 ---
 

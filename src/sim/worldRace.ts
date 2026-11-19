@@ -83,6 +83,12 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
   const playerPace = opts.player?.pace ?? TIERS[tier].paceScale;
   const assists = opts.player?.assisted ? new PlayerAssists(track) : null;
   const ships = field.map((d) => physics.addShip(d, track.startGrid[d.gridIndex]));
+  // The assisted stand-in gets the whole Rookie preset (IMPLEMENTATION §M7a): No-KO and boost from lap 1 as well as
+  // auto-accelerate and strong steering help. (The race's hazard rules are the caller's choice, as for the App.)
+  if (assists) {
+    ships[0].noKO = ROOKIE_ASSISTS.noKO;
+    ships[0].earlyBoost = ROOKIE_ASSISTS.earlyBoost;
+  }
   const drivers = ships.map((s) => new AIDriver(s, track, s.def.personality ?? 'steady', track.seed * 31 + s.def.id * 7919, ships, { hazardClock: () => physics.hazardTime, liveMines: () => physics.mines }));
   const race = new RaceManager(track, ships, bus, undefined, opts.untilAllFinish ? Infinity : undefined);
   const items = opts.items === false ? null : new ItemSystem({ ships, player: ships[0], race, bus, physics, track }, track.seed);
