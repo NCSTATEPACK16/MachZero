@@ -11,7 +11,7 @@ const CI = Boolean((globalThis as { process?: { env: Record<string, string | und
  */
 export default defineConfig({
   testDir: 'e2e',
-  // Hard ceiling: no test may run longer than 2 minutes (each takes 15–35 s on CI).
+  // Ceiling for every test: 2 minutes (most take 15–35 s on CI). The three world-race smokes set their own 4.5 minutes.
   timeout: 120_000,
   retries: CI ? 1 : 0,
   // Each worker is a SwiftShader (CPU) browser; more than two starve each other on a laptop.
