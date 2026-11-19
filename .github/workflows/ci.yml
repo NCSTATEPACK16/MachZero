@@ -30,8 +30,9 @@ jobs:
   smoke:
     name: Browser smoke test
     runs-on: ubuntu-latest
-    # Normally ~2 min. Every e2e test is capped at 2 min (playwright.config.ts).
-    timeout-minutes: 10
+    # About 11 min since the X4–X6 world smokes (each about 2 min on the runner) and the touch project (M7b); every
+    # e2e test is still capped at 2 min (playwright.config.ts). At 10 the job was cancelled after every spec had passed.
+    timeout-minutes: 20
     # Browsers and their system libraries come preinstalled; installing them on the runner took up to 11 min.
     # The tag must match @playwright/test in package-lock.json (scripts/check-playwright-image.mjs enforces it).
     container:
