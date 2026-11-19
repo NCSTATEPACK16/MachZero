@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import type { KeyControl } from '../../core/contracts';
 import { TIER_OPTIONS, TIERS } from '../../content/tiers';
-import { KEY_CONTROLS, NO_ASSISTS, ROOKIE_ASSISTS } from '../../save/schema';
+import { KEY_CONTROLS, NO_ASSISTS, PAD_CONTROLS, ROOKIE_ASSISTS, type PadControl } from '../../save/schema';
+import { PAD_START } from '../../settings/Settings';
 import type { QualitySetting } from '../../save/schema';
 import { Screen, Segmented, Slider, Toggle, keyName } from '../components';
 
@@ -30,18 +31,86 @@ const CONTROL_LABEL: Record<KeyControl, string> = {
   itemNext: 'NEXT ITEM',
 };
 
-const PAD_LAYOUT: ReadonlyArray<[string, string]> = [
-  ['LEFT STICK', 'STEER'],
-  ['RT / Ⓐ', 'ACCELERATE'],
-  ['LT / Ⓑ', 'BRAKE'],
-  ['LB  RB', 'AIR-BRAKES'],
-  ['Ⓧ', 'BOOST'],
-  ['Ⓨ', 'USE ITEM'],
-  ['D-PAD ◀ ▶', 'PICK ITEM'],
-  ['START', 'PAUSE'],
-];
+/** Standard-mapping pad button names. */
+export const PAD_BUTTON_NAMES: readonly string[] = ['Ⓐ', 'Ⓑ', 'Ⓧ', 'Ⓨ', 'LB', 'RB', 'LT', 'RT', 'VIEW', 'START', 'L3', 'R3', 'D-PAD ▲', 'D-PAD ▼', 'D-PAD ◀', 'D-PAD ▶'];
 
-function Controls({ app }: { app: App }) {
+const PAD_LABEL: Record<PadControl, string> = {
+  throttle: 'ACCELERATE',
+  brake: 'BRAKE',
+  airLeft: 'AIR-BRAKE LEFT',
+  airRight: 'AIR-BRAKE RIGHT',
+  boost: 'BOOST',
+  item: 'USE ITEM',
+  itemPrev: 'PREVIOUS ITEM',
+  itemNext: 'NEXT ITEM',
+};
+
+const STEER_OPTIONS = [
+  { value: 'slider', label: 'SLIDER' },
+  { value: 'tilt', label: 'TILT' },
+] as const;
+const STEP3_OPTIONS = [
+  { value: '0', label: 'LOW' },
+  { value: '1', label: 'MEDIUM' },
+  { value: '2', label: 'HIGH' },
+] as const;
+const AIRBRAKE_OPTIONS = [
+  { value: 'slider', label: 'PUSH PAST FULL LOCK' },
+  { value: 'buttons', label: 'BUTTONS' },
+] as const;
+const SIZE_OPTIONS = [
+  { value: 's', label: 'S' },
+  { value: 'm', label: 'M' },
+  { value: 'l', label: 'L' },
+] as const;
+
+const HUD_SIZE_OPTIONS = [
+  { value: 'normal', label: 'NORMAL' },
+  { value: 'large', label: 'LARGE' },
+  { value: 'xl', label: 'EXTRA LARGE' },
+] as const;
+
+const coarsePointer = (): boolean => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+/** Touch controls (IMPLEMENTATION §M7c): first on a touch device. */
+function TouchSection({ app }: { app: App }) {
+  const s = app.settings;
+  const t = s.touch.value;
+  const tilt = t.steer === 'tilt';
+  return (
+    <>
+      <div class="mzu-subhead">TOUCH</div>
+      <Segmented
+        label="STEERING"
+        hint={tilt ? 'Turn the device like a wheel.' : 'Slide your left thumb from where it lands.'}
+        options={STEER_OPTIONS}
+        value={t.steer}
+        onChange={(v) => (v === 'tilt' ? void app.enableTilt() : s.setTouch({ steer: 'slider' }))}
+      />
+      <Segmented
+        label="SENSITIVITY"
+        hint={tilt ? 'How far you turn the device for full lock.' : 'How far your thumb slides for full lock.'}
+        options={STEP3_OPTIONS}
+        value={String(tilt ? t.tiltSensitivity : t.sensitivity) as '0' | '1' | '2'}
+        onChange={(v) => s.setTouch(tilt ? { tiltSensitivity: Number(v) as 0 | 1 | 2 } : { sensitivity: Number(v) as 0 | 1 | 2 })}
+      />
+      {tilt ? (
+        <div class="mzu-actions">
+          <button type="button" class="mzu-chip" onClick={() => app.calibrateTilt()}>
+            CALIBRATE TILT
+          </button>
+          <span class="mzu-note dim">Hold the device the way you play, then press it.</span>
+        </div>
+      ) : null}
+      <Toggle label="AUTO-ACCELERATE" hint="With touch, the ship accelerates by itself. Off: an ACCELERATE button appears." value={t.autoAccelerate} onChange={(v) => s.setTouch({ autoAccelerate: v })} />
+      <Segmented label="AIR-BRAKES" hint="Push the slider past full lock, or use two buttons." options={AIRBRAKE_OPTIONS} value={t.airbrake} onChange={(v) => s.setTouch({ airbrake: v })} />
+      <Segmented label="BUTTON SIZE" options={SIZE_OPTIONS} value={t.buttonSize} onChange={(v) => s.setTouch({ buttonSize: v })} />
+      <Toggle label="LEFT-HANDED" hint="Buttons on the left, steering on the right." value={t.leftHanded} onChange={(v) => s.setTouch({ leftHanded: v })} />
+    </>
+  );
+}
+
+function KeyboardSection({ app }: { app: App }) {
   const s = app.settings;
   const [capture, setCapture] = useState<{ control: KeyControl; slot: number } | null>(null);
   useEffect(() => {
@@ -59,7 +128,8 @@ function Controls({ app }: { app: App }) {
   }, [capture]);
   const b = s.keyBindings.value;
   return (
-    <div class="mzu-section">
+    <>
+      <div class="mzu-subhead">KEYBOARD</div>
       <div class="mzu-binds" role="table" aria-label="Keyboard controls">
         {KEY_CONTROLS.map((c) => (
           <div class="mzu-bind" role="row">
@@ -89,16 +159,85 @@ function Controls({ app }: { app: App }) {
           RESET KEYS
         </button>
       </div>
+      <p class="mzu-note">ESC / P pause · M mute · R restart are fixed.</p>
+    </>
+  );
+}
+
+function PadSection({ app }: { app: App }) {
+  const s = app.settings;
+  const [capture, setCapture] = useState<{ control: PadControl; slot: number } | null>(null);
+  useEffect(() => () => app.cancelPadCapture(), []);
+  const listen = (control: PadControl, slot: number) => {
+    if (capture?.control === control && capture.slot === slot) {
+      app.cancelPadCapture();
+      return;
+    }
+    setCapture({ control, slot });
+    void app.capturePadButton().then((i) => {
+      setCapture((c) => (c && c.control === control && c.slot === slot ? null : c));
+      if (i === null) return;
+      if (!s.bindPad(control, slot, i)) app.toast(i === PAD_START ? 'START always pauses. Pick another button.' : 'That would leave a control with no button.', 'warn');
+    });
+  };
+  const b = s.padBindings.value;
+  return (
+    <>
       <div class="mzu-subhead">GAMEPAD</div>
-      <div class="mzu-padmap">
-        {PAD_LAYOUT.map(([k, v]) => (
-          <div>
-            <kbd>{k}</kbd>
-            <span>{v}</span>
+      <div class="mzu-binds" role="table" aria-label="Gamepad controls">
+        <div class="mzu-bind" role="row">
+          <span class="mzu-bind-label" role="rowheader">
+            STEER
+          </span>
+          <span class="mzu-bind-keys" role="cell">
+            <span class="mzu-key fixed">LEFT STICK</span>
+          </span>
+        </div>
+        {PAD_CONTROLS.map((c) => (
+          <div class="mzu-bind" role="row">
+            <span class="mzu-bind-label" role="rowheader">
+              {PAD_LABEL[c]}
+            </span>
+            <span class="mzu-bind-keys" role="cell">
+              {[...b[c], null].slice(0, 2).map((btn, slot) => {
+                const listening = capture?.control === c && capture.slot === slot;
+                return (
+                  <button
+                    type="button"
+                    class={`mzu-key${btn === null ? ' add' : ''}${listening ? ' listening' : ''}`}
+                    aria-label={btn !== null ? `${PAD_LABEL[c]}: ${PAD_BUTTON_NAMES[btn]}. Change` : `Add a button for ${PAD_LABEL[c]}`}
+                    onClick={() => listen(c, slot)}
+                  >
+                    {listening ? 'PRESS A BUTTON…' : btn !== null ? PAD_BUTTON_NAMES[btn] : '+'}
+                  </button>
+                );
+              })}
+            </span>
           </div>
         ))}
       </div>
-      <p class="mzu-note">ESC / P pause · M mute · R restart are fixed.</p>
+      <div class="mzu-actions">
+        <button type="button" class="mzu-chip" onClick={() => (s.resetPadBindings(), app.toast('Gamepad reset to the default layout.'))}>
+          RESET BUTTONS
+        </button>
+      </div>
+      <p class="mzu-note">Ⓐ confirm · Ⓑ back · START pause are fixed in the menus.</p>
+    </>
+  );
+}
+
+function Controls({ app }: { app: App }) {
+  const s = app.settings;
+  const touch = app.features.touch && (app.inputDevice.value === 'touch' || coarsePointer());
+  const keyboard = app.keyboardSeen.value || !coarsePointer();
+  const pad = app.padConnected.value || app.inputDevice.value === 'pad';
+  return (
+    <div class="mzu-section">
+      {touch ? <TouchSection app={app} /> : null}
+      <Toggle label="HAPTICS" hint="Vibration in the iOS app and rumble on the controller." value={s.haptics.value} onChange={(v) => (s.haptics.value = v)} />
+      {keyboard ? <KeyboardSection app={app} /> : null}
+      {pad ? <PadSection app={app} /> : null}
+      {!keyboard && !pad && !touch ? <p class="mzu-note">Connect a controller or use the keyboard to see its buttons.</p> : null}
     </div>
   );
 }
@@ -262,9 +401,19 @@ export function SettingsScreen({ app }: { app: App }) {
       {tab === 'graphics' ? <Graphics app={app} /> : null}
       {tab === 'comfort' ? (
         <div class="mzu-section">
-          <Toggle label="REDUCED MOTION" hint="No motion blur, camera shake, colour fringing or speed lines; a calmer field of view." value={s.reducedMotion.value} onChange={(v) => (s.reducedMotion.value = v)} />
-          <Toggle label="COLOUR-BLIND-SAFE HUD" hint="Blue-to-orange energy bar with a warning marker." value={s.colorBlind.value} onChange={(v) => (s.colorBlind.value = v)} />
-          <Toggle label="LARGE TEXT" hint="Bigger HUD and menus." value={s.hudSize.value !== 'normal'} onChange={(v) => (s.hudSize.value = v ? 'large' : 'normal')} />
+          <Toggle
+            label="REDUCED MOTION"
+            hint="No motion blur, camera shake, colour fringing, speed lines or flashing; no menu animations; a calmer field of view. The camera still tilts with the ship."
+            value={s.reducedMotion.value}
+            onChange={(v) => (s.reducedMotion.value = v)}
+          />
+          <Toggle
+            label="COLOUR-BLIND MODE"
+            hint="Blue and orange instead of green and red, shapes on the minimap, and a hazard sign with an arrow to the clear side."
+            value={s.colorBlind.value}
+            onChange={(v) => (s.colorBlind.value = v)}
+          />
+          <Segmented label="HUD SIZE" hint="Makes the race screen and the menus bigger." options={HUD_SIZE_OPTIONS} value={s.hudSize.value} onChange={(v) => (s.hudSize.value = v)} />
         </div>
       ) : null}
       {tab === 'controls' ? <Controls app={app} /> : null}

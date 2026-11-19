@@ -11,6 +11,10 @@ function hex(color: number): string {
  * layer (split paths drawn thinner); ship dots are drawn on top each frame. The map
  * is rotated so the start straight points up the screen.
  */
+/** Colour-blind mode's palette (ui/tokens.css --mz-player and --mz-rival under html.mz-cb). */
+const CB_PLAYER = '#3d9bff';
+const CB_RIVAL = '#ff8a1f';
+
 export class Minimap {
   readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
@@ -42,8 +46,12 @@ export class Minimap {
     this.drawBase();
   }
 
-  /** Redraw the ship dots on top of the cached track outline. */
-  update(ships: readonly ShipState[], player: ShipState): void {
+  /**
+   * Redraw the ships on top of the cached track outline (IMPLEMENTATION §M7c): the player is a triangle pointing along
+   * its heading, the race leader a diamond and the others circles, in every mode, so the minimap never relies on
+   * colour. Colour-blind mode (`cb`) also paints the player blue and the rivals orange instead of their liveries.
+   */
+  update(ships: readonly ShipState[], player: ShipState, leaderId = -1, cb = false): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const s = this.dpr;
@@ -57,9 +65,16 @@ export class Minimap {
       if (ship === player || ship.status === 'retired') continue;
       const [x, y] = this.map(ship.position.x, ship.position.z);
       ctx.beginPath();
-      ctx.arc(x, y, 3.6, 0, Math.PI * 2);
-      ctx.fillStyle = hex(ship.def.livery.primary);
-      ctx.shadowColor = hex(ship.def.livery.glow);
+      if (ship.def.id === leaderId) {
+        const r = 5;
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r, y);
+        ctx.closePath();
+      } else ctx.arc(x, y, 3.6, 0, Math.PI * 2);
+      ctx.fillStyle = cb ? CB_RIVAL : hex(ship.def.livery.primary);
+      ctx.shadowColor = cb ? CB_RIVAL : hex(ship.def.livery.glow);
       ctx.shadowBlur = 6;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -69,24 +84,23 @@ export class Minimap {
     }
 
     const [px, py] = this.map(player.position.x, player.position.z);
-    // heading tick: ship forward is local -Z
+    // Heading on the map: ship forward is local -Z.
     const q = player.quaternion;
     const fx = -2 * (q.x * q.z + q.w * q.y);
     const fz = -(1 - 2 * (q.x * q.x + q.y * q.y));
     const hx = fx * this.cos - fz * this.sin;
     const hz = fx * this.sin + fz * this.cos;
     const hl = Math.hypot(hx, hz) || 1;
+    const ux = hx / hl;
+    const uy = hz / hl;
+    // A triangle: nose 9 px ahead, the base 5 px behind and 5.5 px to each side.
     ctx.beginPath();
-    ctx.moveTo(px, py);
-    ctx.lineTo(px + (hx / hl) * 12, py + (hz / hl) * 12);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(px, py, 5.6, 0, Math.PI * 2);
-    ctx.fillStyle = hex(player.def.livery.primary);
-    ctx.shadowColor = hex(player.def.livery.glow);
+    ctx.moveTo(px + ux * 9, py + uy * 9);
+    ctx.lineTo(px - ux * 5 - uy * 5.5, py - uy * 5 + ux * 5.5);
+    ctx.lineTo(px - ux * 5 + uy * 5.5, py - uy * 5 - ux * 5.5);
+    ctx.closePath();
+    ctx.fillStyle = cb ? CB_PLAYER : hex(player.def.livery.primary);
+    ctx.shadowColor = cb ? CB_PLAYER : hex(player.def.livery.glow);
     ctx.shadowBlur = 10;
     ctx.fill();
     ctx.shadowBlur = 0;

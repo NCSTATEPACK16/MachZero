@@ -19,6 +19,8 @@ export const RUMBLE = {
 export class Rumble {
   private offs: (() => void)[] = [];
   private last = -Infinity;
+  /** Settings → HAPTICS (M7c): off, the pad never rumbles. */
+  enabled = true;
 
   constructor(
     private readonly out: RumbleOut,
@@ -48,6 +50,7 @@ export class Rumble {
   }
 
   private play(strong: number, weak: number, ms: number): void {
+    if (!this.enabled) return;
     const t = this.now();
     if (t - this.last < RUMBLE.GAP_MS) return;
     this.last = t;

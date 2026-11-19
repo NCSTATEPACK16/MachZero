@@ -1569,7 +1569,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; M7a and M7b built)
+## M7 — Touch, tilt, assists and comfort — ✅ BUILT (PRs #41 M7a, #42 M7b, M7c; waiting on the owner's device gates)
 
 SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
 
@@ -1578,8 +1578,8 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
 | M7a ✅ built (#41) | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
-| M7b ✅ built | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
-| M7c | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
+| M7b ✅ built (#42) | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
+| M7c ✅ built | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
 
 **Facts checked on 2026-11-16 (`v2/x6-abyss-line`), so the builder does not rediscover them:**
 - **The assists do nothing in the live game.** `physics/Assists.ts` (`PlayerAssists`) is used only by `sim/worldRace.ts`. `App` and `RaceSession` never apply it. `Assists.noKO` and `Assists.earlyBoost` exist in the save and have no code. The "I'M NEW TO RACING GAMES" preset (`ProfileSelect.tsx`) promises all four.
@@ -1705,7 +1705,7 @@ export interface SettingsData {
 
 ---
 
-### M7b — Touch driving and the touch HUD — ✅ BUILT (branch `v2/m7b-touch`; waiting on the owner's device gate and the air-brake default)
+### M7b — Touch driving and the touch HUD — ✅ BUILT (PR #42, `v2/m7b-touch`; waiting on the owner's device gate and the air-brake default)
 
 **Design decisions:**
 - **Platforms:** the iOS app and mobile web. Android is best effort with no gate. Pad and keyboard keep working. The player can change device in the middle of a race: the device that produced input last owns the prompts and the layout.
@@ -1796,7 +1796,7 @@ export interface SettingsData {
 3. Left-handed and size L once on each device: nothing is cut off by the notch, the Dynamic Island or the home bar.
 4. Connect the pad mid-race: the touch controls go away and the pad drives. Touch the screen: they come back.
 
-**As built (2026-11-19, branch `v2/m7b-touch`):**
+**As built (2026-11-19, PR #42):**
 - **Pure parts, as specified:**
   - `physics/touchSteer.ts` (`sliderControls`, `SLIDER_LOCK`, `AIRBRAKE_START`, `AIRBRAKE_RAMP`, `SLIDER_CURVE`).
   - `physics/TouchInput.ts`. It also has `steerOrigin` / `steerTravel` for drawing, `isHeld`, `consumePause`, an `onActivity` callback (InputManager's device switch), and `externalSteer` for M7c's tilt.
@@ -1823,7 +1823,7 @@ export interface SettingsData {
 
 ---
 
-### M7c — Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on
+### M7c — Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on — ✅ BUILT (branch `v2/m7c-comfort`; waiting on the owner's device gate)
 
 **Design decisions:**
 - **Tilt** is an option (`touch.steer: 'tilt'`). Steering is the device's **roll about the axis that points out of the screen**, like turning a wheel, measured against real gravity.
@@ -1892,6 +1892,45 @@ export interface SettingsData {
 2. **The Storm Cup by touch** (slider), start to final standings: 60 fps, p95 no more than 1 ms above the build before.
 3. **Menus by touch only:** create a profile, buy and fit a part, change the livery, start a cup, close and reopen the app, CONTINUE CUP.
 4. Reduced motion, colour-blind mode and EXTRA LARGE once each in a race: readable, nothing cut off.
+
+**As built (2026-11-19, branch `v2/m7c-comfort`):**
+- **Tilt:** `physics/tilt.ts` (`deviceRoll`, `tiltSteer`, `calibratedNeutral`) and `physics/TiltInput.ts` (`requestTiltPermission`, `isIOS`, smoothing at 20/s, fresh for 0.5 s).
+  - **Angles:** `screen.orientation.angle` is the content's counter-clockwise rotation (90 = the device's top to the left).
+  - **iOS sign:** iOS readings are negated in one place (`TiltInput`'s `sign`), because WebKit reports the gravity acceleration and the spec reports its reaction.
+  - **Not verified:** **neither the iOS sign nor whether WKWebView needs anything beyond `DeviceMotionEvent.requestPermission()` was checked against current docs or a device** (no docs tool in this session). The device gate's tilt step settles both. `@capacitor/motion` and `NSMotionUsageDescription` were not added; `docs/IOS_TESTFLIGHT.md` says what to do if iOS needs them.
+  - **Each fixed step** in a race, `App.stepTilt` hands the smoothed steer to `TouchInput.externalSteer` while tilt is chosen and fresh, and sets `TouchRig.tiltActive` / `tiltFlat`.
+  - **Tilt mode in `TouchControls`:** no steering zone; the two air-brakes (72) sit in the steering thumb's corner; the "⟲ HOLD THE DEVICE UPRIGHT" chip shows when the screen lies flat.
+  - **Grid card:** it shows ENABLE TILT (`HudActions.tilt`) while tilt is chosen and no motion data arrives.
+  - **App methods:** `App.enableTilt()` (falls back to the slider with a toast) and `App.calibrateTilt()`.
+- **Controls tab:**
+  - **TOUCH section first** on a touch screen (a coarse pointer, or touch as the device): steering, sensitivity of the active mode, CALIBRATE TILT, auto-accelerate, air-brakes, button size, left-handed.
+  - **HAPTICS** always shows.
+  - **KEYBOARD section** once a key was used, or on a fine pointer (`App.keyboardSeen`).
+  - **GAMEPAD section** while a pad is connected (`App.padConnected`), with "press a button" capture and RESET BUTTONS. During capture `App.capturePadButton()` pauses menu navigation, so Ⓐ can be captured too.
+  - **`?airbrake=` is gone.**
+- **Pad remapping:** `InputManager.setPadBindings()` drives the eight controls through `padBindings`. Throttle and brake keep the trigger's analog travel; the rest are pressed or not. The menu edges (Ⓐ, Ⓑ, START, d-pad navigation) and the garage orbit keep their fixed buttons. `InputManager.padButtonsDown()` serves the capture. `Settings.bindPad` / `resetPadBindings` follow `bindKey`'s rules and refuse START (`PAD_START`, it always pauses).
+- **Menus by touch** (`ui/ui.css`):
+  - **44-point minimum:** under `html.mz-touch` or `html.mz-coarse` (set at boot on a coarse pointer), every `#ui` button, tab, radio and input, and the HUD's `.mz-btn` / `.mz-chip`, is at least 44 × 44. Tab rows keep their labels' width and wrap.
+  - **Scrolling:** `touch-action: pan-y` and momentum scrolling on `.mzu-body` / `.mzu-garage-body`; no page overscroll.
+  - **Hidden on touch:** hint rows and focus rings under `mz-touch`.
+  - **Garage pinch:** two pointers zoom (`pinchZoom` in `ui/garageModel.ts`, ln-ratio × 1.5 wheel steps).
+  - **Name field:** scrolls into view 0.3 s after focus.
+- **Comfort:**
+  - **Reduced motion:** every animation and transition in the HUD, the menus and the rotate overlay is off under `html.mz-reduced-motion` (one rule in `ui/tokens.css`, not a class list). The countdown digits and toasts then simply appear and go.
+  - **First save:** reduced motion starts on when `prefers-reduced-motion: reduce` matches (`SaveStore.firstLaunch`).
+  - **Colour-blind:** the `--mz-good/warn/bad/player/rival` tokens; every lime, amber and red in `game/hud.css` uses them.
+  - **Minimap shapes** in every mode: the player a triangle along its heading, the leader a diamond, the others circles. In colour-blind mode the player is blue and the rivals orange.
+  - **Hazard cue:** `game/HazardCue.ts`, pure. It has one spot per ice patch, main-loop gate, mine field and debris field, and one per lightning, geyser and jet point, all on the same timelines. The `.mz-hazard` chip sits under the position, clear of the toasts. It shows in colour-blind mode only, never on a split path, and adds no draw calls.
+  - **HUD size:** `--u` × `--mz-hud-scale` (1 / 1.15 / 1.3). The Comfort tab's HUD SIZE replaces LARGE TEXT.
+  - **HAPTICS off** also stops `Rumble` (`Rumble.enabled`).
+- **`touch` is on by default.** The touch e2e runs without `?features=`.
+- **Tests:**
+  - unit tests for `tilt`, `TiltInput`, `HazardCue` (one per hazard kind on its real track), pad remapping in `InputManager` and `Settings`, `pinchZoom`, `Rumble` with haptics off, and `SaveStore.firstLaunch`;
+  - the touch e2e gains "every menu target is at least 44 × 44" (create, menu, profiles, worlds, Grand Prix, every settings tab, every garage tab, plus a garage purchase and a paint change by taps) and "race screens by touch" (a cup started by taps, pause and results panels at 44 points).
+- **Changes nobody asked for:**
+  - **Updated tests:** `__features.test.ts`'s list of shipped flags gains `touch`, and `e2e/menus.spec.ts` picks HUD SIZE LARGE instead of the LARGE TEXT switch.
+  - **Hazard chip placement:** the chip sits under the position, not in the centre, because the race's toasts use the centre.
+- **Screenshots:** `docs/v2/shots/m7c/` has every screen at EXTRA LARGE (956 × 440) and colour-blind mode on Orbital Ring with the hazard cue and the minimap shapes.
 
 **What needs the owner in M7:** the three device gates above, and the default air-brake style (M7b). Everything else is built without questions.
 

@@ -92,6 +92,11 @@ function CreateForm({ app, onCancel }: { app: App; onCancel: (() => void) | null
               spellcheck={false}
               placeholder="YOUR NAME"
               value={name}
+              // The on-screen keyboard must not hide the form (M7c): keep the field in view once it has opened.
+              onFocus={(e) => {
+                const f = e.currentTarget as HTMLInputElement;
+                setTimeout(() => f.scrollIntoView?.({ block: 'center', behavior: 'smooth' }), 300);
+              }}
               onKeyDown={(e) => {
                 if (rolled.current && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
                   (e.currentTarget as HTMLInputElement).value = '';

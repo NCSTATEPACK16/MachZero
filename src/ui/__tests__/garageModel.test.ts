@@ -42,3 +42,14 @@ describe('garage stat bars', () => {
     expect(bar('comet', { ...partsAt(0), hull: 3 }).armor).toBeGreaterThan(stock.armor);
   });
 });
+
+describe('pinchZoom (IMPLEMENTATION §M7c)', () => {
+  it('spreading zooms in, pinching zooms out, symmetrically; nothing for a degenerate distance', async () => {
+    const { PINCH_ZOOM, pinchZoom } = await import('../garageModel');
+    expect(pinchZoom(100, 200)).toBeCloseTo(PINCH_ZOOM * Math.LN2, 10);
+    expect(pinchZoom(200, 100)).toBeCloseTo(-PINCH_ZOOM * Math.LN2, 10);
+    expect(pinchZoom(150, 150)).toBe(0);
+    expect(pinchZoom(0, 100)).toBe(0);
+    expect(pinchZoom(100, Number.NaN)).toBe(0);
+  });
+});

@@ -560,3 +560,33 @@ describe('InputManager touch (IMPLEMENTATION §M7b)', () => {
     expect(input.lastDevice).toBe('keyboard');
   });
 });
+
+describe('InputManager pad remapping (IMPLEMENTATION §M7c)', () => {
+  it('the default bindings drive as before; a remap moves boost and throttle and keeps the menu buttons', async () => {
+    const { DEFAULT_PAD_BINDINGS } = await import('../../save/schema');
+    const { win } = fakeWindow();
+    const input = new InputManager(win);
+    input.setPadBindings(DEFAULT_PAD_BINDINGS);
+    stubPad({ pressed: [2], values: { 7: 0.6 } });
+    tick(input);
+    let c = input.sample();
+    expect(c.throttle).toBeCloseTo(0.6, 5);
+    expect(c.boost).toBe(true);
+    // Remap: boost on RB, throttle on Ⓧ (and LT); Ⓧ no longer boosts.
+    input.setPadBindings({ ...DEFAULT_PAD_BINDINGS, boost: [5], throttle: [2, 6], airRight: [0] });
+    stubPad({ pressed: [2] });
+    tick(input);
+    c = input.sample();
+    expect(c.throttle).toBe(1);
+    expect(c.boost).toBe(false);
+    stubPad({ pressed: [2, 5] });
+    tick(input);
+    expect(input.sample().boost).toBe(true);
+    // Ⓐ is still confirm in the menus, whatever it drives.
+    stubPad({ pressed: [0] });
+    tick(input);
+    expect(input.consume('confirm')).toBe(true);
+    expect(input.sample().airbrakeRight).toBe(1);
+    expect(input.padButtonsDown()).toEqual([0]);
+  });
+});

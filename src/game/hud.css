@@ -113,7 +113,7 @@
   transform: skewX(-12deg) scale(0.98);
 }
 .mz-btn.danger {
-  border-color: var(--red);
+  border-color: var(--mz-bad);
   background: linear-gradient(180deg, rgba(255, 51, 68, 0.24), rgba(138, 77, 255, 0.2));
   text-shadow: 0 0 0.6em rgba(255, 51, 68, 0.9);
 }
@@ -147,7 +147,7 @@
   box-shadow: 0 0 0 1px var(--cyan), 0 0 1em rgba(25, 240, 255, 0.5);
 }
 .mz-chip.off {
-  color: var(--red);
+  color: var(--mz-bad);
   border-color: rgba(255, 51, 68, 0.6);
 }
 
@@ -209,7 +209,7 @@
   font-size: 0.8em;
   letter-spacing: 0.3em;
   font-style: italic;
-  color: var(--amber);
+  color: var(--mz-warn);
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.6);
 }
 .mz-controls .row {
@@ -347,7 +347,7 @@
   letter-spacing: 0.04em;
 }
 .mz-laps .row.best {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.6em rgba(125, 255, 58, 0.6);
 }
 .mz-laps .row.rec {
@@ -414,10 +414,10 @@
   animation: mz-pit-glow 0.7s ease-in-out infinite alternate;
 }
 .mz-energy.pit .mz-bar {
-  border-color: var(--amber);
+  border-color: var(--mz-warn);
 }
 .mz-pit-tag {
-  color: var(--amber);
+  color: var(--mz-warn);
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.9);
   visibility: hidden;
 }
@@ -447,12 +447,12 @@
   font-size: 0.8em;
 }
 .mz-boost[data-s='ready'] {
-  border-color: var(--lime);
+  border-color: var(--mz-good);
   box-shadow: 0 0 1.4em rgba(125, 255, 58, 0.55), inset 0 0 1em rgba(125, 255, 58, 0.25);
   animation: mz-ready 0.9s ease-in-out infinite alternate;
 }
 .mz-boost[data-s='ready'] .mz-in {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.7em rgba(125, 255, 58, 0.9);
 }
 .mz-boost[data-s='active'] {
@@ -468,7 +468,7 @@
   border-color: rgba(255, 179, 25, 0.6);
 }
 .mz-boost[data-s='charging'] .mz-in {
-  color: var(--amber);
+  color: var(--mz-warn);
 }
 .mz-boost[data-s='jammed'] {
   border-color: #6fb8ff;
@@ -648,8 +648,8 @@
 }
 .mz-countdown.go span {
   font-size: 15em;
-  color: var(--lime);
-  text-shadow: 0 0 0.12em var(--lime), 0 0 0.4em var(--lime), 0 0 1em rgba(125, 255, 58, 0.7);
+  color: var(--mz-good);
+  text-shadow: 0 0 0.12em var(--mz-good), 0 0 0.4em var(--mz-good), 0 0 1em rgba(125, 255, 58, 0.7);
   animation: mz-go 1s cubic-bezier(0.15, 0.9, 0.25, 1) both;
 }
 
@@ -675,16 +675,16 @@
   white-space: nowrap;
 }
 .mz-toast.good {
-  color: var(--lime);
-  text-shadow: 0 0 0.25em var(--lime), 0 0 0.7em var(--lime);
+  color: var(--mz-good);
+  text-shadow: 0 0 0.25em var(--mz-good), 0 0 0.7em var(--mz-good);
 }
 .mz-toast.warn {
-  color: var(--amber);
-  text-shadow: 0 0 0.25em var(--amber), 0 0 0.7em var(--amber);
+  color: var(--mz-warn);
+  text-shadow: 0 0 0.25em var(--mz-warn), 0 0 0.7em var(--mz-warn);
 }
 .mz-toast.bad {
-  color: var(--red);
-  text-shadow: 0 0 0.25em var(--red), 0 0 0.7em var(--red);
+  color: var(--mz-bad);
+  text-shadow: 0 0 0.25em var(--mz-bad), 0 0 0.7em var(--mz-bad);
 }
 .mz-toast.record {
   color: var(--magenta);
@@ -709,7 +709,7 @@
   color: #fff;
   padding: 0.15em 1em;
   background: rgba(255, 51, 68, 0.72);
-  border: 2px solid var(--red);
+  border: 2px solid var(--mz-bad);
   box-shadow: 0 0 2em rgba(255, 51, 68, 0.85);
   text-shadow: 0 0 0.4em #fff;
   transform: skewX(-10deg);
@@ -787,7 +787,7 @@
 .mz-lapstable .head {
   font-size: 0.75em;
   letter-spacing: 0.3em;
-  color: var(--amber);
+  color: var(--mz-warn);
   font-weight: 800;
   font-style: italic;
   margin-bottom: 0.5em;
@@ -834,7 +834,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mz-lapstable .row.best {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.6em rgba(125, 255, 58, 0.6);
 }
 .mz-record {
@@ -858,7 +858,7 @@
   letter-spacing: 0.12em;
 }
 .mz-credits .delta {
-  color: var(--amber);
+  color: var(--mz-warn);
   font-size: 1.5em;
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.6);
 }
@@ -1061,7 +1061,7 @@
 }
 .mz-cb .mz-energy.low .mz-energy-val::before {
   content: '▲ ';
-  color: var(--amber);
+  color: var(--mz-warn);
 }
 
 /* ---------- M5: slipstream chip ---------- */
@@ -1164,7 +1164,7 @@
   margin-top: 0.7em;
   font-style: italic;
   font-size: 0.9em;
-  color: var(--amber);
+  color: var(--mz-warn);
   letter-spacing: 0.04em;
 }
 .mz-intro {
@@ -1188,7 +1188,7 @@
 .mz-intro-kicker {
   font-size: 0.85em;
   letter-spacing: 0.32em;
-  color: var(--amber);
+  color: var(--mz-warn);
   font-weight: 800;
 }
 .mz-intro-head {
@@ -1259,7 +1259,7 @@
 .mz-intro-row .quote {
   font-size: 0.8em;
   font-style: italic;
-  color: var(--amber);
+  color: var(--mz-warn);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1335,7 +1335,7 @@ html.mz-touch .mz-strip > * {
   animation: mz-flash 0.4s steps(2, jump-none) infinite;
 }
 .mz-strip.pit .mz-bar {
-  border-color: var(--amber);
+  border-color: var(--mz-warn);
 }
 .mz-strip.pit .mz-pit-tag {
   visibility: visible;
@@ -1371,7 +1371,7 @@ html.mz-touch .mz-strip > * {
   display: inline;
 }
 .mz-strip-boost[data-s='ready'] {
-  color: var(--lime);
+  color: var(--mz-good);
 }
 .mz-strip-boost[data-s='active'] {
   color: #fff;
@@ -1503,10 +1503,10 @@ html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
   background: rgba(255, 43, 214, 0.4);
 }
 .mz-tb-brake {
-  border-color: var(--amber);
+  border-color: var(--mz-warn);
 }
 .mz-tb-throttle {
-  border-color: var(--lime);
+  border-color: var(--mz-good);
 }
 .mz-tb-item {
   font-size: calc(var(--tb, 1) * 17px);
@@ -1591,4 +1591,56 @@ html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
     top: 14.2em;
     width: 11.7em;
   }
+}
+
+/* ---------- M7c: tilt mode (no steering zone) and the flat-screen chip ---------- */
+.mz-touch-layer.tilt .mz-tz-steer {
+  display: none;
+}
+.mz-tilt-flat {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  translate: -50% 0;
+  padding: 6px 14px;
+  font: italic 900 15px / 1 var(--font);
+  letter-spacing: 0.12em;
+  color: #fff3c4;
+  background: rgba(8, 6, 26, 0.75);
+  border: 2px solid var(--mz-warn);
+  pointer-events: none;
+}
+.mz-tilt-flat[hidden] {
+  display: none;
+}
+
+/* ---------- M7c: hazard cue (colour-blind mode): the nearest hazard ahead and the way to the clear side ---------- */
+.mz-hazard {
+  /* Under the position number, clear of the toasts (centre) and the lap box. */
+  position: absolute;
+  top: 10.6em;
+  left: 2.4em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.25em 0.9em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  font-size: 1.2em;
+  color: #fff;
+  background: rgba(8, 6, 26, 0.78);
+  border: 2px solid var(--mz-warn);
+  box-shadow: 0 0 1em rgba(255, 176, 0, 0.45);
+  pointer-events: none;
+}
+.mz-hazard[hidden] {
+  display: none;
+}
+.mz-hazard-icon {
+  font-size: 1.3em;
+  color: var(--mz-warn);
+}
+.mz-intro-tilt[hidden] {
+  display: none;
 }
