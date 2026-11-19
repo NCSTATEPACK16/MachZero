@@ -24,10 +24,24 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: /touch\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 480, height: 270 },
         deviceScaleFactor: 1,
+        launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
+      },
+    },
+    {
+      // Touch controls (IMPLEMENTATION §M7b): an iPhone-sized landscape touch screen.
+      name: 'touch',
+      testMatch: /touch\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 956, height: 440 },
+        deviceScaleFactor: 1,
+        hasTouch: true,
+        isMobile: true,
         launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
       },
     },

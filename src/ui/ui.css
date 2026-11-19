@@ -1699,3 +1699,46 @@ html.mz-pad .mzu-world:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* M7b: the web's rotate overlay (the iOS app is locked to landscape). App adds html.mz-rotate-ok on the web with the
+   `touch` feature; it shows in portrait on a touch screen, over everything. */
+.mz-rotate {
+  display: none;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  html.mz-rotate-ok .mz-rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: #05030f;
+    color: #19f0ff;
+    font: italic 900 18px/1.2 'Avenir Next Condensed', 'Arial Narrow', Helvetica, Arial, sans-serif;
+    letter-spacing: 0.2em;
+    text-shadow: 0 0 12px #19f0ff;
+  }
+  html.mz-rotate-ok .mz-rotate svg {
+    width: 72px;
+    height: 72px;
+    animation: mz-rotate-hint 1.6s ease-in-out infinite;
+  }
+}
+@keyframes mz-rotate-hint {
+  0%,
+  30% {
+    transform: rotate(0deg);
+  }
+  60%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.mz-rotate-ok .mz-rotate svg {
+    animation: none;
+  }
+}

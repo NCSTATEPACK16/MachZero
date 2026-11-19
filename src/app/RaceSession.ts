@@ -4,6 +4,7 @@
  * any number of races in one page. Node-safe without a view (headless tests).
  */
 import type { Rumble } from '../game/Rumble';
+import type { TouchRig } from '../game/TouchControls';
 import type { Assists, ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
@@ -49,6 +50,8 @@ export interface RaceView {
   showTitle: boolean;
   /** Controller rumble for the player's ship (§V.3); optional. */
   rumble?: Rumble;
+  /** The touch controls (IMPLEMENTATION §M7b; with the `touch` feature): the HUD builds them in the race view. */
+  touch?: TouchRig;
 }
 
 export class RaceSession {
@@ -116,7 +119,7 @@ export class RaceSession {
     for (const ship of this.ships) view.graphics.addShip(ship);
     view.audio.attach(this.bus);
     view.rumble?.attach(this.bus, this.player.def.id);
-    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field) });
+    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field), ...(view.touch ? { touch: view.touch } : {}) });
   }
 
   /** The player's assists in force. */

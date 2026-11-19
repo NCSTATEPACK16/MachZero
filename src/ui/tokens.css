@@ -31,3 +31,17 @@ html.mz-pad .mz-k-pad {
 html.mz-pad .mz-k-kb {
   display: none;
 }
+
+/* Touch (IMPLEMENTATION §M7b): <html class="mz-touch"> while touch is the last-used device. A prompt with a touch form
+   shows it; one without is hidden. */
+.mz-k-touch {
+  display: none;
+}
+html.mz-touch .mz-k-touch {
+  display: inline;
+}
+html.mz-touch .mz-k-kb,
+html.mz-touch .mz-k-pad,
+html.mz-touch .mz-no-touch {
+  display: none;
+}

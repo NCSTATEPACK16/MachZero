@@ -1280,3 +1280,315 @@
 @media (prefers-reduced-motion: reduce) {
   .mz-intro-row { animation: none; }
 }
+
+/* ---------- M7b: touch controls and the touch HUD (sizes in CSS points; not scaled with the screen) ---------- */
+.mz-strip,
+.mz-touch-layer {
+  display: none;
+}
+html.mz-touch .mz-energy,
+html.mz-touch .mz-boost,
+html.mz-touch .mz-speed,
+html.mz-touch .mz-items {
+  display: none !important;
+}
+html.mz-touch .mz-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 420px;
+  height: 60px;
+  margin-left: -210px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  font-size: 15px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-glow);
+  transform: skewX(-10deg);
+  pointer-events: none;
+}
+html.mz-touch .mz-strip > * {
+  transform: skewX(10deg);
+}
+.mz-strip-power {
+  flex: 1;
+  min-width: 0;
+}
+.mz-strip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+  font-size: 0.8em;
+}
+.mz-strip-val {
+  font-size: 1.3em;
+}
+.mz-strip .mz-bar {
+  height: 12px;
+}
+.mz-strip.low .mz-bar-fill,
+.mz-strip.low .mz-strip-val {
+  animation: mz-flash 0.4s steps(2, jump-none) infinite;
+}
+.mz-strip.pit .mz-bar {
+  border-color: var(--amber);
+}
+.mz-strip.pit .mz-pit-tag {
+  visibility: visible;
+}
+.mz-strip-speed {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 5.2em;
+  justify-content: flex-end;
+}
+.mz-strip-speed .mz-num {
+  font-size: 1.8em;
+}
+.mz-strip-speed .mz-label {
+  font-size: 0.7em;
+}
+.mz-strip-boost {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  font-size: 0.85em;
+  color: rgba(244, 247, 255, 0.45);
+}
+.mz-strip-lock {
+  display: none;
+}
+.mz-strip-boost[data-s='locked'] .mz-strip-lock,
+.mz-strip-boost[data-s='jammed'] .mz-strip-lock {
+  display: inline;
+}
+.mz-strip-boost[data-s='ready'] {
+  color: var(--lime);
+}
+.mz-strip-boost[data-s='active'] {
+  color: #fff;
+  text-shadow: 0 0 0.5em var(--magenta), 0 0 1em var(--magenta);
+}
+@media (max-height: 499px) {
+  html.mz-touch .mz-strip {
+    width: 320px;
+    height: 48px;
+    margin-left: -160px;
+    font-size: 12px;
+    padding: 4px 12px;
+  }
+}
+/* Chips and the EMP warning sit just above the strip. */
+html.mz-touch .mz-draft,
+html.mz-touch .mz-wind {
+  right: auto;
+  left: 50%;
+  translate: -50% 0;
+}
+html.mz-touch .mz-draft {
+  bottom: calc(12px + 60px + 10px);
+}
+html.mz-touch .mz-wind {
+  bottom: calc(12px + 60px + 10px + 2.4em);
+}
+html.mz-touch .mz-emp-warn {
+  top: auto;
+  bottom: calc(12px + 60px + 10px + 4.8em);
+}
+@media (max-height: 499px) {
+  html.mz-touch .mz-draft {
+    bottom: calc(12px + 48px + 8px);
+  }
+  html.mz-touch .mz-wind {
+    bottom: calc(12px + 48px + 8px + 2.4em);
+  }
+  html.mz-touch .mz-emp-warn {
+    bottom: calc(12px + 48px + 8px + 4.8em);
+  }
+}
+
+/* The touch layer: only while counting down or racing with touch as the device. */
+html.mz-touch .mz-hud[data-state='countdown'] .mz-touch-layer,
+html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
+  display: block;
+}
+.mz-touch-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  font-size: 13px;
+}
+.mz-tz-steer {
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 0;
+  width: 45%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.mz-touch-layer.lh .mz-tz-steer {
+  left: auto;
+  right: 0;
+}
+.mz-tz-ring,
+.mz-tz-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  visibility: hidden;
+}
+.mz-touch-layer.steering .mz-tz-ring,
+.mz-touch-layer.steering .mz-tz-dot {
+  visibility: visible;
+}
+.mz-tz-ring {
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  border: 2px solid rgba(25, 240, 255, 0.55);
+  box-shadow: 0 0 14px rgba(25, 240, 255, 0.35);
+}
+.mz-tz-dot {
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  background: radial-gradient(circle, rgba(244, 247, 255, 0.55), rgba(25, 240, 255, 0.25));
+  border: 2px solid rgba(244, 247, 255, 0.7);
+}
+.mz-tb {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(25, 240, 255, 0.6);
+  background: rgba(8, 6, 26, 0.45);
+  color: var(--white);
+  font: italic 900 calc(var(--tb, 1) * 13px) / 1 var(--font);
+  letter-spacing: 0.06em;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 10px rgba(25, 240, 255, 0.25);
+}
+.mz-tb[hidden] {
+  display: none;
+}
+.mz-tb.on {
+  background: rgba(25, 240, 255, 0.35);
+  box-shadow: 0 0 18px rgba(25, 240, 255, 0.7);
+}
+.mz-tb-boost {
+  border-color: var(--magenta);
+  box-shadow: 0 0 12px rgba(255, 43, 214, 0.4);
+  font-size: calc(var(--tb, 1) * 15px);
+}
+.mz-tb-boost.on {
+  background: rgba(255, 43, 214, 0.4);
+}
+.mz-tb-brake {
+  border-color: var(--amber);
+}
+.mz-tb-throttle {
+  border-color: var(--lime);
+}
+.mz-tb-item {
+  font-size: calc(var(--tb, 1) * 17px);
+}
+.mz-tb-item[data-s='empty'] {
+  opacity: 0.45;
+}
+.mz-tb-pause {
+  top: calc(1.6 * var(--u));
+  left: calc(50% + 11 * var(--u) + 8px);
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  font-size: 15px;
+}
+@media (max-width: 1100px) {
+  .mz-tb-pause {
+    left: calc(50% + 9 * var(--u) + 8px);
+  }
+}
+.mz-touch-hint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font: italic 900 14px / 1.1 var(--font);
+  letter-spacing: 0.1em;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(25, 240, 255, 0.9);
+}
+.mz-touch-hint[hidden] {
+  display: none;
+}
+.mz-touch-hint span {
+  position: absolute;
+  padding: 4px 8px;
+  background: rgba(8, 6, 26, 0.7);
+  border: 1px solid rgba(25, 240, 255, 0.6);
+}
+.mz-th-steer {
+  left: 12%;
+  top: 55%;
+}
+/* Labels sit across their own buttons (BOOST, BRAKE) or just above (ITEM), scaled with the controls. */
+.mz-th-boost {
+  right: calc(var(--tb, 1) * 30px);
+  bottom: calc(var(--tb, 1) * 54px);
+}
+.mz-th-brake {
+  right: calc(var(--tb, 1) * 130px);
+  bottom: calc(var(--tb, 1) * 36px);
+}
+.mz-th-item {
+  right: calc(var(--tb, 1) * 40px);
+  bottom: calc(var(--tb, 1) * 186px);
+}
+.mz-touch-layer.lh .mz-th-steer {
+  left: auto;
+  right: 12%;
+}
+.mz-touch-layer.lh .mz-th-boost {
+  right: auto;
+  left: calc(var(--tb, 1) * 30px);
+}
+.mz-touch-layer.lh .mz-th-brake {
+  right: auto;
+  left: calc(var(--tb, 1) * 130px);
+}
+.mz-touch-layer.lh .mz-th-item {
+  right: auto;
+  left: calc(var(--tb, 1) * 40px);
+}
+.mz-hud.intro .mz-intro {
+  pointer-events: auto;
+}
+/* On a short touch screen the minimap is a little smaller, so the best times sit clear of the ITEM button at size L. */
+@media (max-height: 499px) {
+  html.mz-touch .mz-mapbox {
+    width: 10.5em;
+    height: 10.5em;
+  }
+  html.mz-touch .mz-laps {
+    top: 14.2em;
+    width: 11.7em;
+  }
+}
