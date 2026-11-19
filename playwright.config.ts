@@ -33,9 +33,11 @@ export default defineConfig({
       },
     },
     {
-      // Touch controls (IMPLEMENTATION §M7b): an iPhone-sized landscape touch screen.
+      // Touch controls (IMPLEMENTATION §M7b): an iPhone-sized landscape touch screen. It runs after the desktop project:
+      // the world-race smokes take close to their 2-minute cap on a CI runner, and a touch race beside them pushed them over.
       name: 'touch',
       testMatch: /touch\.spec\.ts/,
+      dependencies: ['chromium'],
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 956, height: 440 },
