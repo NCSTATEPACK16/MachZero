@@ -230,3 +230,35 @@ test('race screens by touch: the pause and results panels are 44-point targets; 
   expect(await tooSmall(page), 'results').toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('World Tour by touch (IMPLEMENTATION §M8a): the map, a world card, a locked card and the results are 44-point targets', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?debug=1&quality=low&features=modes');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.locator('input[type=text]').fill('TOUR');
+  await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).tap();
+  await page.getByRole('button', { name: "LET'S RACE" }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
+  expect(await tooSmall(page), 'menu with modes').toEqual([]);
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'tour');
+  expect(await tooSmall(page), 'map').toEqual([]);
+  // A locked world's card.
+  await page.locator('[data-planet="sunset-mesa"]').tap();
+  await expect(page.locator('[data-world-card="sunset-mesa"]')).toContainText('TO UNLOCK');
+  expect(await tooSmall(page), 'locked card').toEqual([]);
+  await page.locator('[data-tour-close]').tap();
+  // World 1's card, then the race and its results.
+  await page.locator('[data-planet="neon-bay"]').tap();
+  await expect(page.locator('[data-tour-race]')).toBeVisible();
+  expect(await tooSmall(page), 'card').toEqual([]);
+  await page.locator('[data-tour-race]').tap();
+  await expect.poll(() => raceState(page), { timeout: 90_000 }).toMatch(/title|countdown|racing/);
+  await page.evaluate(() => (window as unknown as { __machzero: { simulate(s: number): Promise<void> } }).__machzero.simulate(600));
+  await expect(screen(page)).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 10_000 });
+  expect(await tooSmall(page), 'results').toEqual([]);
+  await page.locator('[data-res-next]').tap();
+  await expect(page.locator('[data-world-card="sunset-mesa"] [data-tour-race]')).toBeVisible();
+  expect(errors, errors.join('\n')).toEqual([]);
+});

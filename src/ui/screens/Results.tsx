@@ -6,7 +6,7 @@
  *
  * Buttons: NEXT WORLD (when one was just unlocked), RACE AGAIN, GARAGE, WORLD MAP; in a cup race STANDINGS only.
  */
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import { formatTime, ordinal } from '../../core/math';
 import { TIERS } from '../../content/tiers';
@@ -108,8 +108,9 @@ function ResultsBody({ app, r }: { app: App; r: RaceResult }) {
     for (const tier of r.newTrophies) app.events.emit('results:trophy', { tier });
   }, [done]);
 
-  // Any input while the tally runs shows everything at once (and does nothing else).
-  useEffect(() => {
+  // Any input while the tally runs shows everything at once (and does nothing else). A layout effect, so it holds
+  // from the screen's first frame.
+  useLayoutEffect(() => {
     if (done) return;
     let swallowClick = false;
     const reveal = (e: Event) => {
