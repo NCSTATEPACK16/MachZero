@@ -163,15 +163,18 @@ export class HUD implements IHUD {
   private readonly toastLast = new Map<string, number>();
   private readonly toastNodes: HTMLElement[] = [];
   private readonly offs: Array<() => void> = [];
+  /** False when the App's results screen replaces the HUD's results panel (IMPLEMENTATION §M8a). */
+  private readonly showResults: boolean;
 
   constructor(
     root: HTMLElement,
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
-    opts: { showTitle?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig } = {},
+    opts: { showTitle?: boolean; results?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig } = {},
   ) {
     this.roster = opts.roster ?? [];
+    this.showResults = opts.results !== false;
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
     root.appendChild(c);
@@ -617,7 +620,7 @@ export class HUD implements IHUD {
     this.shownState = snap.state;
     this.container.dataset.state = snap.state;
     if (snap.state !== 'racing' && snap.state !== 'countdown') this.touch?.release();
-    if (snap.state === 'results') this.buildResults(snap);
+    if (snap.state === 'results' && this.showResults) this.buildResults(snap);
     if (prev === 'results' || snap.state === 'title') {
       this.shownPos = -1;
       this.shownBoost = '';

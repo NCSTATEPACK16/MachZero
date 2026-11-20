@@ -48,6 +48,8 @@ export interface RaceView {
   actions: HudActions;
   /** v1 start screen inside the HUD (only without the menu UI). */
   showTitle: boolean;
+  /** False when a menu screen shows the results (IMPLEMENTATION §M8a): the HUD builds no results panel. */
+  results?: boolean;
   /** Controller rumble for the player's ship (§V.3); optional. */
   rumble?: Rumble;
   /** The touch controls (IMPLEMENTATION §M7b; with the `touch` feature): the HUD builds them in the race view. */
@@ -119,7 +121,7 @@ export class RaceSession {
     for (const ship of this.ships) view.graphics.addShip(ship);
     view.audio.attach(this.bus);
     view.rumble?.attach(this.bus, this.player.def.id);
-    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field), ...(view.touch ? { touch: view.touch } : {}) });
+    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, results: view.results !== false, roster: rosterOf(this.setup.field), ...(view.touch ? { touch: view.touch } : {}) });
   }
 
   /** The player's assists in force. */
