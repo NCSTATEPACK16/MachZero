@@ -1994,7 +1994,7 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M8a — World Tour, the world map, the results screen (save v9) — ✅ BUILT (branch `v2/m8a-world-tour`; waiting on the owner's look approval and device check)
+### M8a — World Tour, the world map, the results screen (save v9) — ✅ BUILT (PR #45, `v2/m8a-world-tour`; waiting on the owner's look approval and device check)
 
 **Design decisions:**
 - **World Tour is the world map.** The main menu becomes, in order: CONTINUE CUP (when a cup is running), **WORLD TOUR**, GRAND PRIX, TIME TRIAL, GARAGE, SETTINGS. RACE and WORLDS go away. There is no separate single-race mode.

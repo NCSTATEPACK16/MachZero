@@ -4,7 +4,7 @@ Two prompts are in this file. **"Paste this prompt: M8b"** (directly below the b
 
 ## M8a built (2026-11-20)
 
-- **M7's stack was merged into the wrong bases:** #41–#43 were merged a few seconds apart, each into a branch already merged, so none of M7 reached `v2/x6-abyss-line` or main. **NCSTATEPACK16/MachZero#44** (head `v2/m7c-comfort`, base `v2/x6-abyss-line`, no new code) puts all of M7 back in the stack. Merge order to main: #37 → #38 → #39 → #44 → M8a.
+- **M7's stack was merged into the wrong bases:** #41–#43 were merged a few seconds apart, each into a branch already merged, so none of M7 reached `v2/x6-abyss-line` or main. **NCSTATEPACK16/MachZero#44** (head `v2/m7c-comfort`, base `v2/x6-abyss-line`, no new code) puts all of M7 back in the stack. Merge order to main: #37 → #38 → #39 → #44 → #45 (M8a).
 - **M8a is built** on `v2/m8a-world-tour` (base `v2/m7c-comfort`): save v9, World Tour rules, cup unlocks, the world map, booking at the results, the results screen, the sound hooks. Behind `modes`. Read IMPLEMENTATION §M8a "As built" before M8b: it records the decisions made while building (the chain rule, granting with `modes` off, the season sanitizer, `App.events`, `data-nav-<dir>`).
 - **Waiting on the owner in M8a:** the look of the map and the results screen; the device check (pad and touch on both devices, with `VITE_FEATURES=modes,expansion`).
 - **M8b stacks on `v2/m8a-world-tour`.**
@@ -61,7 +61,7 @@ READ FIRST, in this order, before writing any code:
   4. The code M8b changes, as §M8b lists it.
 
 GOAL: build M8b exactly as IMPLEMENTATION §M8b says (Time Trial and ghosts), behind `modes`. Save v9 already
-carries its fields (M8a). One PR on branch v2/m8b-time-trial, stacked on v2/m8a-world-tour (the M8a PR). Follow
+carries its fields (M8a). One PR on branch v2/m8b-time-trial, stacked on v2/m8a-world-tour (PR #45). Follow
 the build steps in order, tests first. When M8b's PR is pushed and its checks are green, continue with M8c
 (v2/m8c-season-tutorial) and M8d (v2/m8d-release), each stacked on the one before. Stop at each PR's device gate only for what the gate needs
 from the owner (M8b: fps with two ghosts on both devices), and carry on meanwhile.
