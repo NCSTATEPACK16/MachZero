@@ -23,7 +23,7 @@ for (const quality of ['high', 'med', 'low'] as const) {
     // Autopilot starts the race by itself. SwiftShader is slow and the loop clamps frame time, so simulated
     // time can run far below real time: wait on simulated progress, never on a wall-clock budget.
     await page.waitForFunction(
-      () => (window as unknown as { __machzero?: MachZeroDebug }).__machzero?.race.state === 'racing',
+      () => (window as unknown as { __machzero?: Partial<MachZeroDebug> }).__machzero?.race?.state === 'racing',
       undefined,
       { timeout: 60_000 },
     );
