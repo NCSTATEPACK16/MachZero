@@ -10,7 +10,8 @@ import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTi
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
-import { DEFAULT_CUP_ID, cupAvailable, cupById } from '../content/cups';
+import { DEFAULT_CUP_ID, cupAvailable, cupById, cupUnlocked } from '../content/cups';
+import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
@@ -105,6 +106,8 @@ export class App {
   readonly cupRace = signal(false);
   /** The cup just finished (for the final standings screen), with what it earned. */
   readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
+  /** The menus' sound hooks (IMPLEMENTATION §M8a step 8): results, locked worlds and cups. The race has its own bus. */
+  readonly events = new EventBus<MenuEvents>();
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -338,6 +341,10 @@ export class App {
     const p = this.activeProfile.value;
     const def = cupById(cupId);
     if (!p || p.cup || !def || !cupAvailable(def)) return;
+    if (!cupUnlocked(def, p, this.features.modes)) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
     this.lastCup.value = null;
     this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
     void this.startCupRace();

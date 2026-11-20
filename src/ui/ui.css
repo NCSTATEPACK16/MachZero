@@ -1560,6 +1560,23 @@ html.mz-pad .mzu-world:focus {
   flex-direction: column;
   gap: 0.8em;
 }
+/* A locked cup (IMPLEMENTATION §M8a): greyed track list, padlock line in place of START. */
+.mzu-padlock {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.12em;
+  margin-right: 0.35em;
+}
+.mzu-gp.locked .mzu-gp-tracks {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.mzu-gp-locked {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--mz-warn, #ffc23a);
+}
 /* Cup picker (shown once a second cup can be played). */
 .mzu-gp-cups {
   display: flex;
