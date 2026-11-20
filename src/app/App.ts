@@ -22,7 +22,8 @@ import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
-import { WORLDS, worldById, type WorldDef } from '../content/worlds';
+import { WORLDS, worldById, type WorldDef, type WorldId } from '../content/worlds';
+import { bookTourRace, tourWorlds, worldUnlocked } from '../game/modes/WorldTour';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
@@ -421,15 +422,38 @@ export class App {
     this.route.value = { name: 'soon', feature, title };
   }
 
+  /** The world select, or with `modes` the World Tour map (IMPLEMENTATION §M8a). */
   openWorlds(): void {
-    this.route.value = { name: 'worlds' };
+    this.route.value = this.features.modes ? { name: 'tour' } : { name: 'worlds' };
   }
 
-  /** World select: remember the world and race it. */
+  /** The world map opens with this world's card (the results screen's NEXT WORLD). */
+  private tourCard: WorldId | null = null;
+
+  /** Open the map with `worldId`'s card showing, and make it the profile's world. */
+  openTourCard(worldId: WorldId): void {
+    this.tourCard = worldId;
+    this.updateProfile((p) => (p.world = worldId));
+    this.route.value = { name: 'tour' };
+  }
+
+  /** The card the map should open with (read once). */
+  takeTourCard(): WorldId | null {
+    const id = this.tourCard;
+    this.tourCard = null;
+    return id;
+  }
+
+  /** World select or World Tour card: remember the world and race it. With `modes` a locked world is refused. */
   selectWorld(worldId: string): void {
     const w = worldById(worldId);
     if (!w?.built) return;
-    this.updateProfile((p) => (p.world = w.id), () => true);
+    const p = this.activeProfile.value;
+    if (this.features.modes && p && !worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
+    this.updateProfile((q) => (q.world = w.id), () => true);
     void this.startRace();
   }
 

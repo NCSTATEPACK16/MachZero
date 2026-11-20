@@ -15,6 +15,7 @@ import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { WorldSelect } from './screens/WorldSelect';
+import { WorldMap } from './screens/WorldMap';
 import './tokens.css';
 import './ui.css';
 
@@ -68,6 +69,7 @@ function Root({ app }: { app: App }) {
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
   else if (r.name === 'garage') screen = <Garage app={app} />;
   else if (r.name === 'worlds') screen = <WorldSelect app={app} />;
+  else if (r.name === 'tour') screen = <WorldMap app={app} />;
   else if (r.name === 'gp') screen = <GrandPrix app={app} />;
   else if (r.name === 'cup') screen = <CupStandings app={app} />;
   else if (r.name === 'soon') screen = <ComingSoon app={app} />;

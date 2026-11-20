@@ -15,6 +15,8 @@ export type Route =
   | { name: 'gp' }
   | { name: 'cup' }
   | { name: 'worlds' }
+  | { name: 'tour' }
+  | { name: 'results' }
   | { name: 'loading' }
   | { name: 'race' };
 
