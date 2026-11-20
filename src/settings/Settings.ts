@@ -13,6 +13,7 @@ import {
   clonePadBindings,
   defaultTouch,
   sanitizeSettings,
+  type GhostSettings,
   type HudSize,
   type PadBindings,
   type PadControl,
@@ -39,6 +40,8 @@ export class Settings {
   readonly detectedQuality = signal<SettingsData['detectedQuality']>(null);
   readonly touch = signal<TouchSettings>(defaultTouch());
   readonly padBindings = signal<PadBindings>(clonePadBindings(DEFAULT_PAD_BINDINGS));
+  /** Time Trial ghosts (IMPLEMENTATION §M8b). */
+  readonly ghosts = signal<GhostSettings>({ best: true, dev: true });
 
   constructor(initial: SettingsData) {
     this.replace(initial);
@@ -62,6 +65,7 @@ export class Settings {
       this.detectedQuality.value = d.detectedQuality;
       this.touch.value = d.touch;
       this.padBindings.value = d.padBindings;
+      this.ghosts.value = d.ghosts;
     });
   }
 
@@ -81,6 +85,7 @@ export class Settings {
       detectedQuality: this.detectedQuality.value,
       touch: { ...this.touch.value },
       padBindings: clonePadBindings(this.padBindings.value),
+      ghosts: { ...this.ghosts.value },
     };
   }
 
