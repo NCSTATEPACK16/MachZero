@@ -486,3 +486,77 @@ describe('InputManager devices', () => {
     input.dispose();
   });
 });
+
+describe('InputManager touch (IMPLEMENTATION §M7b)', () => {
+  function pointer(target: EventTarget, pointerType: string): void {
+    const e = new Event('pointerdown');
+    Object.assign(e, { pointerType });
+    target.dispatchEvent(e);
+  }
+
+  it('the device follows the last input: keyboard → touch → pad → touch', async () => {
+    const { TouchInput } = await import('../TouchInput');
+    const { win, target } = fakeWindow();
+    const touch = new TouchInput();
+    const input = new InputManager(win, touch);
+    const seen: string[] = [];
+    input.onDeviceChange = (d) => seen.push(d);
+    key(target, 'keydown', 'KeyW');
+    expect(input.lastDevice).toBe('keyboard');
+    pointer(target, 'touch');
+    expect(input.lastDevice).toBe('touch');
+    pointer(target, 'mouse'); // a mouse click is not touch
+    expect(input.lastDevice).toBe('touch');
+    stubPad({ pressed: [0] });
+    tick(input);
+    expect(input.lastDevice).toBe('pad');
+    touch.press('boost', true); // a press on a touch control also counts
+    expect(input.lastDevice).toBe('touch');
+    key(target, 'keydown', 'KeyS');
+    expect(input.lastDevice).toBe('keyboard');
+    expect(seen).toEqual(['touch', 'pad', 'touch', 'keyboard']);
+  });
+
+  it('merges: steer is the largest of the three, the rest the largest, the latches OR-ed; pause is a menu press', async () => {
+    const { TouchInput } = await import('../TouchInput');
+    const { win, target } = fakeWindow();
+    const touch = new TouchInput();
+    const input = new InputManager(win, touch);
+    stubPad({ axes: [0.5, 0, 0, 0], values: { 6: 0.4 } });
+    tick(input);
+    touch.steerStart(1, 0);
+    touch.steerMove(1, -60); // full left on medium sensitivity
+    touch.press('throttle', true);
+    let c = input.sample();
+    expect(c.steer).toBe(-1);
+    expect(c.throttle).toBe(1);
+    expect(c.brake).toBeCloseTo(0.4, 5);
+    touch.steerMove(1, -10); // small: the pad's steer is larger now
+    c = input.sample();
+    expect(c.steer).toBeGreaterThan(0.4);
+    touch.press('boost', true);
+    touch.press('item', true);
+    touch.press('itemNext', true);
+    c = input.sample();
+    expect(c.boost).toBe(true);
+    expect(c.fire).toBe(true);
+    expect(c.itemCycle).toBe(1);
+    c = input.sample();
+    expect(c.boost).toBe(false);
+    touch.press('pause', true);
+    tick(input);
+    expect(input.consume('pause')).toBe(true);
+    expect(input.consume('pause')).toBe(false);
+    // Blur lets go of every touch control.
+    target.dispatchEvent(new Event('blur'));
+    expect(touch.isHeld('throttle')).toBe(false);
+    expect(touch.steerOrigin).toBeNull();
+  });
+
+  it('without a TouchInput nothing changes (no pointer listener)', () => {
+    const { win, target } = fakeWindow();
+    const input = new InputManager(win);
+    pointer(target, 'touch');
+    expect(input.lastDevice).toBe('keyboard');
+  });
+});

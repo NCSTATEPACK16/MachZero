@@ -1569,7 +1569,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; M7a built)
+## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; M7a and M7b built)
 
 SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
 
@@ -1577,8 +1577,8 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
-| M7a ✅ built | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
-| M7b | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
+| M7a ✅ built (#41) | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
+| M7b ✅ built | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
 | M7c | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
 
 **Facts checked on 2026-11-16 (`v2/x6-abyss-line`), so the builder does not rediscover them:**
@@ -1600,7 +1600,7 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M7a — The four assists work, and the assists screen — ✅ BUILT (branch `v2/m7a-assists`; waiting on the owner's device check)
+### M7a — The four assists work, and the assists screen — ✅ BUILT (PR #41, `v2/m7a-assists`; waiting on the owner's device check)
 
 **Design decisions:**
 - **All four assists become real** for the human player: auto-accelerate, steering assist (off / light 30% / strong 60%), No-KO, boost from lap 1. The numbers in `physics/Assists.ts` (`ASSIST`) do not change.
@@ -1690,7 +1690,7 @@ export interface SettingsData {
 
 **Device check (no fps gate; nothing renders differently):** on the iPhone with the 8BitDo, a Rookie-preset profile races Orbital Ring: drive into mines and rails on purpose, never explode, boost on lap 1. Then pause → SETTINGS → ASSISTS → CLASSIC PRESET, resume, and the next rail hit drains energy as before.
 
-**As built (2026-11-19, branch `v2/m7a-assists`):**
+**As built (2026-11-19, PR #41):**
 - **Save v8** (`save/schema.ts`, `save/migrations.ts` step 7): every M7 field is in, as specified. `defaultTouch()`, `DEFAULT_PAD_BINDINGS`, `PAD_CONTROLS`, `clonePadBindings`, `sanitizeTouch` and `sanitizePadBindings` are exported. A pad control whose buttons are all taken and whose defaults are taken too makes the whole binding set fall back to the defaults (it cannot be left empty). `Settings` has `hudSize`, `haptics`, `touch` (with `setTouch(patch)`) and `padBindings`.
 - **`effectiveAssists`** is in `physics/Assists.ts`. `InputDevice` has `'touch'`, which nothing produces yet.
 - **`RaceSession`** builds one `PlayerAssists` and has `setAssists(a)` and `activeAssists`. `App` passes `assists` in the setup and keeps them current with one signal effect (profile assists, input device, touch settings), and again when a session finishes building. `App.setAssists(patch)` updates the active profile.
@@ -1705,7 +1705,7 @@ export interface SettingsData {
 
 ---
 
-### M7b — Touch driving and the touch HUD
+### M7b — Touch driving and the touch HUD — ✅ BUILT (branch `v2/m7b-touch`; waiting on the owner's device gate and the air-brake default)
 
 **Design decisions:**
 - **Platforms:** the iOS app and mobile web. Android is best effort with no gate. Pad and keyboard keep working. The player can change device in the middle of a race: the device that produced input last owns the prompts and the layout.
@@ -1795,6 +1795,31 @@ export interface SettingsData {
 2. A race on Cryo Station (the pipe) with each air-brake style. **The owner says which style is the default.**
 3. Left-handed and size L once on each device: nothing is cut off by the notch, the Dynamic Island or the home bar.
 4. Connect the pad mid-race: the touch controls go away and the pad drives. Touch the screen: they come back.
+
+**As built (2026-11-19, branch `v2/m7b-touch`):**
+- **Pure parts, as specified:**
+  - `physics/touchSteer.ts` (`sliderControls`, `SLIDER_LOCK`, `AIRBRAKE_START`, `AIRBRAKE_RAMP`, `SLIDER_CURVE`).
+  - `physics/TouchInput.ts`. It also has `steerOrigin` / `steerTravel` for drawing, `isHeld`, `consumePause`, an `onActivity` callback (InputManager's device switch), and `externalSteer` for M7c's tilt.
+- **`InputManager(window, touch?)`** merges touch as specified. The touch PAUSE becomes a `pause` menu press in `update()`, so it ages like START. A touch `pointerdown` (capture, on `window`) or any touch-control press makes `'touch'` the device. Blur and dispose call `releaseAll()`.
+- **`game/TouchControls.ts`:**
+  - `TouchRig` is one per App: the input, the live layout config, `haptic`, `onHintSeen`. `TouchControls` belongs to each race's HUD and is built inside `.mz-race`, so every distance is from the safe-area edge.
+  - Layout comes from the `TOUCH_LAYOUT` table × `BUTTON_SCALE`. Left-handed mirrors it, with the left air-brake still on the left.
+  - CSS shows the layer only under `html.mz-touch` while counting down or racing. The HUD calls `release()` on pause, results and the intro card.
+- **Touch HUD:** `.mz-strip` holds the power bar with its number and RECHARGING tag, the speed number with KM/H, and the boost state (🔒 while locked or jammed, lit while boosting). It replaces the power, boost and speed panels and the items panel under `html.mz-touch`. DRAFT, WIND and the EMP warning move above the strip. Prompts take an optional touch form (`.mz-k-touch`); one without it is hidden on touch. The intro card says "TAP TO SKIP" and a tap on it skips it (`HudActions.onSkipIntro`).
+- **Haptics:** `tapUi()` and `setHapticsEnabled()` in `native/haptics.ts`. The `haptics` setting already stops `bindHaptics` and `tapUi` (Rumble is M7c).
+- **Rotate overlay:** `.mz-rotate` in `index.html`, shown in portrait on a coarse pointer when `App` has set `html.mz-rotate-ok` (web + `touch`). Turning to portrait pauses a running race.
+- **QA:** `?airbrake=buttons|slider` (`UrlFlags.airbrake`) until M7c's setting. `__machzero.input = { device, steer }` in debug builds.
+- **Sims:** `sim/touchScheme.ts` (`ScriptedThumbs`, `thumbRace`, solo races) runs in two files of 4 tracks each, about 14 s in all.
+  - Thumbs vs the Pilot AI driving directly: −0.2% to +1.2% on all 8 tracks.
+  - No respawn on any track, Rookie preset too. Runs replay identically.
+- **e2e:** a `touch` Playwright project (956 × 440, `hasTouch`, `isMobile`) runs only `e2e/touch.spec.ts`, and the `chromium` project ignores it. Drags use CDP `Input.dispatchTouchEvent`.
+- **Changes nobody asked for:**
+  - **The layout table overlaps itself.** ACCELERATE "above BRAKE" overlaps the next-item chip "left of ITEM". So ACCELERATE keeps its 12-point gap above BRAKE but moves left to clear the chip (`side` 156).
+  - **Air-brake pair moved.** Above ITEM, the pair reached the minimap and the best times on an 844 × 390 phone at size L. It now sits above the BRAKE column (or above ACCELERATE when that shows), left of the chip, 12 apart.
+  - **Smaller minimap on short screens.** On a touch screen under 500 points tall the minimap is 10.5 em instead of 12.5 em, so the best times clear ITEM at size L. Both panels keep their places.
+  - **PAUSE size.** PAUSE stays 44 × 44 at every button size, so it never drops under 44 points.
+  - **Hint labels.** The first-race hint's BOOST and BRAKE labels sit across their buttons.
+- **Screenshots:** `docs/v2/shots/m7b/` at 956 × 440, 844 × 390 and 1180 × 820, right- and left-handed, sizes S, M and L, both air-brake styles, with and without ACCELERATE, plus the first-race hint.
 
 ---
 

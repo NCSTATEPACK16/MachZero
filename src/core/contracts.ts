@@ -643,4 +643,6 @@ export interface HudActions {
    * results' RACE AGAIN becomes STANDINGS.
    */
   cup?: { onStandings(): void; onRetire(): void };
+  /** Ends the grid intro card early (a tap on it; keys and buttons go through the App's input). */
+  onSkipIntro?(): void;
 }

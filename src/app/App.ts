@@ -29,7 +29,9 @@ import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Profile, type P
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
-import { bindHaptics, isNativeApp } from '../native/haptics';
+import { bindHaptics, isNativeApp, setHapticsEnabled, tapUi } from '../native/haptics';
+import { TouchRig } from '../game/TouchControls';
+import { TouchInput } from '../physics/TouchInput';
 import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { effectiveAssists } from '../physics/Assists';
@@ -102,7 +104,11 @@ export class App {
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
-  private readonly input = new InputManager(window);
+  /** Touch controls (IMPLEMENTATION §M7b), with the `touch` feature only: without it a touch does nothing in a race. */
+  private readonly touchRig: TouchRig | null = FEATURES.touch ? new TouchRig(new TouchInput()) : null;
+  private readonly input = new InputManager(window, this.touchRig?.input ?? null);
+  /** The steer of the last driving sample (debug hook for the touch e2e). */
+  private lastSteer = 0;
   /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
   private readonly rumble = new Rumble((strong, weak, ms) => this.input.rumble(strong, weak, ms));
   private readonly assets = new AssetLoader();
@@ -144,6 +150,29 @@ export class App {
       const a = this.playerAssists();
       untracked(() => this.session?.setAssists(a));
     });
+
+    // Touch controls follow the touch settings and the effective auto-accelerate, mid-race too.
+    const rig = this.touchRig;
+    if (rig) {
+      rig.haptic = () => tapUi();
+      rig.onHintSeen = () => this.settings.setTouch({ hintSeen: true });
+      effect(() => {
+        const t = this.settings.touch.value;
+        const p = this.menus ? this.activeProfile.value : null;
+        const airbrake = this.flags.airbrake ?? t.airbrake;
+        rig.input.setConfig({ sensitivity: t.sensitivity, airbrake });
+        rig.setConfig({ buttonSize: t.buttonSize, leftHanded: t.leftHanded, airbrake, autoAccelerate: effectiveAssists(p?.assists ?? NO_ASSISTS, 'touch', t).autoAccelerate, hint: !t.hintSeen });
+      });
+      // The web shows a rotate overlay in portrait on a touch screen (the app is locked to landscape) and pauses.
+      if (!isNativeApp()) {
+        document.documentElement.classList.add('mz-rotate-ok');
+        const portrait = window.matchMedia?.('(orientation: portrait) and (pointer: coarse)');
+        portrait?.addEventListener?.('change', (e) => {
+          const s = this.session;
+          if (e.matches && this.route.value.name === 'race' && s && (s.state === 'racing' || s.state === 'countdown')) s.pause(true);
+        });
+      }
+    }
 
     // The in-race HUD is hidden while a menu screen is up.
     effect(() => {
@@ -189,6 +218,15 @@ export class App {
         },
         get bus() {
           return app.session?.bus;
+        },
+        /** The last-used device and the player's last driving steer (touch e2e). */
+        input: {
+          get device() {
+            return app.inputDevice.value;
+          },
+          get steer() {
+            return app.lastSteer;
+          },
         },
         startRace: () => app.startRace(),
         restartRace: () => app.session?.restart(),
@@ -592,7 +630,9 @@ export class App {
         else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
-      s.fixed(dt, input.sample());
+      const c = input.sample();
+      this.lastSteer = c.steer;
+      s.fixed(dt, c);
       return;
     }
     // Garage: the right stick orbits the turntable and the shoulders zoom (§V.3).
@@ -611,6 +651,8 @@ export class App {
   private setInputDevice(d: InputDevice): void {
     this.inputDevice.value = d;
     document.documentElement.classList.toggle('mz-pad', d === 'pad');
+    document.documentElement.classList.toggle('mz-touch', d === 'touch');
+    if (d !== 'touch') this.touchRig?.input.releaseAll();
   }
 
   /** A controller dropping mid-race pauses it (never resumes by itself); connecting one switches the prompts. */
@@ -728,7 +770,7 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble, ...(this.touchRig ? { touch: this.touchRig } : {}) });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
@@ -751,6 +793,7 @@ export class App {
       onRestart: () => this.session?.restart(),
       onResume: () => this.session?.pause(false),
       onToggleMute: () => this.toggleMute(),
+      onSkipIntro: () => this.endIntro(),
     };
     if (this.menus) {
       actions.onMenu = () => this.quitToMenu();
@@ -858,6 +901,7 @@ export class App {
     this.audio.setVolumes(s.masterVolume, s.sfxVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
+    setHapticsEnabled(s.haptics);
     this.input.setBindings(s.keyBindings);
     const root = document.documentElement.classList;
     // HUD size (IMPLEMENTATION §M7a): until M7c restyles them, both classes carry the old LARGE TEXT rules.

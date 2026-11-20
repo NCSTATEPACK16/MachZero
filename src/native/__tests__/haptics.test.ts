@@ -25,3 +25,28 @@ describe('bindHaptics', () => {
     expect(fired).toHaveLength(3);
   });
 });
+
+describe('tapUi (IMPLEMENTATION §M7b)', () => {
+  it('ticks lightly per press, at most one per 60 ms, and nothing when haptics are off', async () => {
+    const { setHapticsEnabled, tapUi } = await import('../haptics');
+    const fired: string[] = [];
+    const fire = (s: string) => fired.push(s);
+    let t = 10_000;
+    tapUi(fire, () => t);
+    t += MIN_GAP_MS / 2;
+    tapUi(fire, () => t);
+    t += MIN_GAP_MS;
+    tapUi(fire, () => t);
+    expect(fired).toEqual(['light', 'light']);
+    setHapticsEnabled(false);
+    t += 1000;
+    tapUi(fire, () => t);
+    const bus = new EventBus<GameEvents>();
+    const raceFired: string[] = [];
+    bindHaptics(bus, 0, (s) => raceFired.push(s), () => t);
+    bus.emit('ship:boost', { shipId: 0 });
+    expect(fired).toHaveLength(2);
+    expect(raceFired).toEqual([]);
+    setHapticsEnabled(true);
+  });
+});

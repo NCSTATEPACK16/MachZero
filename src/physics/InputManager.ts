@@ -1,6 +1,8 @@
 import { CONFIG } from '../core/config';
 import type { ControlInput, IInputManager, KeyBindings, KeyControl, MenuAction } from '../core/contracts';
 import { damp } from '../core/math';
+import { neutralControls } from '../core/controls';
+import type { TouchInput } from './TouchInput';
 
 /** Menu actions produced by keys / buttons, in a fixed order (index used for edge bookkeeping). */
 const MENU_ACTIONS: readonly MenuAction[] = ['pause', 'confirm', 'back', 'mute', 'restart', 'up', 'down', 'left', 'right'];
@@ -137,14 +139,16 @@ function applyDeadzone(x: number, dead: number): number {
   return Math.sign(x) * Math.min(1, (a - dead) / (1 - dead));
 }
 
-/** The device the player last used (prompts show its buttons). */
-/** 'touch' arrives with the touch controls (IMPLEMENTATION §M7b); M7a only adds the member. */
+/** The device the player last used (prompts, the layout and the touch controls follow it). */
 export type InputDevice = 'keyboard' | 'pad' | 'touch';
 
 /** Any pad input beyond this (stick or button) makes the pad the last-used device. */
 const PAD_ACTIVITY = 0.5;
 
-/** Keyboard + gamepad input. Driving state is sampled, menu actions are edge-triggered. */
+/**
+ * Keyboard + gamepad (+ touch, IMPLEMENTATION §M7b) input. Driving state is sampled, menu actions are edge-triggered.
+ * With touch, the steer is the largest of the three devices', the other values the largest, and the latches OR-ed.
+ */
 export class InputManager implements IInputManager {
   /** A gamepad is connected (polled each update()). */
   padConnected = false;
@@ -165,6 +169,7 @@ export class InputManager implements IInputManager {
   private disposed = false;
 
   private kbSteer = 0;
+  private readonly touchOut = neutralControls();
 
   // Gamepad state, refreshed in update().
   private padSteer = 0;
@@ -182,7 +187,14 @@ export class InputManager implements IInputManager {
   /** performance.now() of the last pad menu press (for dropping iOS key echoes). */
   private padNavAt = -Infinity;
 
-  constructor(private readonly target: Window) {
+  constructor(
+    private readonly target: Window,
+    private readonly touch: TouchInput | null = null,
+  ) {
+    if (touch) {
+      target.addEventListener('pointerdown', this.onPointerDown as EventListener, true);
+      touch.onActivity = () => this.setDevice('touch');
+    }
     target.addEventListener('keydown', this.onEchoKey as EventListener, true);
     target.addEventListener('keydown', this.onKeyDown as EventListener);
     target.addEventListener('keyup', this.onKeyUp as EventListener);
@@ -210,16 +222,18 @@ export class InputManager implements IInputManager {
     const itemCycle = Math.sign(this.cycleLatch);
     this.cycleLatch = 0;
 
-    const steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
+    let steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
+    const t = this.touch ? this.touch.read(this.touchOut) : null;
+    if (t && Math.abs(t.steer) > Math.abs(steer)) steer = t.steer;
     return {
-      throttle: Math.max(kbThrottle, this.padThrottle),
-      brake: Math.max(kbBrake, this.padBrake),
+      throttle: Math.max(kbThrottle, this.padThrottle, t?.throttle ?? 0),
+      brake: Math.max(kbBrake, this.padBrake, t?.brake ?? 0),
       steer: Math.max(-1, Math.min(1, steer)),
-      airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft),
-      airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight),
-      boost,
-      fire,
-      itemCycle,
+      airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft, t?.airbrakeLeft ?? 0),
+      airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight, t?.airbrakeRight ?? 0),
+      boost: boost || (t?.boost ?? false),
+      fire: fire || (t?.fire ?? false),
+      itemCycle: itemCycle !== 0 ? itemCycle : (t?.itemCycle ?? 0),
     };
   }
 
@@ -251,6 +265,8 @@ export class InputManager implements IInputManager {
     if (Math.abs(this.kbSteer) < 1e-3 && target === 0) this.kbSteer = 0;
 
     this.pollGamepad(dt);
+    // The touch PAUSE button is a menu press like START or Escape (it ages the same way).
+    if (this.touch?.consumePause()) this.press('pause');
   }
 
   dispose(): void {
@@ -260,6 +276,8 @@ export class InputManager implements IInputManager {
     this.target.removeEventListener('keydown', this.onKeyDown as EventListener);
     this.target.removeEventListener('keyup', this.onKeyUp as EventListener);
     this.target.removeEventListener('blur', this.onBlur);
+    this.target.removeEventListener('pointerdown', this.onPointerDown as EventListener, true);
+    this.touch?.releaseAll();
     this.held.clear();
     this.boostLatch = false;
     this.fireLatch = false;
@@ -329,7 +347,13 @@ export class InputManager implements IInputManager {
     this.held.delete(code);
   };
 
+  /** Capture-phase: any finger on the screen makes touch the last-used device. */
+  private readonly onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') this.setDevice('touch');
+  };
+
   private readonly onBlur = (): void => {
+    this.touch?.releaseAll();
     this.held.clear();
     this.boostLatch = false;
     this.fireLatch = false;
