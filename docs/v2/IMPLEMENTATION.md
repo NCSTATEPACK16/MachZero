@@ -1936,7 +1936,7 @@ export interface SettingsData {
 
 ---
 
-## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; not started)
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20)
 
 SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
 
@@ -1994,7 +1994,7 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M8a — World Tour, the world map, the results screen (save v9)
+### M8a — World Tour, the world map, the results screen (save v9) — ✅ BUILT (branch `v2/m8a-world-tour`; waiting on the owner's look approval and device check)
 
 **Design decisions:**
 - **World Tour is the world map.** The main menu becomes, in order: CONTINUE CUP (when a cup is running), **WORLD TOUR**, GRAND PRIX, TIME TRIAL, GARAGE, SETTINGS. RACE and WORLDS go away. There is no separate single-race mode.
@@ -2112,15 +2112,32 @@ export interface SettingsData {
 8. **Sound hooks** (add to `core/events.ts`; `AudioSystem` ignores them until M6): `results:tally { amount }` (each line), `results:total { credits }`, `results:unlock { worldId }`, `results:trophy { tier }`, `results:medal { medal }`, `results:champion { tier }`, `ui:locked {}` (a tap on a locked world or cup), `tutorial:step { step }`, `tutorial:done {}`.
 
 **Done when:**
-- [ ] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card.
-- [ ] 4th place pays its credits and unlocks nothing.
-- [ ] An Ace top 3 shows the Rookie, Pilot and Ace pips.
-- [ ] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open.
-- [ ] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared.
-- [ ] With `modes` off nothing changes on the live site (the existing e2e tests pass unchanged).
-- [ ] Map, card and results work with pad, keyboard and touch; the 44-point test covers them.
+- [x] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card (`e2e/worldtour.spec.ts`).
+- [x] 4th place pays its credits and unlocks nothing (`WorldTour.test.ts`; the tally pays the position line regardless).
+- [x] An Ace top 3 shows the Rookie, Pilot and Ace pips (`WorldTour.test.ts`; the results screen draws `newTrophies` as pips).
+- [x] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open (unit and e2e).
+- [x] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared (unit and e2e).
+- [x] With `modes` off nothing changes on the live site (the existing e2e tests pass; two existing unit tests changed only for the new version number and the new `requires` field, see below).
+- [x] Map, card and results work with pad, keyboard and touch; the 44-point test covers them (`touch.spec.ts`).
 
 **Device check:** on the iPhone and the iPad (`VITE_FEATURES=modes,expansion`), by pad and by touch: the map with 8 worlds, a locked world's message, a race from the card, the results screen, NEXT WORLD. **The owner approves the look of the map and the results screen.** No fps gate: nothing in a race renders differently.
+
+
+**As built (branch `v2/m8a-world-tour`)** (read before M8b):
+- **Files:** `game/modes/WorldTour.ts` (the rules), `game/modes/raceResult.ts` (`RaceResult`, `raceTally`, `winnerQuote`), `ui/screens/WorldMap.tsx`, `ui/screens/Results.tsx`, `ui/miniMap.ts` (moved out of `WorldSelect.tsx`); `App` gains `events` (the menu bus), `lastResult`, `resultsScreen`, `openTourCard`/`takeTourCard`, `raceAgain`, `leaveResults`, `resultsNextWorld`, `resultsStandings`. Routes `tour` and `results`.
+- **Save v9** carries every M8 field (`tour`, `season`, `champion`, `tutorialDone`, `records[].trialTime`/`medal`, `settings.ghosts`), as designed.
+- **Decisions made while building (none re-opens a design decision):**
+  - **Progress further along the chain opens every world before it.** `worldUnlocked` is true for the first world, a granted world, the world after a cleared one, *and* any world before a cleared or granted one. So the open worlds are always a run from world 1, whatever order the save got its progress in.
+  - **With `modes` off a race books nothing on the Tour and pays no bonus** (the live economy is unchanged), **but a world raced is added to `tour.granted`**, as the 8 → 9 migration does. A player who races new worlds before M8d turns `modes` on keeps them open.
+  - **A season's finished cups needed their own sanitizer path:** `sanitizeCup` drops a finished cup (a cup is settled at its last race), so the spec's "a `done` cup fails `sanitizeCup`" would have dropped every season. `sanitizeCup(v, tiers, finished = true)` accepts a cup only when every race is recorded.
+  - **The sound hooks are a separate `MenuEvents` map** on `App.events` (the race's `GameBus` lives only as long as a race), so `GameEvents` and its test fixtures are untouched.
+  - **The map's planets are HTML buttons laid over the SVG** (an SVG element has no `click()` for pad confirm). Left and right follow the chain through a new, generic `data-nav-<dir>="<selector>"` attribute in `ui/nav.ts` (the nearest-element rule skipped world 2 from world 1 on the zig-zag).
+  - **The world card makes the map `inert`** while it is open, on both layouts; on a screen under 500 points tall it is a bottom sheet inside the map's box (the screen panel's transform makes `position: fixed` unusable).
+  - **The results screen's "any input" listeners are registered in a layout effect**, so even an input in the screen's first frame is taken by the tally (the e2e probes it with a mount observer). A pad action reaches it through a cancelable `mz-nav` window event the UI root sends first.
+  - **`resultsScreen`** is `menus && modes && worlds && no ?seed`: `?autopilot=1` and `?seed=N` keep the HUD panel, as designed.
+- **Existing tests changed:** `SaveStore.test.ts` (two v7 → v8 tests now expect `SAVE_VERSION`, since a v7 save migrates on to v9), `Championship.test.ts` (its `CupDef` fixtures gain `requires`), `nav.test.ts` (the fake element gains `getAttribute` for the new attribute; plus a test for it). No assertion was loosened.
+- **Measured:** the World Tour sim (`sim/worldTour.sim.test.ts`, two legs, ~26 s locally): the Rookie-preset stand-in finishes P1 on six worlds and P2 on Cryo Station and Cinder Forge; eight clears, eight bonuses. App JS 362.3 KB gzip (+5.1 KB).
+- **Owner:** the look of the map and the results screen; the device check above.
 
 ---
 
