@@ -362,3 +362,16 @@ describe('save v8 (IMPLEMENTATION §M7a)', () => {
     expect(store.importJson(store.exportJson(d))).toEqual(d);
   });
 });
+
+describe('SaveStore first launch (IMPLEMENTATION §M7c)', () => {
+  it('is set only when nothing was stored', () => {
+    const mem = new MemStorage();
+    const a = new SaveStore(mem);
+    a.load();
+    expect(a.firstLaunch).toBe(true);
+    a.save(emptySave());
+    const b = new SaveStore(mem);
+    b.load();
+    expect(b.firstLaunch).toBe(false);
+  });
+});

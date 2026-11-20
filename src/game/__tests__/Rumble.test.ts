@@ -50,4 +50,16 @@ describe('Rumble', () => {
     bus.emit('ship:boost', { shipId: 0 });
     expect(played.length).toBeLessThanOrEqual(1);
   });
+
+  it('does nothing while haptics are off (M7c)', () => {
+    const { bus, played, r, tick } = rig();
+    r.enabled = false;
+    tick(1000);
+    bus.emit('ship:boost', { shipId: 0 });
+    expect(played).toEqual([]);
+    r.enabled = true;
+    tick(1000);
+    bus.emit('ship:boost', { shipId: 0 });
+    expect(played).toHaveLength(1);
+  });
 });

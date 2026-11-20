@@ -1742,3 +1742,40 @@ html.mz-pad .mzu-world:focus {
     animation: none;
   }
 }
+
+/* M7c: the pad's steering row (the left stick is fixed). */
+.mzu-key.fixed {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* ---------- M7c: menus by touch (html.mz-touch after a touch; html.mz-coarse on a touch-first screen) ---------- */
+/* Every target at least 44 × 44 points. */
+html:is(.mz-touch, .mz-coarse) #ui :is(button, [role='tab'], [role='radio'], input:not([type='file']):not([type='hidden'])),
+html:is(.mz-touch, .mz-coarse) .mz-hud :is(.mz-btn, .mz-chip) {
+  min-width: 44px;
+  min-height: 44px;
+}
+/* Lists scroll with a drag, with momentum; the page itself never rubber-bands. */
+html:is(.mz-touch, .mz-coarse),
+html:is(.mz-touch, .mz-coarse) body {
+  overscroll-behavior: none;
+}
+html:is(.mz-touch, .mz-coarse) :is(.mzu-body, .mzu-garage-body) {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+/* Keyboard and pad hint rows and focus rings mean nothing to a finger (focus still moves for a later pad). */
+html.mz-touch .mzu-hints {
+  display: none;
+}
+html.mz-touch #ui :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* Tab rows wrap rather than squeeze: a tab keeps at least its label's width (and that is over 44 points). */
+html:is(.mz-touch, .mz-coarse) #ui .mzu-tabs button[role='tab'][type='button'] {
+  min-width: auto;
+}

@@ -6,6 +6,7 @@ import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
 import type { ItemView } from './ItemSystem';
 import { Minimap } from './Minimap';
 import { TouchControls, type TouchRig } from './TouchControls';
+import { HAZARD_ICONS, HAZARD_NAMES, buildCueSpots, hazardCue, type CueSpot } from './HazardCue';
 import type { RosterEntry } from './pilotPortrait';
 import '../ui/tokens.css';
 import './hud.css';
@@ -42,6 +43,11 @@ function prompt(cls: string, keyboard: string, pad: string, parent: Element, tou
   el('span', 'mz-k-pad', pad, node);
   if (touch !== undefined) el('span', 'mz-k-touch', touch, node);
   return node;
+}
+
+/** A class on <html> (the App's device and comfort classes); false without a real document (tests). */
+function rootHas(cls: string): boolean {
+  return typeof document !== 'undefined' && document.documentElement?.classList?.contains(cls) === true;
 }
 
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, parent?: Element): SVGElementTagNameMap[K] {
@@ -118,6 +124,17 @@ export class HUD implements IHUD {
   private readonly stripSpeed: Txt;
   private readonly stripBoost: HTMLElement;
   private readonly touch: TouchControls | null = null;
+  /** Colour-blind mode is on (html.mz-cb), read once per frame. */
+  private cb = false;
+  /** The hazard cue (M7c, colour-blind mode): spots built once per track, a chip shown while one is near. */
+  private readonly cueSpots: readonly CueSpot[];
+  private readonly cueEl: HTMLElement;
+  private readonly cueIcon: Txt;
+  private readonly cueText: Txt;
+  private shownCue = '';
+  private readonly trackLength: number;
+  /** ENABLE TILT on the intro card (M7c). */
+  private tiltBtn: HTMLButtonElement | null = null;
   private readonly countdownEl: HTMLElement;
   private readonly wrongEl: HTMLElement;
   private readonly toastsEl: HTMLElement;
@@ -323,6 +340,15 @@ export class HUD implements IHUD {
     this.stripBoost.dataset.s = 'locked';
     if (opts.touch) this.touch = new TouchControls(race, opts.touch);
 
+    // Hazard cue (colour-blind mode): an icon and the way to the clear side.
+    this.trackLength = track.length;
+    this.cueSpots = buildCueSpots(track);
+    this.cueEl = el('div', 'mz-hazard', undefined, race);
+    this.cueEl.setAttribute('role', 'status');
+    this.cueIcon = new Txt(el('span', 'mz-hazard-icon', '', this.cueEl));
+    this.cueText = new Txt(el('span', 'mz-hazard-text', '', this.cueEl));
+    this.cueEl.hidden = true;
+
     // ------------------------------------------------------------ overlays
     this.countdownEl = el('div', 'mz-countdown', undefined, c);
     this.wrongEl = el('div', 'mz-wrongway', undefined, c);
@@ -443,13 +469,15 @@ export class HUD implements IHUD {
     this.container.remove?.();
   }
 
-  update(snap: RaceSnapshot, dt: number): void {
+  update(snap: RaceSnapshot, dt: number, hazardTime = 0): void {
+    this.cb = rootHas('mz-cb');
     if (snap.state !== this.shownState) this.applyState(snap);
     this.updateCountdown(snap.countdown, snap.state);
     if (snap.state === 'title' || snap.state === 'results') return;
-    if (this.touch) this.touch.update(!this.introShown && (snap.state === 'racing' || snap.state === 'countdown') && document.documentElement.classList.contains('mz-touch'));
+    if (this.touch) this.touch.update(!this.introShown && (snap.state === 'racing' || snap.state === 'countdown') && rootHas('mz-touch'));
 
     const p = snap.player;
+    this.updateCue(p, hazardTime);
 
     // position
     let pos = 0;
@@ -562,13 +590,27 @@ export class HUD implements IHUD {
     }
 
     if (snap.state !== 'paused') {
-      this.minimap.update(snap.ships.length > 0 ? snap.ships : [p], p);
+      const leader = snap.standings.length > 0 ? snap.standings[0].id : -1;
+      this.minimap.update(snap.ships.length > 0 ? snap.ships : [p], p, leader, this.cb);
     }
   }
 
   // ---------------------------------------------------------------------
   // internals
   // ---------------------------------------------------------------------
+
+  /** The hazard cue chip (colour-blind mode only; quiet on a split path and when not racing). */
+  private updateCue(p: RaceSnapshot['player'], hazardTime: number): void {
+    const cue = this.cb && p.status === 'racing' && p.path === null ? hazardCue(this.cueSpots, p.trackU * this.trackLength, p.lateral, p.speed, hazardTime, this.trackLength) : null;
+    const key = cue ? `${cue.kind}|${cue.side}` : '';
+    if (key === this.shownCue) return;
+    this.shownCue = key;
+    this.cueEl.hidden = cue === null;
+    if (!cue) return;
+    this.cueIcon.set(HAZARD_ICONS[cue.kind]);
+    this.cueText.set(cue.side === -1 ? `◀ ${HAZARD_NAMES[cue.kind]}` : cue.side === 1 ? `${HAZARD_NAMES[cue.kind]} ▶` : HAZARD_NAMES[cue.kind]);
+    this.cueEl.dataset.side = String(cue.side);
+  }
 
   private applyState(snap: RaceSnapshot): void {
     const prev = this.shownState;
@@ -722,6 +764,13 @@ export class HUD implements IHUD {
       el('span', 'ship', r.ship, who);
       el('span', 'quote', r.catchphrase ? `“${r.catchphrase}”` : 'YOU', row);
     }
+    if (this.actions.tilt) {
+      const tilt = this.actions.tilt;
+      const b = this.button('mz-btn mz-intro-tilt', 'ENABLE TILT', () => tilt.enable(), root);
+      // The tap must not also skip the card: the permission prompt comes first.
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      this.tiltBtn = b;
+    }
     prompt('mz-hint', 'PRESS ANY KEY TO SKIP', 'PRESS ANY BUTTON TO SKIP', root, 'TAP TO SKIP');
     root.addEventListener('pointerdown', () => this.actions.onSkipIntro?.());
   }
@@ -729,6 +778,7 @@ export class HUD implements IHUD {
   /** Show or hide the grid intro card (App: before every race, ≈ 3 s, any input skips). */
   setIntro(on: boolean): void {
     this.container.classList.toggle('intro', on && this.roster.length > 0);
+    if (this.tiltBtn) this.tiltBtn.hidden = !(on && this.actions.tilt?.needed());
     if (on) this.touch?.release();
   }
 

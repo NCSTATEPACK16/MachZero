@@ -645,4 +645,9 @@ export interface HudActions {
   cup?: { onStandings(): void; onRetire(): void };
   /** Ends the grid intro card early (a tap on it; keys and buttons go through the App's input). */
   onSkipIntro?(): void;
+  /**
+   * Tilt steering (M7c): `needed` is true when tilt is chosen but no motion data arrives (iOS asks for permission again
+   * after each launch); the intro card then shows ENABLE TILT, which calls `enable` from the tap. Skipped: the slider.
+   */
+  tilt?: { needed(): boolean; enable(): void };
 }

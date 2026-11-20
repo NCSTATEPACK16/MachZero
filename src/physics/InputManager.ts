@@ -3,6 +3,7 @@ import type { ControlInput, IInputManager, KeyBindings, KeyControl, MenuAction }
 import { damp } from '../core/math';
 import { neutralControls } from '../core/controls';
 import type { TouchInput } from './TouchInput';
+import { DEFAULT_PAD_BINDINGS, clonePadBindings, type PadBindings } from '../save/schema';
 
 /** Menu actions produced by keys / buttons, in a fixed order (index used for edge bookkeeping). */
 const MENU_ACTIONS: readonly MenuAction[] = ['pause', 'confirm', 'back', 'mute', 'restart', 'up', 'down', 'left', 'right'];
@@ -180,6 +181,10 @@ export class InputManager implements IInputManager {
   private padBoostHeld = false;
   private padFireHeld = false;
   private readonly padPrevButtons = new Uint8Array(16);
+  /** The eight pad driving controls' buttons (Settings → Controls, M7c). Menu buttons are fixed. */
+  private padMap: PadBindings = clonePadBindings(DEFAULT_PAD_BINDINGS);
+  private padItemPrevHeld = false;
+  private padItemNextHeld = false;
   /** Per NAV_DIRS: direction held (d-pad or stick), seconds held, and when it next repeats. */
   private readonly navDown = new Uint8Array(NAV_DIRS.length);
   private readonly navTime = new Float32Array(NAV_DIRS.length);
@@ -209,6 +214,20 @@ export class InputManager implements IInputManager {
     }
     this.codeToControl = map;
     this.held.clear();
+  }
+
+  /** Replace the pad's driving layout (Settings → Controls). Steering stays on the left stick; menu buttons are fixed. */
+  setPadBindings(bindings: Readonly<PadBindings>): void {
+    this.padMap = clonePadBindings(bindings);
+  }
+
+  /** The pad buttons pressed right now (Settings → Controls' "press a button" capture). */
+  padButtonsDown(): number[] {
+    const pad = this.firstPad();
+    if (!pad) return [];
+    const out: number[] = [];
+    for (let i = 0; i < Math.min(16, pad.buttons.length); i++) if (pad.buttons[i]?.pressed) out.push(i);
+    return out;
   }
 
   /** Current driving controls; `boost` is true for exactly one sample per press. */
@@ -376,6 +395,8 @@ export class InputManager implements IInputManager {
       this.padAirRight = 0;
       this.padBoostHeld = false;
       this.padFireHeld = false;
+      this.padItemPrevHeld = false;
+      this.padItemNextHeld = false;
       this.padPrevButtons.fill(0);
       this.navDown.fill(0);
       return;
@@ -395,24 +416,36 @@ export class InputManager implements IInputManager {
     }
 
     this.padSteer = applyDeadzone(pad.axes[0] ?? 0, STICK_DEADZONE);
-    this.padThrottle = Math.max(btn(PAD.RT), down(PAD.A) ? 1 : 0);
-    this.padBrake = Math.max(btn(PAD.LT), down(PAD.B) ? 1 : 0);
-    this.padAirLeft = down(PAD.LB) ? 1 : 0;
-    this.padAirRight = down(PAD.RB) ? 1 : 0;
+    // The driving controls through the bindings (defaults: RT/Ⓐ, LT/Ⓑ, LB, RB, Ⓧ, Ⓨ, d-pad ◀ ▶). Analog values for
+    // throttle and brake (a trigger's travel); the rest are pressed or not.
+    const m = this.padMap;
+    const level = (list: readonly number[]): number => {
+      let v = 0;
+      for (const i of list) v = Math.max(v, btn(i));
+      return v;
+    };
+    const any = (list: readonly number[]): boolean => {
+      for (const i of list) if (down(i)) return true;
+      return false;
+    };
+    this.padThrottle = level(m.throttle);
+    this.padBrake = level(m.brake);
+    this.padAirLeft = any(m.airLeft) ? 1 : 0;
+    this.padAirRight = any(m.airRight) ? 1 : 0;
 
-    const boostHeld = down(PAD.X);
+    const boostHeld = any(m.boost);
     if (boostHeld && !this.padBoostHeld) this.boostLatch = true;
     this.padBoostHeld = boostHeld;
-    const fireHeld = down(PAD.Y);
+    const fireHeld = any(m.item);
     if (fireHeld && !this.padFireHeld) this.fireLatch = true;
     this.padFireHeld = fireHeld;
-    // Item select: the d-pad's left and right (no race job otherwise; menus read them as navigation too).
-    const dl = down(PAD.DPAD_LEFT);
-    const dr = down(PAD.DPAD_RIGHT);
-    if (dl && this.padPrevButtons[PAD.DPAD_LEFT] === 0) this.cycleLatch--;
-    if (dr && this.padPrevButtons[PAD.DPAD_RIGHT] === 0) this.cycleLatch++;
-    this.padPrevButtons[PAD.DPAD_LEFT] = dl ? 1 : 0;
-    this.padPrevButtons[PAD.DPAD_RIGHT] = dr ? 1 : 0;
+    // Item select (menus also read the d-pad as navigation).
+    const prev = any(m.itemPrev);
+    const next = any(m.itemNext);
+    if (prev && !this.padItemPrevHeld) this.cycleLatch--;
+    if (next && !this.padItemNextHeld) this.cycleLatch++;
+    this.padItemPrevHeld = prev;
+    this.padItemNextHeld = next;
 
     // Menu edges from buttons.
     this.padEdge(PAD.START, down(PAD.START), 'pause');

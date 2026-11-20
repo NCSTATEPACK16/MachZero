@@ -28,7 +28,7 @@ export const FEATURE_DEFAULTS: FeatureSet = {
   worlds: true, // M3 complete (Neon Bay, Sunset Mesa, world select)
   tiers: false,
   music: false,
-  touch: false,
+  touch: true, // M7 complete (touch, tilt, assists, comfort)
   modes: false,
   expansion: false,
 };

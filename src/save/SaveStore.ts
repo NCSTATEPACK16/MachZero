@@ -40,6 +40,9 @@ export class SaveStore {
     return this.storage !== null;
   }
 
+  /** True after a load that found nothing stored at all (the very first launch on this device). */
+  firstLaunch = false;
+
   /** Read, migrate and sanitise. Never throws. */
   load(): SaveData {
     if (!this.storage) return this.memory ? this.parse(this.memory) : emptySave();
@@ -51,6 +54,7 @@ export class SaveStore {
       return emptySave();
     }
     if (raw === null) {
+      this.firstLaunch = true;
       // First 2.0 launch: pick up v1's legacy lap record.
       let v1;
       try {

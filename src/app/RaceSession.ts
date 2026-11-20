@@ -165,7 +165,7 @@ export class RaceSession {
     const ctx: FrameContext = { dt, alpha, time, hazardTime: this.physics.hazardTime, ...(this.physics.mines.length > 0 ? { mines: this.physics.mines } : {}), ships: this.ships, player: this.player, track: this.track, race: this.race.snapshot() };
     this.view.graphics.update(ctx);
     this.hud?.setItems(this.items.playerView());
-    this.hud?.update(ctx.race, dt);
+    this.hud?.update(ctx.race, dt, ctx.hazardTime);
     this.view.audio.update(ctx);
   }
 

@@ -32,6 +32,8 @@ import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } fro
 import { bindHaptics, isNativeApp, setHapticsEnabled, tapUi } from '../native/haptics';
 import { TouchRig } from '../game/TouchControls';
 import { TouchInput } from '../physics/TouchInput';
+import { TiltInput, requestTiltPermission, type TiltPermission } from '../physics/TiltInput';
+import { calibratedNeutral } from '../physics/tilt';
 import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
 import { effectiveAssists } from '../physics/Assists';
@@ -92,6 +94,12 @@ export class App {
   readonly benchmarking = signal(false);
   /** Device whose buttons the prompts show (the last one used; a pad as soon as one connects). */
   readonly inputDevice = signal<InputDevice>('keyboard');
+  /** A gamepad is connected (Settings → Controls shows the pad section). */
+  readonly padConnected = signal(false);
+  /** A key has been pressed this session (Settings → Controls shows the keyboard section). */
+  readonly keyboardSeen = signal(false);
+  /** Settings → Controls is waiting for a pad button (menu navigation is paused meanwhile). */
+  private padCapture: { resolve: (i: number | null) => void; held: Set<number>; until: number } | null = null;
 
   /** True while the race session is a Grand Prix cup race (built from the profile's cup). */
   readonly cupRace = signal(false);
@@ -107,6 +115,8 @@ export class App {
   /** Touch controls (IMPLEMENTATION §M7b), with the `touch` feature only: without it a touch does nothing in a race. */
   private readonly touchRig: TouchRig | null = FEATURES.touch ? new TouchRig(new TouchInput()) : null;
   private readonly input = new InputManager(window, this.touchRig?.input ?? null);
+  /** Tilt steering (M7c), with the touch controls only. */
+  private readonly tilt: TiltInput | null = this.touchRig ? new TiltInput(window) : null;
   /** The steer of the last driving sample (debug hook for the touch e2e). */
   private lastSteer = 0;
   /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
@@ -133,6 +143,10 @@ export class App {
     let pendingFallback: FallbackReason | null = null;
     this.store = new SaveStore(undefined, { onFallback: (r) => (pendingFallback = r) });
     this.save.value = this.store.load();
+    // A new save starts with reduced motion on when the device asks for it (IMPLEMENTATION §M7c); never later.
+    if (this.store.firstLaunch && typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.save.value = { ...this.save.value, settings: { ...this.save.value.settings, reducedMotion: true } };
+    }
     this.settings = new Settings(this.save.value.settings);
     if (pendingFallback) this.toast(FALLBACK_TEXT[pendingFallback], 'warn', 9);
 
@@ -159,10 +173,12 @@ export class App {
       effect(() => {
         const t = this.settings.touch.value;
         const p = this.menus ? this.activeProfile.value : null;
-        const airbrake = this.flags.airbrake ?? t.airbrake;
+        const airbrake = t.airbrake;
         rig.input.setConfig({ sensitivity: t.sensitivity, airbrake });
         rig.setConfig({ buttonSize: t.buttonSize, leftHanded: t.leftHanded, airbrake, autoAccelerate: effectiveAssists(p?.assists ?? NO_ASSISTS, 'touch', t).autoAccelerate, hint: !t.hintSeen });
       });
+      // A touch-first screen gets 44-point menu targets before its first tap (ui.css, M7c).
+      if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) document.documentElement.classList.add('mz-coarse');
       // The web shows a rotate overlay in portrait on a touch screen (the app is locked to landscape) and pauses.
       if (!isNativeApp()) {
         document.documentElement.classList.add('mz-rotate-ok');
@@ -630,6 +646,7 @@ export class App {
         else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
+      this.stepTilt(dt);
       const c = input.sample();
       this.lastSteer = c.steer;
       s.fixed(dt, c);
@@ -640,6 +657,22 @@ export class App {
       const o = input.orbitInput();
       if (o.x !== 0 || o.y !== 0 || o.zoom !== 0) this.graphics.orbitPreview(o.x * 2.4 * dt, o.y * 1.2 * dt, o.zoom * 1.5 * dt);
     }
+    // Settings → Controls is capturing a pad button: the first new press is the answer; menus wait.
+    const cap = this.padCapture;
+    if (cap) {
+      const down = input.padButtonsDown();
+      const fresh = down.find((b) => !cap.held.has(b));
+      for (const b of [...cap.held]) if (!down.includes(b)) cap.held.delete(b);
+      if (fresh !== undefined || performance.now() > cap.until) {
+        this.padCapture = null;
+        cap.resolve(fresh ?? null);
+      }
+      for (const a of NAV_ACTIONS) input.consume(a);
+      input.consume('pause');
+      input.sample();
+      s?.fixed(dt, null);
+      return;
+    }
     // Menu screens: route gamepad / unfocused-keyboard actions to the UI; Escape acts as back.
     for (const a of NAV_ACTIONS) if (input.consume(a)) this.navHandler?.(a);
     if (input.consume('pause')) this.navHandler?.('back');
@@ -648,7 +681,66 @@ export class App {
     s?.fixed(dt, null);
   }
 
+  /** Tilt (IMPLEMENTATION §M7c): while it is chosen and its data is fresh, it replaces the slider's steer. */
+  private stepTilt(dt: number): void {
+    const rig = this.touchRig;
+    const tilt = this.tilt;
+    if (!rig || !tilt) return;
+    const t = this.settings.touch.value;
+    if (t.steer !== 'tilt') {
+      tilt.stop();
+      rig.input.externalSteer = null;
+      rig.tiltActive = rig.tiltFlat = false;
+      return;
+    }
+    tilt.start();
+    const live = tilt.fresh;
+    rig.input.externalSteer = live ? tilt.update(dt, t.tiltNeutral, t.tiltSensitivity) : null;
+    rig.tiltActive = live;
+    rig.tiltFlat = live && tilt.flat;
+  }
+
+  /** Settings → TILT, or the intro card's ENABLE TILT (inside a tap): ask for motion data; without it, the slider. */
+  async enableTilt(): Promise<TiltPermission> {
+    const r = this.tilt ? await requestTiltPermission() : 'unsupported';
+    if (r === 'granted') {
+      this.tilt?.start();
+      this.settings.setTouch({ steer: 'tilt' });
+    } else {
+      this.settings.setTouch({ steer: 'slider' });
+      this.toast(r === 'denied' ? 'Tilt needs motion access. Using the slider. Allow motion and try again.' : 'This device has no motion sensor. Using the slider.', 'warn', 6);
+    }
+    return r;
+  }
+
+  /** CALIBRATE: the way the device is held now becomes straight ahead. False when no motion data is coming in. */
+  calibrateTilt(): boolean {
+    const roll = this.tilt?.currentRoll ?? null;
+    if (roll === null) {
+      this.toast('No tilt data yet. Hold the device as you play, then press CALIBRATE.', 'warn');
+      return false;
+    }
+    this.settings.setTouch({ tiltNeutral: calibratedNeutral(roll) });
+    this.toast('Tilt calibrated: this is straight ahead.', 'good');
+    return true;
+  }
+
+  /** Wait for the next pad button press (Settings → Controls' capture): its index, or null after 6 s or on cancel. */
+  capturePadButton(): Promise<number | null> {
+    this.cancelPadCapture();
+    return new Promise((resolve) => {
+      this.padCapture = { resolve, held: new Set(this.input.padButtonsDown()), until: performance.now() + 6000 };
+    });
+  }
+
+  cancelPadCapture(): void {
+    const c = this.padCapture;
+    this.padCapture = null;
+    c?.resolve(null);
+  }
+
   private setInputDevice(d: InputDevice): void {
+    if (d === 'keyboard') this.keyboardSeen.value = true;
     this.inputDevice.value = d;
     document.documentElement.classList.toggle('mz-pad', d === 'pad');
     document.documentElement.classList.toggle('mz-touch', d === 'touch');
@@ -657,6 +749,7 @@ export class App {
 
   /** A controller dropping mid-race pauses it (never resumes by itself); connecting one switches the prompts. */
   private padChanged(connected: boolean): void {
+    this.padConnected.value = connected;
     if (connected) {
       this.setInputDevice('pad');
       this.toast('Controller connected.', 'good');
@@ -795,6 +888,13 @@ export class App {
       onToggleMute: () => this.toggleMute(),
       onSkipIntro: () => this.endIntro(),
     };
+    if (this.tilt) {
+      const tilt = this.tilt;
+      actions.tilt = {
+        needed: () => this.settings.touch.value.steer === 'tilt' && this.inputDevice.value === 'touch' && !tilt.fresh,
+        enable: () => void this.enableTilt(),
+      };
+    }
     if (this.menus) {
       actions.onMenu = () => this.quitToMenu();
       actions.onSettings = () => this.openSettings('pause');
@@ -902,7 +1002,9 @@ export class App {
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
     setHapticsEnabled(s.haptics);
+    this.rumble.enabled = s.haptics;
     this.input.setBindings(s.keyBindings);
+    this.input.setPadBindings(s.padBindings);
     const root = document.documentElement.classList;
     // HUD size (IMPLEMENTATION §M7a): until M7c restyles them, both classes carry the old LARGE TEXT rules.
     root.toggle('mz-hud-large', s.hudSize === 'large');

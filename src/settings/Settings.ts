@@ -7,6 +7,7 @@ import type { KeyBindings } from '../core/contracts';
 import {
   DEFAULT_KEY_BINDINGS,
   DEFAULT_PAD_BINDINGS,
+  PAD_CONTROLS,
   RESERVED_CODES,
   cloneBindings,
   clonePadBindings,
@@ -14,10 +15,14 @@ import {
   sanitizeSettings,
   type HudSize,
   type PadBindings,
+  type PadControl,
   type QualitySetting,
   type SettingsData,
   type TouchSettings,
 } from '../save/schema';
+
+/** START always pauses (menu buttons are fixed), so it cannot drive. */
+export const PAD_START = 9;
 
 export class Settings {
   readonly masterVolume = signal(0);
@@ -110,6 +115,39 @@ export class Settings {
   /** Change some touch settings (sanitised; the rest stay). */
   setTouch(patch: Partial<TouchSettings>): void {
     this.touch.value = sanitizeSettings({ ...this.snapshot(), touch: { ...this.touch.value, ...patch } }).touch;
+  }
+
+  /**
+   * Bind pad button `index` to slot `slot` of `control` (a slot past the end appends; at most two per control). The
+   * same rules as bindKey: a button moves off the control that had it, and a control left with no button inherits the
+   * one it was swapped for. Returns false when the change would leave a control unbound or the index is not 0–15.
+   */
+  bindPad(control: PadControl, slot: number, index: number): boolean {
+    if (!Number.isInteger(index) || index < 0 || index > 15 || index === PAD_START) return false;
+    const next = clonePadBindings(this.padBindings.value);
+    const list = next[control];
+    const replaced = slot < list.length ? list[slot] : undefined;
+    if (replaced === index) return true;
+    if (replaced !== undefined) list[slot] = index;
+    else if (list.length < 2) list.push(index);
+    else return false;
+    next[control] = list.filter((b, i) => list.indexOf(b) === i);
+    let robbed: PadControl | null = null;
+    for (const k of PAD_CONTROLS) {
+      if (k === control || !next[k].includes(index)) continue;
+      robbed = k;
+      next[k] = next[k].filter((b) => b !== index);
+    }
+    if (robbed && next[robbed].length === 0) {
+      if (replaced === undefined) return false;
+      next[robbed] = [replaced];
+    }
+    this.padBindings.value = sanitizeSettings({ ...this.snapshot(), padBindings: next }).padBindings;
+    return true;
+  }
+
+  resetPadBindings(): void {
+    this.padBindings.value = clonePadBindings(DEFAULT_PAD_BINDINGS);
   }
 
   resetKeyBindings(): void {

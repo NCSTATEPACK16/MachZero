@@ -191,8 +191,6 @@ export interface UrlFlags {
   world: string | null;
   /** ?hazards=rookie forces the Rookie hazard policy for this page load (QA); not saved. */
   hazards: 'normal' | 'rookie' | null;
-  /** ?airbrake=buttons|slider forces the touch air-brake style for this page load (QA until M7c's setting); not saved. */
-  airbrake: 'slider' | 'buttons' | null;
 }
 
 export function readUrlFlags(search: string = typeof location !== 'undefined' ? location.search : ''): UrlFlags {
@@ -205,7 +203,5 @@ export function readUrlFlags(search: string = typeof location !== 'undefined' ? 
   const h = p.get('hazards');
   const hazards = h === 'rookie' || h === 'normal' ? h : null;
   const debug = p.get('debug') === '1';
-  const ab = p.get('airbrake');
-  const airbrake = ab === 'slider' || ab === 'buttons' ? ab : null;
-  return { autopilot: p.get('autopilot') === '1', debug, perf: debug || p.get('perf') === '1', dynres: p.get('dynres') !== '0', seed, quality, world: world || null, hazards, airbrake };
+  return { autopilot: p.get('autopilot') === '1', debug, perf: debug || p.get('perf') === '1', dynres: p.get('dynres') !== '0', seed, quality, world: world || null, hazards };
 }

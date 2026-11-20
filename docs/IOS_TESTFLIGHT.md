@@ -80,6 +80,20 @@ VITE_FEATURES=expansion npm run ios:sync
 - **Settings → Race → CPU difficulty:** Rookie (default: slower rivals who don't catch up), Pilot, Ace.
 - If the controller drops mid-race the race pauses until you resume it.
 
+## Touch and tilt (M7)
+
+- Touch is on by default: touch the screen in a race and the touch controls appear (steer with the left thumb from
+  where it lands, BOOST and BRAKE under the right thumb). Use the pad or a key and they go away again.
+- Touch settings are in **Settings → Controls → TOUCH**: slider or tilt, sensitivity, auto-accelerate, air-brake style,
+  button size, left-handed. **HAPTICS** there turns off both the phone's taps and the pad's rumble.
+- **Tilt asks for motion access** the first time you choose TILT, and iOS asks again after each launch of the app.
+  The grid card then shows **ENABLE TILT**; skip it and that race uses the slider. If tilt steers the wrong way or
+  never responds, report it: the motion data's direction is set in `src/physics/TiltInput.ts` (one sign flip for iOS)
+  and has only been checked in tests, not on the device yet. The app uses WebKit's motion events, not
+  `@capacitor/motion`. If iOS needs `NSMotionUsageDescription` in `Info.plist`, add "MachZero uses motion to steer when
+  tilt steering is on."
+- **CALIBRATE TILT** (Settings → Controls) makes the way you hold the device now straight ahead.
+
 ## Checking performance on a device
 
 - In the app: **Settings → Graphics → Performance panel** shows frame times, missed frames and hitches, with a

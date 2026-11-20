@@ -40,6 +40,10 @@ export class TouchRig {
   haptic: () => void = () => undefined;
   /** The first-race hint was shown (the App sets touch.hintSeen). */
   onHintSeen: () => void = () => undefined;
+  /** Tilt steers right now (tilt chosen and its data fresh): no slider; the air-brakes go to the free corner (M7c). */
+  tiltActive = false;
+  /** Tilt is on but the screen lies too flat to read: "HOLD THE DEVICE UPRIGHT". */
+  tiltFlat = false;
 
   constructor(readonly input: TouchInput) {}
 
@@ -79,6 +83,8 @@ export const TOUCH_LAYOUT: Readonly<Record<'boost' | 'brake' | 'throttle' | 'ite
   airRight: { size: 56, side: 24 + 16 + 56 + 8 + 44 + 8, bottom: 16 + 64 + 12 },
   airLeft: { size: 56, side: 24 + 16 + 56 + 8 + 44 + 8 + 56 + 12, bottom: 16 + 64 + 12 },
 };
+/** Tilt mode: the two air-brakes (72 round) in the corner the steering thumb has left free. */
+const TILT_AIR = { size: 72, side: 24, gap: 16, bottom: 24 } as const;
 /** The air-brake row's bottom while ACCELERATE shows: 12 above it. */
 const AIR_ABOVE_THROTTLE = 16 + 64 + 12 + 72 + 12;
 
@@ -99,6 +105,9 @@ export class TouchControls {
   private readonly dot: HTMLDivElement;
   private readonly buttons = new Map<TouchControl, HTMLButtonElement>();
   private readonly hintEl: HTMLDivElement;
+  private readonly flatChip: HTMLDivElement;
+  private tiltShown = false;
+  private flatShown = false;
   private readonly unsub: () => void;
   private cfg: TouchLayoutConfig;
   private ringX = 0;
@@ -166,6 +175,12 @@ export class TouchControls {
     this.hintEl.hidden = true;
     layer.appendChild(this.hintEl);
     layer.addEventListener('pointerdown', () => this.endHint(), true);
+    this.flatChip = doc.createElement('div');
+    this.flatChip.className = 'mz-tilt-flat';
+    this.flatChip.setAttribute('role', 'status');
+    this.flatChip.textContent = '⟲ HOLD THE DEVICE UPRIGHT';
+    this.flatChip.hidden = true;
+    layer.appendChild(this.flatChip);
 
     parent.appendChild(layer);
     this.cfg = rig.config;
@@ -191,6 +206,27 @@ export class TouchControls {
       b.style.bottom = `${bottom * k}px`;
     }
     this.buttons.get('throttle')!.hidden = c.autoAccelerate;
+    this.layer.classList.toggle('tilt', this.tiltShown);
+    if (this.tiltShown) {
+      // The steering thumb's corner (left, or right when left-handed): left air-brake nearer the left edge.
+      const near = c.leftHanded ? 'airRight' : 'airLeft';
+      const far = c.leftHanded ? 'airLeft' : 'airRight';
+      const edge = c.leftHanded ? 'right' : 'left';
+      const away = c.leftHanded ? 'left' : 'right';
+      for (const [name, sideOff] of [
+        [near, TILT_AIR.side],
+        [far, TILT_AIR.side + TILT_AIR.size + TILT_AIR.gap],
+      ] as const) {
+        const b = this.buttons.get(name)!;
+        b.style.width = b.style.height = `${TILT_AIR.size * k}px`;
+        b.style.setProperty(edge, `${sideOff * k}px`);
+        b.style.setProperty(away, 'auto');
+        b.style.bottom = `${TILT_AIR.bottom * k}px`;
+        b.hidden = false;
+      }
+      if (!c.hint) this.hintDone = true;
+      return;
+    }
     const ab = c.airbrake === 'buttons';
     this.buttons.get('airLeft')!.hidden = !ab;
     this.buttons.get('airRight')!.hidden = !ab;
@@ -212,8 +248,19 @@ export class TouchControls {
     item.dataset.s = n > 0 ? 'ready' : 'empty';
   }
 
-  /** Per frame from the HUD: runs the first-race hint's clock while the layer is up. */
+  /** Per frame from the HUD: follows tilt (mode and the flat chip) and runs the first-race hint's clock. */
   update(showing: boolean): void {
+    const tilt = this.rig.tiltActive;
+    if (tilt !== this.tiltShown) {
+      this.tiltShown = tilt;
+      if (tilt) this.layer.classList.remove('steering'); // the external steer replaces the slider
+      this.apply(this.cfg);
+    }
+    const flat = tilt && this.rig.tiltFlat;
+    if (flat !== this.flatShown) {
+      this.flatShown = flat;
+      this.flatChip.hidden = !flat;
+    }
     if (this.hintDone || !this.cfg.hint) return;
     if (!showing) return;
     const t = this.now();
