@@ -51,9 +51,10 @@ export function MenuButton(props: { label: string; sub?: string; icon?: Componen
   );
 }
 
-export function Toggle(props: { label: string; hint?: string; value: boolean; onChange: (v: boolean) => void }) {
+export function Toggle(props: { label: string; hint?: string; icon?: ComponentChildren; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" class="mzu-row mzu-toggle" role="switch" aria-checked={props.value} onClick={() => props.onChange(!props.value)}>
+      {props.icon ? <span class="mzu-row-icon">{props.icon}</span> : null}
       <span class="mzu-row-text">
         <span class="mzu-row-label">{props.label}</span>
         {props.hint ? <span class="mzu-row-hint">{props.hint}</span> : null}
@@ -88,11 +89,13 @@ export function Slider(props: { label: string; value: number; onChange: (v: numb
   );
 }
 
-export function Segmented<T extends string>(props: { label: string; options: ReadonlyArray<{ value: T; label: string }>; value: T; onChange: (v: T) => void }) {
+export function Segmented<T extends string>(props: { label: string; hint?: string; icon?: ComponentChildren; options: ReadonlyArray<{ value: T; label: string }>; value: T; onChange: (v: T) => void }) {
   return (
     <div class="mzu-row mzu-seg" role="radiogroup" aria-label={props.label}>
+      {props.icon ? <span class="mzu-row-icon">{props.icon}</span> : null}
       <span class="mzu-row-text">
         <span class="mzu-row-label">{props.label}</span>
+        {props.hint ? <span class="mzu-row-hint">{props.hint}</span> : null}
       </span>
       <span class="mzu-seg-opts">
         {props.options.map((o) => (

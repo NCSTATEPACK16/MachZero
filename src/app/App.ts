@@ -3,10 +3,10 @@
  * a route state machine for the menus, and a disposable RaceSession per race. The next race always waits in
  * 'title' state behind the menus, so the backdrop is the real track and field.
  */
-import { batch, computed, effect, signal } from '@preact/signals';
+import { batch, computed, effect, signal, untracked } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
-import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
+import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
@@ -25,13 +25,14 @@ import { WORLDS, worldById, type WorldDef } from '../content/worlds';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { AI_TIERS, MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
 import { bindHaptics, isNativeApp } from '../native/haptics';
 import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
+import { effectiveAssists } from '../physics/Assists';
 import { initialRoute, isMenuRoute, type Route } from './routes';
 
 export interface AppElements {
@@ -136,6 +137,12 @@ export class App {
     this.settings.onChange((s) => {
       this.applySettings(s);
       this.updateSave((d) => (d.settings = s));
+    });
+
+    // The player's assists follow the profile, the input device and the touch settings, mid-race too.
+    effect(() => {
+      const a = this.playerAssists();
+      untracked(() => this.session?.setAssists(a));
     });
 
     // The in-race HUD is hidden while a menu screen is up.
@@ -417,6 +424,20 @@ export class App {
     this.updateProfile((p) => (p.aiTier = tier));
   }
 
+  /**
+   * Change the active profile's assists (Settings → ASSISTS, also from the pause menu). They act in the race at once
+   * (the effect in the constructor passes them on); the hazard rules follow No-KO from the next race.
+   */
+  setAssists(patch: Partial<Assists>): void {
+    this.updateProfile((p) => (p.assists = { ...p.assists, ...patch }));
+  }
+
+  /** The player's assists in force: the profile's, plus touch's auto-accelerate (IMPLEMENTATION §M7a). */
+  private playerAssists(): Assists {
+    const p = this.menus ? this.activeProfile.value : null;
+    return effectiveAssists(p?.assists ?? NO_ASSISTS, this.inputDevice.value, this.settings.touch.value);
+  }
+
   /** Garage turntable: draw `loadout` into `el`, or stop with null. */
   showShipPreview(el: HTMLElement | null, loadout: Loadout | null): void {
     this.graphics.showPreview(el, loadout);
@@ -659,8 +680,9 @@ export class App {
       tier,
       ...(cup ? { gridOrder: cupGridOrder(cup) ?? undefined } : {}),
     });
-    // Hazards: Rookie races telegraph them harder and they only slow you down (SPEC §6); ?hazards= overrides for QA.
-    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' ? 'rookie' : 'normal'));
+    // Hazards: Rookie races, and a profile with No-KO, telegraph them harder and they only slow you down (SPEC §6,
+    // IMPLEMENTATION §M7a); ?hazards= overrides for QA. Fixed for the race once it is built.
+    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' || p?.assists.noKO ? 'rookie' : 'normal'));
     // Items come from the live profile; one used is spent from the save at once (a restart does not refill it).
     const items = p
       ? {
@@ -668,7 +690,7 @@ export class App {
           use: (kind: ItemKind) => this.updateProfile((q) => (q.items[kind] = Math.max(0, q.items[kind] - 1))),
         }
       : undefined;
-    const base = { field, autopilot: this.flags.autopilot, hazards, items };
+    const base = { field, autopilot: this.flags.autopilot, hazards, items, assists: this.playerAssists() };
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {
@@ -712,6 +734,7 @@ export class App {
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
       this.session = next;
       this.sessionKey = key;
+      next.setAssists(this.playerAssists()); // they may have changed while it was building
       // Pose the camera on the grid, then compile every shader behind the loading screen (no mid-race stalls).
       next.frame(1 / 60, 1, 0);
       await this.graphics.warmUp();
@@ -837,7 +860,9 @@ export class App {
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
     this.input.setBindings(s.keyBindings);
     const root = document.documentElement.classList;
-    root.toggle('mz-large-text', s.largeText);
+    // HUD size (IMPLEMENTATION §M7a): until M7c restyles them, both classes carry the old LARGE TEXT rules.
+    root.toggle('mz-hud-large', s.hudSize === 'large');
+    root.toggle('mz-hud-xl', s.hudSize === 'xl');
     root.toggle('mz-cb', s.colorBlind);
     root.toggle('mz-reduced-motion', s.reducedMotion);
   }

@@ -10,7 +10,7 @@ import { type ItemBag, clampBag, emptyBag, itemSlots } from '../content/items';
 import { type CupState, type Trophies, sanitizeCup, sanitizeTrophies } from '../game/modes/GrandPrix';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -19,6 +19,32 @@ export const BADGE_COUNT = 12;
 
 export type QualitySetting = 'auto' | 'low' | 'med' | 'high';
 export type TouchSteer = 'slider' | 'tilt';
+/** HUD and menu scale (IMPLEMENTATION §M7c): 1, 1.15 or 1.3. Replaces the v7 `largeText` switch. */
+export type HudSize = 'normal' | 'large' | 'xl';
+export type AirbrakeStyle = 'slider' | 'buttons';
+/** Low / medium / high. */
+export type Step3 = 0 | 1 | 2;
+/** The eight pad driving controls that can be remapped (M7c). Steering stays on the left stick. */
+export type PadControl = 'throttle' | 'brake' | 'airLeft' | 'airRight' | 'boost' | 'item' | 'itemPrev' | 'itemNext';
+/** Standard-mapping button indices 0–15, one or two per control. */
+export type PadBindings = Record<PadControl, number[]>;
+
+/** Touch controls (IMPLEMENTATION §M7b, §M7c). Per device, not per profile. */
+export interface TouchSettings {
+  steer: TouchSteer;
+  /** Auto-accelerate whenever touch drives, whatever the profile's assists say. */
+  autoAccelerate: boolean;
+  /** Slider sensitivity. */
+  sensitivity: Step3;
+  airbrake: AirbrakeStyle;
+  buttonSize: 's' | 'm' | 'l';
+  leftHanded: boolean;
+  tiltSensitivity: Step3;
+  /** Tilt neutral angle in degrees, −20..20. */
+  tiltNeutral: number;
+  /** The first-race touch hint was shown. */
+  hintSeen: boolean;
+}
 
 export interface TrackRecord {
   /** Best single lap (s). */
@@ -58,14 +84,17 @@ export interface SettingsData {
   muted: boolean;
   reducedMotion: boolean;
   colorBlind: boolean;
-  largeText: boolean;
+  hudSize: HudSize;
+  /** iOS haptics and pad rumble. */
+  haptics: boolean;
   /** Frame-time panel (the in-app way to get ?perf=1, e.g. in the iOS app). */
   perfPanel: boolean;
   keyBindings: KeyBindings;
   quality: QualitySetting;
   /** What 'auto' resolved to on this device (device hint or first-launch benchmark); null = not yet. */
   detectedQuality: 'low' | 'med' | 'high' | null;
-  touchSteer: TouchSteer;
+  touch: TouchSettings;
+  padBindings: PadBindings;
 }
 
 export interface SaveData {
@@ -93,6 +122,30 @@ export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindings> = Object.freeze({
 /** Keys that always mean a menu action and can't be bound to driving. */
 export const RESERVED_CODES: ReadonlySet<string> = new Set(['Escape', 'Enter', 'NumpadEnter', 'Backspace', 'Tab', 'KeyM', 'KeyP', 'KeyR']);
 
+export const PAD_CONTROLS: readonly PadControl[] = ['throttle', 'brake', 'airLeft', 'airRight', 'boost', 'item', 'itemPrev', 'itemNext'];
+
+/** Today's pad layout (standard mapping): RT/Ⓐ throttle, LT/Ⓑ brake, LB/RB air-brakes, Ⓧ boost, Ⓨ item, d-pad ←/→ item select. */
+export const DEFAULT_PAD_BINDINGS: Readonly<PadBindings> = Object.freeze({
+  throttle: [7, 0],
+  brake: [6, 1],
+  airLeft: [4],
+  airRight: [5],
+  boost: [2],
+  item: [3],
+  itemPrev: [14],
+  itemNext: [15],
+});
+
+export function clonePadBindings(b: Readonly<PadBindings>): PadBindings {
+  const out = {} as PadBindings;
+  for (const k of PAD_CONTROLS) out[k] = [...b[k]];
+  return out;
+}
+
+export function defaultTouch(): TouchSettings {
+  return { steer: 'slider', autoAccelerate: true, sensitivity: 1, airbrake: 'slider', buttonSize: 'm', leftHanded: false, tiltSensitivity: 1, tiltNeutral: 0, hintSeen: false };
+}
+
 export const ROOKIE_ASSISTS: Readonly<Assists> = Object.freeze({ autoAccelerate: true, steering: 2, noKO: true, earlyBoost: true });
 export const NO_ASSISTS: Readonly<Assists> = Object.freeze({ autoAccelerate: false, steering: 0, noKO: false, earlyBoost: false });
 
@@ -106,12 +159,14 @@ export function defaultSettings(): SettingsData {
     muted: false,
     reducedMotion: false,
     colorBlind: false,
-    largeText: false,
+    hudSize: 'normal',
+    haptics: true,
     perfPanel: false,
     keyBindings: cloneBindings(DEFAULT_KEY_BINDINGS),
     quality: 'auto',
     detectedQuality: null,
-    touchSteer: 'slider',
+    touch: defaultTouch(),
+    padBindings: clonePadBindings(DEFAULT_PAD_BINDINGS),
   };
 }
 
@@ -282,6 +337,50 @@ function sanitizeBindings(v: unknown): KeyBindings {
   return out;
 }
 
+const step3 = (v: unknown, d: Step3): Step3 => clampInt(v, 0, 2, d) as Step3;
+
+export function sanitizeTouch(v: unknown): TouchSettings {
+  const d = defaultTouch();
+  if (!isObj(v)) return d;
+  return {
+    steer: oneOf(v.steer, ['slider', 'tilt'] as const, d.steer),
+    autoAccelerate: bool(v.autoAccelerate, d.autoAccelerate),
+    sensitivity: step3(v.sensitivity, d.sensitivity),
+    airbrake: oneOf(v.airbrake, ['slider', 'buttons'] as const, d.airbrake),
+    buttonSize: oneOf(v.buttonSize, ['s', 'm', 'l'] as const, d.buttonSize),
+    leftHanded: bool(v.leftHanded, d.leftHanded),
+    tiltSensitivity: step3(v.tiltSensitivity, d.tiltSensitivity),
+    tiltNeutral: num(v.tiltNeutral, -20, 20, d.tiltNeutral),
+    hintSeen: bool(v.hintSeen, d.hintSeen),
+  };
+}
+
+/**
+ * Pad bindings: button indices 0–15, at most 2 per control, no index on two controls (the first control in
+ * PAD_CONTROLS order keeps it). A control left empty takes its default buttons that are still free, or else
+ * every default is restored.
+ */
+export function sanitizePadBindings(v: unknown): PadBindings {
+  const d = clonePadBindings(DEFAULT_PAD_BINDINGS);
+  if (!isObj(v)) return d;
+  const out = {} as PadBindings;
+  const used = new Set<number>();
+  for (const k of PAD_CONTROLS) {
+    const raw = v[k];
+    const list: number[] = [];
+    if (Array.isArray(raw)) {
+      for (const b of raw) {
+        if (typeof b !== 'number' || !Number.isInteger(b) || b < 0 || b > 15 || used.has(b) || list.includes(b)) continue;
+        if (list.length < 2) list.push(b);
+      }
+    }
+    out[k] = list.length > 0 ? list : d[k].filter((b) => !used.has(b));
+    if (out[k].length === 0) return d;
+    for (const b of out[k]) used.add(b);
+  }
+  return out;
+}
+
 export function sanitizeSettings(v: unknown): SettingsData {
   const d = defaultSettings();
   if (!isObj(v)) return d;
@@ -292,12 +391,14 @@ export function sanitizeSettings(v: unknown): SettingsData {
     muted: bool(v.muted, d.muted),
     reducedMotion: bool(v.reducedMotion, d.reducedMotion),
     colorBlind: bool(v.colorBlind, d.colorBlind),
-    largeText: bool(v.largeText, d.largeText),
+    hudSize: oneOf(v.hudSize, ['normal', 'large', 'xl'] as const, d.hudSize),
+    haptics: bool(v.haptics, d.haptics),
     perfPanel: bool(v.perfPanel, d.perfPanel),
     keyBindings: sanitizeBindings(v.keyBindings),
     quality: oneOf(v.quality, ['auto', 'low', 'med', 'high'] as const, d.quality),
     detectedQuality: v.detectedQuality === 'low' || v.detectedQuality === 'med' || v.detectedQuality === 'high' ? v.detectedQuality : null,
-    touchSteer: oneOf(v.touchSteer, ['slider', 'tilt'] as const, d.touchSteer),
+    touch: sanitizeTouch(v.touch),
+    padBindings: sanitizePadBindings(v.padBindings),
   };
 }
 

@@ -138,7 +138,8 @@ function applyDeadzone(x: number, dead: number): number {
 }
 
 /** The device the player last used (prompts show its buttons). */
-export type InputDevice = 'keyboard' | 'pad';
+/** 'touch' arrives with the touch controls (IMPLEMENTATION §M7b); M7a only adds the member. */
+export type InputDevice = 'keyboard' | 'pad' | 'touch';
 
 /** Any pad input beyond this (stick or button) makes the pad the last-used device. */
 const PAD_ACTIVITY = 0.5;

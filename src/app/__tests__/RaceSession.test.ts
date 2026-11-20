@@ -3,6 +3,7 @@ import { CONFIG } from '../../core/config';
 import { buildRaceField, defaultLoadout } from '../../content/pilots';
 import type { RecordStore } from '../../game';
 import { TRACK_DEFS } from '../../content/tracks';
+import type { ControlInput } from '../../core/contracts';
 import { RaceSession, type RaceSetup } from '../RaceSession';
 
 
@@ -130,6 +131,33 @@ describe('RaceSession items', () => {
     expect(hits).toHaveLength(1);
     s.restart();
     expect(ahead!.empLock).toBe(0);
+    s.dispose();
+  });
+});
+
+describe('RaceSession assists (IMPLEMENTATION §M7a)', () => {
+  it('assists the player\'s controls while the raw input still reaches the items', async () => {
+    const bag = { emp: 1, shield: 0, mine: 0 };
+    const s = await RaceSession.create(setup({ autopilot: false, items: { counts: () => bag, use: (k) => void bag[k]-- }, assists: { autoAccelerate: true, steering: 2, noKO: true, earlyBoost: true } }));
+    expect(s.player.noKO).toBe(true);
+    expect(s.player.earlyBoost).toBe(true);
+    const idle = { throttle: 0, brake: 0, steer: 0, airbrakeLeft: 0, airbrakeRight: 0, boost: false };
+    const seen: Array<ControlInput | null> = [];
+    const fixed = s.items.fixed.bind(s.items);
+    s.items.fixed = (dt, c) => (seen.push(c), fixed(dt, c));
+    s.start();
+    const dt = CONFIG.FIXED_DT;
+    for (let t = 0; t < 6; t += dt) s.fixed(dt, idle);
+    expect(s.state).toBe('racing');
+    expect(s.player.forwardSpeed).toBeGreaterThan(10); // auto-accelerate, nobody pressed throttle
+    expect(s.player.lastControls.throttle).toBe(1);
+    expect(seen.at(-1)).toBe(idle); // the items get the raw input object
+    expect(s.player.boostUnlocked).toBe(true); // boost from lap 1
+    // Classic mid-race: the next step uses the raw input.
+    s.setAssists({ autoAccelerate: false, steering: 0, noKO: false, earlyBoost: false });
+    expect(s.player.noKO).toBe(false);
+    s.fixed(dt, idle);
+    expect(s.player.lastControls.throttle).toBe(0);
     s.dispose();
   });
 });

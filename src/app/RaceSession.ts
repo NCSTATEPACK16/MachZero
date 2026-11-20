@@ -4,7 +4,7 @@
  * any number of races in one page. Node-safe without a view (headless tests).
  */
 import type { Rumble } from '../game/Rumble';
-import type { ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
+import type { Assists, ControlInput, FrameContext, HudActions, ShipDefinition, ShipId, ShipState, TrackData } from '../core/contracts';
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
@@ -14,6 +14,8 @@ import { disposeObject3D } from '../graphics/dispose';
 import { rosterOf } from '../game/pilotPortrait';
 import type { GraphicsSystem } from '../graphics';
 import { PhysicsSystem } from '../physics';
+import { PlayerAssists } from '../physics/Assists';
+import { NO_ASSISTS } from '../save/schema';
 import { trackFromSource, type TrackLayoutSource, type TrackPalette } from '../track';
 
 export interface RaceSetup {
@@ -33,6 +35,8 @@ export interface RaceSetup {
   records?: RecordStore;
   /** The player's item stock (the active profile's; `use` spends one). None: the player has no items. */
   items?: PlayerItems;
+  /** The player's assists in force (IMPLEMENTATION §M7a; default none). `setAssists` changes them mid-race. */
+  assists?: Readonly<Assists>;
 }
 
 /** Browser presentation attached to a session. */
@@ -54,6 +58,8 @@ export class RaceSession {
   readonly items: ItemSystem;
   private readonly drivers = new Map<ShipId, AIDriver>();
   private readonly controls = new Map<ShipId, ControlInput>();
+  private readonly playerAssists: PlayerAssists;
+  private assists: Readonly<Assists> = NO_ASSISTS;
   private view: RaceView | null = null;
   private hud: HUD | null = null;
   private disposed = false;
@@ -74,6 +80,8 @@ export class RaceSession {
       this.drivers.set(ship.def.id, new AIDriver(ship, track, personality, track.seed * 31 + ship.def.id * 7919, this.ships, { hazardClock: () => physics.hazardTime, liveMines: () => physics.mines }));
       this.controls.set(ship.def.id, neutralControls());
     }
+    this.playerAssists = new PlayerAssists(track);
+    this.setAssists(setup.assists ?? NO_ASSISTS);
     this.race = new RaceManager(track, this.ships, this.bus, setup.records);
     this.items = new ItemSystem({ ships: this.ships, player, race: this.race, bus, physics, track }, track.seed, setup.items);
   }
@@ -111,6 +119,24 @@ export class RaceSession {
     this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, roster: rosterOf(this.setup.field) });
   }
 
+  /** The player's assists in force. */
+  get activeAssists(): Readonly<Assists> {
+    return this.assists;
+  }
+
+  /**
+   * Change the player's assists; they act from the next fixed step. The hazard rules were fixed when the race was
+   * built (`setup.hazards`) and do not follow No-KO until the next race. Turning boost-from-lap-1 on unlocks the boost
+   * at once; turning it off mid-race leaves an unlocked boost unlocked (it locks again at the next start).
+   */
+  setAssists(a: Readonly<Assists>): void {
+    this.assists = { ...a };
+    const p = this.player;
+    p.noKO = a.noKO;
+    p.earlyBoost = a.earlyBoost;
+    if (a.earlyBoost && p.status !== 'finished' && p.status !== 'retired') p.boostUnlocked = true;
+  }
+
   /** The grid intro card before the countdown (shown while the race waits on the title state). */
   setIntro(on: boolean): void {
     this.hud?.setIntro(on);
@@ -122,7 +148,8 @@ export class RaceSession {
     const driven = human !== null && !this.setup.autopilot && this.player.status !== 'finished';
     for (const ship of this.ships) {
       const id = ship.def.id;
-      this.controls.set(id, ship === this.player && driven ? human : this.drivers.get(id)!.update(dt));
+      // The player's controls go through the assists; the item system still reads the raw input (fire and cycle).
+      this.controls.set(id, ship === this.player && driven ? this.playerAssists.apply(ship, human, this.assists) : this.drivers.get(id)!.update(dt));
     }
     this.items.fixed(dt, driven ? human : null);
     this.physics.step(dt, this.controls);
