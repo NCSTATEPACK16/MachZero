@@ -298,7 +298,8 @@ export class HUD implements IHUD {
       this.targetMedal = el('span', 'mz-medal', '', this.targetEl);
       this.targetTime = new Txt(el('span', 'mz-num', '', this.targetEl));
       this.setTarget(this.trial.held);
-      this.splitEl = el('div', 'mz-split', undefined, race);
+      // Beside the lap box (the toasts use the space under it).
+      this.splitEl = el('div', 'mz-split', undefined, lapBox.outer);
       this.splitEl.setAttribute('role', 'status');
       this.splitTxt = new Txt(el('span', 'mz-num', '', this.splitEl));
       this.splitEl.hidden = true;

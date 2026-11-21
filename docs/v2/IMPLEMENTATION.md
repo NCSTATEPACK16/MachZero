@@ -2248,7 +2248,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
   - **The best ghost is read even when MY BEST GHOST is off**: the splits are measured against it. The toggles are read when a trial starts.
   - **Trial hazards:** the Rookie rules with No-KO on, else normal, whatever the profile's tier (the design's parenthetical). The tier only sets the autopilot's skill.
   - **A trial pays only medals.** It does not count as a race in `stats`, pays no race credits and books nothing on the World Tour. Its laps still set the track's best lap record.
-  - **TARGET** is the next medal above the one held; with gold held it shows the best total. The split is `▲ −0.42` (ahead) or `▼ +0.42` (behind).
+  - **TARGET** is the next medal above the one held; with gold held it shows the best total. The split is `▲ −0.42` (ahead) or `▼ +0.42` (behind), beside the lap box (the toasts use the space under it; in a trial they sit a row lower, under the taller lap box).
   - **The ghosts show during the countdown at their start pose** and play by race time. Ghost opacity fades by distance to the camera (12 m to 4 m); `MeshBasicMaterial`, fog on, `depthWrite` off, `renderOrder` 2.
   - **Ghost geometry:** the chassis' LOD1 hull with stock parts, merged into one position-only geometry, scaled by its class. Without ship assets it is a wedge.
   - **The DEV tag** is projected by `GhostShips` and drawn by the HUD (DOM): no draw call.

@@ -1680,11 +1680,13 @@ html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
   background: #19f0ff;
 }
 /* The split: ▲ / ▼ carry the meaning; green and red (blue and orange in colour-blind mode) only add to it. */
+/* A child of the lap box (so it shares its slant), on its right. */
 .mz-split {
   position: absolute;
-  top: 9.4em;
-  left: 50%;
-  transform: translateX(-50%) skewX(-10deg);
+  top: 50%;
+  left: calc(100% + 0.4em);
+  transform: translateY(-50%);
+  white-space: nowrap;
   padding: 0.15em 0.9em;
   font-size: 1.5em;
   font-weight: 900;
@@ -1722,4 +1724,8 @@ html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
 }
 .mz-cb .mz-ghost-tag {
   background: #ff8a1f;
+}
+/* The lap box is a row taller in a trial (TARGET): keep the toasts below it on a short screen. */
+.mz-hud[data-mode='trial'] .mz-toasts {
+  top: max(24%, calc(var(--u) * 11.2));
 }
