@@ -5,7 +5,8 @@
  */
 import { CONFIG } from '../core/config';
 import { DEFAULT_CUP_ID } from '../content/cups';
-import { SAVE_VERSION, createProfile, defaultSettings } from './schema';
+import { WORLDS } from '../content/worlds';
+import { DEFAULT_PAD_BINDINGS, SAVE_VERSION, clonePadBindings, createProfile, defaultSettings, defaultTouch } from './schema';
 
 type Obj = Record<string, unknown>;
 
@@ -97,6 +98,57 @@ export const MIGRATIONS: Readonly<Record<number, (save: Obj) => Obj>> = {
         })
       : [],
   }),
+  // v7 → 8: touch, comfort and pad remapping (IMPLEMENTATION §M7a). LARGE TEXT becomes HUD size LARGE; the touch
+  // steering choice moves into the touch settings; haptics on; today's pad layout. Profiles do not change.
+  7: (save) => {
+    const st = typeof save.settings === 'object' && save.settings !== null ? { ...(save.settings as Obj) } : {};
+    const { largeText, touchSteer } = st;
+    delete st.largeText;
+    delete st.touchSteer;
+    return {
+      ...save,
+      version: 8,
+      settings: {
+        ...st,
+        hudSize: largeText === true ? 'large' : 'normal',
+        haptics: true,
+        touch: { ...defaultTouch(), steer: touchSteer === 'tilt' ? 'tilt' : 'slider' },
+        padBindings: clonePadBindings(DEFAULT_PAD_BINDINGS),
+      },
+    };
+  },
+  // v8 → 9: World Tour, Time Trial, the championship and the tutorial (IMPLEMENTATION §M8a). A profile keeps every
+  // world up to the last one it has a lap record on ("granted": open, with no trophy yet). Cup trophies are
+  // untouched. A profile that has raced has no use for the first-race tutorial. Both ghosts on.
+  8: (save) => {
+    const st = typeof save.settings === 'object' && save.settings !== null ? (save.settings as Obj) : {};
+    return {
+      ...save,
+      version: 9,
+      settings: { ...st, ghosts: { best: true, dev: true } },
+      profiles: Array.isArray(save.profiles)
+        ? save.profiles.map((p) => {
+            if (typeof p !== 'object' || p === null) return p;
+            const { records, stats } = p as Obj;
+            const rec = typeof records === 'object' && records !== null ? (records as Obj) : {};
+            const raced = (trackId: string): boolean => {
+              const r = rec[trackId];
+              const lap = typeof r === 'object' && r !== null ? (r as Obj).bestLap : undefined;
+              return typeof lap === 'number' && Number.isFinite(lap) && lap > 0;
+            };
+            const last = Math.max(0, ...WORLDS.filter((w) => raced(w.trackId)).map((w) => w.order));
+            const races = typeof stats === 'object' && stats !== null ? (stats as Obj).races : 0;
+            return {
+              ...p,
+              tour: { granted: WORLDS.filter((w) => w.order <= last).map((w) => w.id), trophies: {} },
+              season: null,
+              champion: [],
+              tutorialDone: typeof races === 'number' && races > 0,
+            };
+          })
+        : [],
+    };
+  },
 };
 
 /** Version of a raw save (missing or invalid → 0, treated as unreadable by the caller). */

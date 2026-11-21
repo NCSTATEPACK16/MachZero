@@ -1,18 +1,42 @@
-# Next-session brief: MachZero (M7 and M8 designed 2026-11-16; X4, X5 and X6 gameplay halves built; next build: M7a)
+# Next-session brief: MachZero (M7 built as #41–#43, rolled up in #44; M8a built 2026-11-20; next build: M8b)
 
-Two prompts are in this file. **"Paste this prompt: M7a"** (directly below the build order) starts the M7 and M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+Two prompts are in this file. **"Paste this prompt: M8b"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
 
-## M7 and M8: designed, not started (2026-11-16)
+## M8a built (2026-11-20)
+
+- **M7's stack was merged into the wrong bases:** #41–#43 were merged a few seconds apart, each into a branch already merged, so none of M7 reached `v2/x6-abyss-line` or main. **NCSTATEPACK16/MachZero#44** (head `v2/m7c-comfort`, base `v2/x6-abyss-line`, no new code) puts all of M7 back in the stack. Merge order to main: #37 → #38 → #39 → #44 → #45 (M8a).
+- **M8a is built** on `v2/m8a-world-tour` (base `v2/m7c-comfort`): save v9, World Tour rules, cup unlocks, the world map, booking at the results, the results screen, the sound hooks. Behind `modes`. Read IMPLEMENTATION §M8a "As built" before M8b: it records the decisions made while building (the chain rule, granting with `modes` off, the season sanitizer, `App.events`, `data-nav-<dir>`).
+- **Waiting on the owner in M8a:** the look of the map and the results screen; the device check (pad and touch on both devices, with `VITE_FEATURES=modes,expansion`).
+- **M8b stacks on `v2/m8a-world-tour`.**
+
+## M7 built (2026-11-19)
+
+- **M7 is built, as three stacked PRs:**
+  - **NCSTATEPACK16/MachZero#41 M7a** (`v2/m7a-assists`, base `claude/zen-knuth-uw6y2i` = the M7 + M8 design-docs PR #40);
+  - **#42 M7b** (`v2/m7b-touch`, base `v2/m7a-assists`);
+  - **#43 M7c** (`v2/m7c-comfort`, base `v2/m7b-touch`).
+
+  `touch` is on in #43. Read IMPLEMENTATION §M7a, §M7b and §M7c "As built" before M8.
+- **Waiting on the owner in M7:**
+  - the device check of #41;
+  - the device gates of #42 and #43;
+  - **the default air-brake style** (#42's gate);
+  - **tilt's direction and permission on iOS**: not verified on a device or against current WebKit docs (§M7c as built). If tilt steers the wrong way, flip `TiltInput`'s iOS sign.
+- **CI:**
+  - **The browser smoke job's time limit is now 20 min** (#41). At 10 it was cancelled after every spec had passed, on #39 and #40 as well.
+  - **Slow world smokes on a cloud build container:** the Cinder Forge and Abyss Line smokes (and Tempest Spire under load) hit the 2-minute per-test cap on a CPU-only cloud container, on the base branch too. CI and the owner's Mac run them in time.
+- **M8a stacked on `v2/m7c-comfort`** (built; see above).
+
 
 - **M7 (touch, tilt, assists, comfort) and M8 (World Tour, Time Trial and ghosts, the championship, the tutorial, the release) are designed and agreed** (45 decisions, two rounds with the owner). Read SPEC §11 and §12 (what and why) and IMPLEMENTATION §M7 and §M8 (decisions, build steps with tests first, budgets, "done when", device gates). They are written to be built with no further questions.
 - **Build order, one stacked PR each:**
 
   | # | PR | Branch | Save | Flag |
   |---|---|---|---|---|
-  | 1 | M7a: the four assists work, the assists screen | `v2/m7a-assists` | v7 → v8 | none |
-  | 2 | M7b: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
-  | 3 | M7c: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
-  | 4 | M8a: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
+  | 1 | M7a ✅ #41: the four assists work, the assists screen | `v2/m7a-assists` | v7 → v8 | none |
+  | 2 | M7b ✅ #42: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
+  | 3 | M7c ✅ #43: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
+  | 4 | M8a ✅: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
   | 5 | M8b: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
   | 6 | M8c: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
   | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
@@ -22,7 +46,7 @@ Two prompts are in this file. **"Paste this prompt: M7a"** (directly below the b
 - **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
 - **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
 
-### Paste this prompt: M7a
+### Paste this prompt: M8b
 
 ```
 You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
@@ -31,25 +55,22 @@ as an iOS app (Capacitor 8). The owner tests on an iPhone 18 Pro Max and an iPad
 
 READ FIRST, in this order, before writing any code:
   1. docs/v2/NEXT_SESSION.md: current state, the build order and the environment table. Trust the table.
-  2. docs/v2/SPEC.md §2, §3 and §11: what M7 is and why. Every decision is settled; do not re-open one.
-  3. docs/v2/IMPLEMENTATION.md §0 (operating rules) and §M7 (the whole section, then "M7a" closely).
-  4. The code M7a changes: src/physics/Assists.ts, src/app/RaceSession.ts, src/app/App.ts (raceSetup,
-     bindStats, applySettings), src/physics/ShipController.ts (every drainEnergy call), src/game/RaceManager.ts
-     (boostUnlocked), src/save/schema.ts and migrations.ts, src/settings/Settings.ts,
-     src/ui/screens/SettingsScreen.tsx, src/sim/worldRace.ts and tierMatrix.ts.
+  2. docs/v2/SPEC.md §12 (and §4): what M8 is and why. Every decision is settled; do not re-open one.
+  3. docs/v2/IMPLEMENTATION.md §0 (operating rules), §M7's three "As built" notes (M8 builds on save v8, the
+     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's "As built", then "M8b" closely).
+  4. The code M8b changes, as §M8b lists it.
 
-GOAL: build M7a exactly as IMPLEMENTATION §M7a says: save v8 (with every M7 field), the four assists acting
-in real races, the ASSISTS tab, the sims and the e2e test. One PR on branch v2/m7a-assists, stacked on the
-newest open stack branch (run gh pr list; today that is v2/x6-abyss-line, PR #39). Follow the build steps in
-order, tests first. When M7a's PR is pushed and its checks are green, continue with M7b on v2/m7b-touch,
-stacked on M7a, from §M7b; then M7c. Stop at each PR's device gate only for what the gate needs from the owner,
-and carry on with the next PR meanwhile.
+GOAL: build M8b exactly as IMPLEMENTATION §M8b says (Time Trial and ghosts), behind `modes`. Save v9 already
+carries its fields (M8a). One PR on branch v2/m8b-time-trial, stacked on v2/m8a-world-tour (PR #45). Follow
+the build steps in order, tests first. When M8b's PR is pushed and its checks are green, continue with M8c
+(v2/m8c-season-tutorial) and M8d (v2/m8d-release), each stacked on the one before. Stop at each PR's device gate only for what the gate needs
+from the owner (M8b: fps with two ghosts on both devices), and carry on meanwhile.
 
 HOW TO WORK (agreed with the owner; follow exactly):
 - You implement everything yourself, in order. Sub-agents only for read-only lookups.
 - Never merge a PR, push to main or enable auto-merge. The owner playtests each preview and merges.
-- main is live. M7a has no flag (it repairs what the Rookie preset already promises), so a Classic profile
-  with a pad or keyboard must play exactly as before: every existing test passes unchanged.
+- main is live: everything new stays behind `modes` until M8d turns it on. Every existing test passes unchanged
+  unless a step says to update one.
 - Before every push: npm run typecheck && npm test && npm run build && npm run size && npm run smoke.
   On this shared Mac use npm test -- --maxWorkers=3 and npm run smoke -- --workers=1. Fix red CI before
   moving on. Never loosen an assertion to go green; find the root cause.
@@ -61,15 +82,15 @@ HOW TO WORK (agreed with the owner; follow exactly):
 AT EACH PR: the body holds what shipped, the "done when" list from IMPLEMENTATION ticked or explained, test
 counts and sim summaries, sizes from npm run size, screenshots where visual, any change nobody asked for, and
 the device-gate steps. End the hand-off with the preview URL
-(https://deploy-preview-<PR#>--machzero.netlify.app) and the iOS build command for the PR's branch:
-git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open
-(put VITE_FEATURES=touch,expansion before npm run ios:sync for M7b; VITE_FEATURES=expansion for M7c).
+(https://deploy-preview-<PR#>--machzero.netlify.app, add ?features=modes) and the iOS build command for the
+PR's branch: git fetch && git checkout <branch> && npm ci && VITE_FEATURES=modes,expansion npm run ios:sync && npm run ios:open
 
 AT THE END OF THE SESSION: report the PRs opened (links and preview URLs), what each device gate needs from
 the owner, any deviation from the spec with its reason, and update IMPLEMENTATION.md (mark each built PR, add
 its "As built" notes) and this file so the next session can resume from the docs alone.
 
-Start now: run gh pr list, read the files above, then write the SaveStore tests for save v8.
+Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then write the
+ghost codec tests.
 ```
 
 ## Where things stand (2026-11-15, after the X6 gameplay half)

@@ -5,7 +5,7 @@ import { Settings } from '../Settings';
 
 describe('Settings', () => {
   it('snapshots what it was given', () => {
-    const d = { ...defaultSettings(), largeText: true, sfxVolume: 0.25 };
+    const d = { ...defaultSettings(), hudSize: 'large' as const, sfxVolume: 0.25 };
     expect(new Settings(d).snapshot()).toEqual(d);
   });
 
@@ -32,7 +32,7 @@ describe('Settings', () => {
     });
     expect(() => {
       s.muted.value = true;
-      s.largeText.value = true;
+      s.hudSize.value = 'large';
     }).not.toThrow();
     expect(store.value).toBe(2);
   });
@@ -57,5 +57,26 @@ describe('Settings', () => {
     const s = new Settings(defaultSettings());
     expect(s.bindKey('boost', 0, 'Escape')).toBe(false);
     expect(s.keyBindings.value.boost).not.toContain('Escape');
+  });
+});
+
+describe('Settings pad bindings (IMPLEMENTATION §M7c)', () => {
+  it('a swap moves the button and the robbed control inherits the replaced one; reset restores the defaults', async () => {
+    const { DEFAULT_PAD_BINDINGS } = await import('../../save/schema');
+    const s = new Settings(defaultSettings());
+    expect(s.bindPad('boost', 0, 3)).toBe(true); // Ⓨ was the item button's only one: item inherits Ⓧ
+    expect(s.padBindings.value.boost).toEqual([3]);
+    expect(s.padBindings.value.item).toEqual([2]);
+    expect(s.bindPad('throttle', 1, 5)).toBe(true); // RB replaces Ⓐ as throttle's second; air-right inherits Ⓐ
+    expect(s.padBindings.value.throttle).toEqual([7, 5]);
+    expect(s.padBindings.value.airRight).toEqual([0]);
+    expect(s.bindPad('brake', 5, 14)).toBe(false); // brake already has two buttons
+    expect(s.bindPad('airLeft', 1, 15)).toBe(false); // appending would leave item-next with nothing
+    expect(s.bindPad('airLeft', 0, 16)).toBe(false);
+    s.resetPadBindings();
+    expect(s.padBindings.value).toEqual(DEFAULT_PAD_BINDINGS);
+    // A change reaches the snapshot (and so the save).
+    s.bindPad('boost', 0, 10);
+    expect(s.snapshot().padBindings.boost).toEqual([10]);
   });
 });

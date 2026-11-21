@@ -58,7 +58,7 @@ export interface ShipStats {
   ramMass: number;
 }
 
-/** Player assists (per profile). Stored from M1; physics applies them from M7. */
+/** Player assists (per profile). Stored from M1; applied in real races from M7a (physics/Assists.ts, RaceSession). */
 export interface Assists {
   autoAccelerate: boolean;
   /** 0 off, 1 light, 2 strong. */
@@ -487,6 +487,10 @@ export interface ShipState {
   empLock: number;
   /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine or a lightning strike. */
   shield: number;
+  /** No-KO assist (IMPLEMENTATION §M7a): damage is halved and never takes energy below 1. Absent = off. Set by the App's RaceSession. */
+  noKO?: boolean;
+  /** Boost-from-lap-1 assist: the boost unlocks at GO instead of on lap 2. Absent = off. Set by the App's RaceSession. */
+  earlyBoost?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -639,4 +643,11 @@ export interface HudActions {
    * results' RACE AGAIN becomes STANDINGS.
    */
   cup?: { onStandings(): void; onRetire(): void };
+  /** Ends the grid intro card early (a tap on it; keys and buttons go through the App's input). */
+  onSkipIntro?(): void;
+  /**
+   * Tilt steering (M7c): `needed` is true when tilt is chosen but no motion data arrives (iOS asks for permission again
+   * after each launch); the intro card then shows ENABLE TILT, which calls `enable` from the tap. Skipped: the slider.
+   */
+  tilt?: { needed(): boolean; enable(): void };
 }

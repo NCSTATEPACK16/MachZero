@@ -9,6 +9,16 @@
 import * as THREE from 'three';
 import type { Assists, ControlInput, ShipState, TrackData } from '../core/contracts';
 import { clamp, wrap01 } from '../core/math';
+import type { TouchSettings } from '../save/schema';
+import type { InputDevice } from './InputManager';
+
+/**
+ * The assists in force for the player (IMPLEMENTATION §M7a): the profile's, with auto-accelerate also on while touch
+ * drives and the touch setting asks for it (touch has no throttle under the thumbs by default).
+ */
+export function effectiveAssists(profile: Readonly<Assists>, device: InputDevice, touch: Readonly<Pick<TouchSettings, 'autoAccelerate'>>): Assists {
+  return { ...profile, autoAccelerate: profile.autoAccelerate || (device === 'touch' && touch.autoAccelerate) };
+}
 
 export const ASSIST = {
   /** Share of the steer command the assist owns, by steering level (off, light, strong). */

@@ -13,11 +13,8 @@
   --panel-border: rgba(25, 240, 255, 0.4);
   --panel-glow: 0 0 1.4em rgba(25, 240, 255, 0.16), inset 0 0 1.6em rgba(138, 77, 255, 0.14);
   --font: 'Avenir Next Condensed', 'Arial Narrow', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
-  /* Base unit: scales with the viewport, larger with the Large-text setting. */
-  --u: clamp(10px, min(1.28vw, 2.1vh), 20px);
-}
-:root.mz-large-text {
-  --u: clamp(12px, min(1.62vw, 2.65vh), 26px);
+  /* Base unit of the HUD and the menus: scales with the viewport, and by the HUD SIZE setting (below). */
+  --u: calc(clamp(10px, min(1.28vw, 2.1vh), 20px) * var(--mz-hud-scale, 1));
 }
 
 /* Button prompts follow the last-used device: <html class="mz-pad"> while a gamepad is in use. */
@@ -29,4 +26,57 @@ html.mz-pad .mz-k-pad {
 }
 html.mz-pad .mz-k-kb {
   display: none;
+}
+
+/* Touch (IMPLEMENTATION §M7b): <html class="mz-touch"> while touch is the last-used device. A prompt with a touch form
+   shows it; one without is hidden. */
+.mz-k-touch {
+  display: none;
+}
+html.mz-touch .mz-k-touch {
+  display: inline;
+}
+html.mz-touch .mz-k-kb,
+html.mz-touch .mz-k-pad,
+html.mz-touch .mz-no-touch {
+  display: none;
+}
+
+/* Meaning-bearing colours (IMPLEMENTATION §M7c). Colour-blind mode is one blue-and-orange palette, and nothing is told
+   by colour alone: shapes, icons and markers carry the same meaning. */
+:root {
+  --mz-good: var(--lime);
+  --mz-warn: var(--amber);
+  --mz-bad: var(--red);
+  --mz-player: var(--cyan);
+  --mz-rival: var(--magenta);
+}
+:root.mz-cb {
+  --mz-good: #3d9bff;
+  --mz-warn: #ffb000;
+  --mz-bad: #ff6a00;
+  --mz-player: #3d9bff;
+  --mz-rival: #ff8a1f;
+}
+
+/* Reduced motion (IMPLEMENTATION §M7c): no flashes, pulses or sweeps in the HUD or the menus, and no menu transitions.
+   Meaning stays: low power keeps its colour and marker, the boost its label. (The camera still rolls with the ship.) */
+html.mz-reduced-motion .mz-hud,
+html.mz-reduced-motion .mz-hud *,
+html.mz-reduced-motion [data-ui-root],
+html.mz-reduced-motion [data-ui-root] *,
+html.mz-reduced-motion .mz-rotate * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* HUD size (save v8 hudSize): NORMAL / LARGE / EXTRA LARGE scale the HUD and the menus by 1 / 1.15 / 1.3 through --u
+   (one unit, so --mz-ui-scale follows --mz-hud-scale). Touch controls keep their own size setting (they are in points). */
+:root.mz-hud-large {
+  --mz-hud-scale: 1.15;
+  --mz-ui-scale: 1.15;
+}
+:root.mz-hud-xl {
+  --mz-hud-scale: 1.3;
+  --mz-ui-scale: 1.3;
 }

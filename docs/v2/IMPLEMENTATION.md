@@ -1569,7 +1569,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, assists and comfort (designed 2026-11-16; not started)
+## M7 — Touch, tilt, assists and comfort — ✅ BUILT (PRs #41 M7a, #42 M7b, M7c; waiting on the owner's device gates)
 
 SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
 
@@ -1577,9 +1577,9 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
-| M7a | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
-| M7b | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
-| M7c | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
+| M7a ✅ built (#41) | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
+| M7b ✅ built (#42) | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
+| M7c ✅ built | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
 
 **Facts checked on 2026-11-16 (`v2/x6-abyss-line`), so the builder does not rediscover them:**
 - **The assists do nothing in the live game.** `physics/Assists.ts` (`PlayerAssists`) is used only by `sim/worldRace.ts`. `App` and `RaceSession` never apply it. `Assists.noKO` and `Assists.earlyBoost` exist in the save and have no code. The "I'M NEW TO RACING GAMES" preset (`ProfileSelect.tsx`) promises all four.
@@ -1600,7 +1600,7 @@ SPEC §11 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M7a — The four assists work, and the assists screen
+### M7a — The four assists work, and the assists screen — ✅ BUILT (PR #41, `v2/m7a-assists`; waiting on the owner's device check)
 
 **Design decisions:**
 - **All four assists become real** for the human player: auto-accelerate, steering assist (off / light 30% / strong 60%), No-KO, boost from lap 1. The numbers in `physics/Assists.ts` (`ASSIST`) do not change.
@@ -1690,9 +1690,22 @@ export interface SettingsData {
 
 **Device check (no fps gate; nothing renders differently):** on the iPhone with the 8BitDo, a Rookie-preset profile races Orbital Ring: drive into mines and rails on purpose, never explode, boost on lap 1. Then pause → SETTINGS → ASSISTS → CLASSIC PRESET, resume, and the next rail hit drains energy as before.
 
+**As built (2026-11-19, PR #41):**
+- **Save v8** (`save/schema.ts`, `save/migrations.ts` step 7): every M7 field is in, as specified. `defaultTouch()`, `DEFAULT_PAD_BINDINGS`, `PAD_CONTROLS`, `clonePadBindings`, `sanitizeTouch` and `sanitizePadBindings` are exported. A pad control whose buttons are all taken and whose defaults are taken too makes the whole binding set fall back to the defaults (it cannot be left empty). `Settings` has `hudSize`, `haptics`, `touch` (with `setTouch(patch)`) and `padBindings`.
+- **`effectiveAssists`** is in `physics/Assists.ts`. `InputDevice` has `'touch'`, which nothing produces yet.
+- **`RaceSession`** builds one `PlayerAssists` and has `setAssists(a)` and `activeAssists`. `App` passes `assists` in the setup and keeps them current with one signal effect (profile assists, input device, touch settings), and again when a session finishes building. `App.setAssists(patch)` updates the active profile.
+- **No-KO:** `ShipController.takeDamage(amount)` is the one damage path: rail impacts and scrapes (the stone gates and debris are rail contacts), lightning, geysers, jets, mines and ship-to-ship. With `noKO` it takes half and stops at 1 energy (`NO_KO_SCALE`, `NO_KO_FLOOR`). The boost still calls `drainEnergy`. The Rookie hazard rules apply when the tier is Rookie or the profile's No-KO is on. They are fixed when a race is built. A RESTART of the same race keeps them; the next race from the menu picks up the change, because the hazard mode is in the session key.
+- **Boost from lap 1:** `RaceManager` sets `boostUnlocked = earlyBoost` on the grid and unlocks it at GO. The HUD's "BOOST UNLOCKS LAP 2" goes away by itself. Turning the assist on mid-race unlocks the boost at once. Turning it off mid-race leaves an unlocked boost unlocked until the next start.
+- **The ASSISTS tab** sits between RACE and SOUND and is hidden with no profile. `Toggle` and `Segmented` (`ui/components.tsx`) take an optional `icon` (and `Segmented` a `hint`). Each assist row has an icon. The tab's footnote says assists never cost credits or trophies. Screenshots: `docs/v2/shots/m7a/assists-desk.jpg`, `assists-phone.jpg` (956 × 440).
+- **Sims and tests:** `sim/assists.sim.test.ts` has (a) to (e) and also checks that a boost still costs full energy under No-KO. For (a), the ship starts worn down to 12 energy, because a fresh ship loses only about 50 energy in 20 s of slamming rail to rail and would survive with or without No-KO. Without No-KO the run destroys it; with No-KO it bottoms out at 1 and finishes. In `sim/worldRace.ts` the assisted stand-in has No-KO and boost from lap 1. The Rookie balance test passes on all 8 tracks. There are new tests for the save, `effectiveAssists`, early boost in `RaceManager`, and assisted controls in `RaceSession` (the items still get the raw input object), plus `e2e/assists.spec.ts`, which also changes the assists from the pause menu mid-race.
+- **Changes nobody asked for:**
+  - `ShipState.noKO` and `earlyBoost` are optional (absent = off), so the ship literals in existing tests did not change.
+  - The Comfort tab's LARGE TEXT switch writes `hudSize` ('large' / 'normal') until M7c replaces it with HUD SIZE. `e2e/menus.spec.ts` and two unit tests now read `hudSize` and `mz-hud-large`, as the v8 migration requires.
+  - BOOST FROM LAP 1 has a hint: "Your boost is ready when the lights go out, not on lap 2."
+
 ---
 
-### M7b — Touch driving and the touch HUD
+### M7b — Touch driving and the touch HUD — ✅ BUILT (PR #42, `v2/m7b-touch`; waiting on the owner's device gate and the air-brake default)
 
 **Design decisions:**
 - **Platforms:** the iOS app and mobile web. Android is best effort with no gate. Pad and keyboard keep working. The player can change device in the middle of a race: the device that produced input last owns the prompts and the layout.
@@ -1783,9 +1796,34 @@ export interface SettingsData {
 3. Left-handed and size L once on each device: nothing is cut off by the notch, the Dynamic Island or the home bar.
 4. Connect the pad mid-race: the touch controls go away and the pad drives. Touch the screen: they come back.
 
+**As built (2026-11-19, PR #42):**
+- **Pure parts, as specified:**
+  - `physics/touchSteer.ts` (`sliderControls`, `SLIDER_LOCK`, `AIRBRAKE_START`, `AIRBRAKE_RAMP`, `SLIDER_CURVE`).
+  - `physics/TouchInput.ts`. It also has `steerOrigin` / `steerTravel` for drawing, `isHeld`, `consumePause`, an `onActivity` callback (InputManager's device switch), and `externalSteer` for M7c's tilt.
+- **`InputManager(window, touch?)`** merges touch as specified. The touch PAUSE becomes a `pause` menu press in `update()`, so it ages like START. A touch `pointerdown` (capture, on `window`) or any touch-control press makes `'touch'` the device. Blur and dispose call `releaseAll()`.
+- **`game/TouchControls.ts`:**
+  - `TouchRig` is one per App: the input, the live layout config, `haptic`, `onHintSeen`. `TouchControls` belongs to each race's HUD and is built inside `.mz-race`, so every distance is from the safe-area edge.
+  - Layout comes from the `TOUCH_LAYOUT` table × `BUTTON_SCALE`. Left-handed mirrors it, with the left air-brake still on the left.
+  - CSS shows the layer only under `html.mz-touch` while counting down or racing. The HUD calls `release()` on pause, results and the intro card.
+- **Touch HUD:** `.mz-strip` holds the power bar with its number and RECHARGING tag, the speed number with KM/H, and the boost state (🔒 while locked or jammed, lit while boosting). It replaces the power, boost and speed panels and the items panel under `html.mz-touch`. DRAFT, WIND and the EMP warning move above the strip. Prompts take an optional touch form (`.mz-k-touch`); one without it is hidden on touch. The intro card says "TAP TO SKIP" and a tap on it skips it (`HudActions.onSkipIntro`).
+- **Haptics:** `tapUi()` and `setHapticsEnabled()` in `native/haptics.ts`. The `haptics` setting already stops `bindHaptics` and `tapUi` (Rumble is M7c).
+- **Rotate overlay:** `.mz-rotate` in `index.html`, shown in portrait on a coarse pointer when `App` has set `html.mz-rotate-ok` (web + `touch`). Turning to portrait pauses a running race.
+- **QA:** `?airbrake=buttons|slider` (`UrlFlags.airbrake`) until M7c's setting. `__machzero.input = { device, steer }` in debug builds.
+- **Sims:** `sim/touchScheme.ts` (`ScriptedThumbs`, `thumbRace`, solo races) runs in two files of 4 tracks each, about 14 s in all.
+  - Thumbs vs the Pilot AI driving directly: −0.2% to +1.2% on all 8 tracks.
+  - No respawn on any track, Rookie preset too. Runs replay identically.
+- **e2e:** a `touch` Playwright project (956 × 440, `hasTouch`, `isMobile`) runs only `e2e/touch.spec.ts`, and the `chromium` project ignores it. Drags use CDP `Input.dispatchTouchEvent`.
+- **Changes nobody asked for:**
+  - **The layout table overlaps itself.** ACCELERATE "above BRAKE" overlaps the next-item chip "left of ITEM". So ACCELERATE keeps its 12-point gap above BRAKE but moves left to clear the chip (`side` 156).
+  - **Air-brake pair moved.** Above ITEM, the pair reached the minimap and the best times on an 844 × 390 phone at size L. It now sits above the BRAKE column (or above ACCELERATE when that shows), left of the chip, 12 apart.
+  - **Smaller minimap on short screens.** On a touch screen under 500 points tall the minimap is 10.5 em instead of 12.5 em, so the best times clear ITEM at size L. Both panels keep their places.
+  - **PAUSE size.** PAUSE stays 44 × 44 at every button size, so it never drops under 44 points.
+  - **Hint labels.** The first-race hint's BOOST and BRAKE labels sit across their buttons.
+- **Screenshots:** `docs/v2/shots/m7b/` at 956 × 440, 844 × 390 and 1180 × 820, right- and left-handed, sizes S, M and L, both air-brake styles, with and without ACCELERATE, plus the first-race hint.
+
 ---
 
-### M7c — Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on
+### M7c — Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on — ✅ BUILT (branch `v2/m7c-comfort`; waiting on the owner's device gate)
 
 **Design decisions:**
 - **Tilt** is an option (`touch.steer: 'tilt'`). Steering is the device's **roll about the axis that points out of the screen**, like turning a wheel, measured against real gravity.
@@ -1855,11 +1893,50 @@ export interface SettingsData {
 3. **Menus by touch only:** create a profile, buy and fit a part, change the livery, start a cup, close and reopen the app, CONTINUE CUP.
 4. Reduced motion, colour-blind mode and EXTRA LARGE once each in a race: readable, nothing cut off.
 
+**As built (2026-11-19, branch `v2/m7c-comfort`):**
+- **Tilt:** `physics/tilt.ts` (`deviceRoll`, `tiltSteer`, `calibratedNeutral`) and `physics/TiltInput.ts` (`requestTiltPermission`, `isIOS`, smoothing at 20/s, fresh for 0.5 s).
+  - **Angles:** `screen.orientation.angle` is the content's counter-clockwise rotation (90 = the device's top to the left).
+  - **iOS sign:** iOS readings are negated in one place (`TiltInput`'s `sign`), because WebKit reports the gravity acceleration and the spec reports its reaction.
+  - **Not verified:** **neither the iOS sign nor whether WKWebView needs anything beyond `DeviceMotionEvent.requestPermission()` was checked against current docs or a device** (no docs tool in this session). The device gate's tilt step settles both. `@capacitor/motion` and `NSMotionUsageDescription` were not added; `docs/IOS_TESTFLIGHT.md` says what to do if iOS needs them.
+  - **Each fixed step** in a race, `App.stepTilt` hands the smoothed steer to `TouchInput.externalSteer` while tilt is chosen and fresh, and sets `TouchRig.tiltActive` / `tiltFlat`.
+  - **Tilt mode in `TouchControls`:** no steering zone; the two air-brakes (72) sit in the steering thumb's corner; the "⟲ HOLD THE DEVICE UPRIGHT" chip shows when the screen lies flat.
+  - **Grid card:** it shows ENABLE TILT (`HudActions.tilt`) while tilt is chosen and no motion data arrives.
+  - **App methods:** `App.enableTilt()` (falls back to the slider with a toast) and `App.calibrateTilt()`.
+- **Controls tab:**
+  - **TOUCH section first** on a touch screen (a coarse pointer, or touch as the device): steering, sensitivity of the active mode, CALIBRATE TILT, auto-accelerate, air-brakes, button size, left-handed.
+  - **HAPTICS** always shows.
+  - **KEYBOARD section** once a key was used, or on a fine pointer (`App.keyboardSeen`).
+  - **GAMEPAD section** while a pad is connected (`App.padConnected`), with "press a button" capture and RESET BUTTONS. During capture `App.capturePadButton()` pauses menu navigation, so Ⓐ can be captured too.
+  - **`?airbrake=` is gone.**
+- **Pad remapping:** `InputManager.setPadBindings()` drives the eight controls through `padBindings`. Throttle and brake keep the trigger's analog travel; the rest are pressed or not. The menu edges (Ⓐ, Ⓑ, START, d-pad navigation) and the garage orbit keep their fixed buttons. `InputManager.padButtonsDown()` serves the capture. `Settings.bindPad` / `resetPadBindings` follow `bindKey`'s rules and refuse START (`PAD_START`, it always pauses).
+- **Menus by touch** (`ui/ui.css`):
+  - **44-point minimum:** under `html.mz-touch` or `html.mz-coarse` (set at boot on a coarse pointer), every `#ui` button, tab, radio and input, and the HUD's `.mz-btn` / `.mz-chip`, is at least 44 × 44. Tab rows keep their labels' width and wrap.
+  - **Scrolling:** `touch-action: pan-y` and momentum scrolling on `.mzu-body` / `.mzu-garage-body`; no page overscroll.
+  - **Hidden on touch:** hint rows and focus rings under `mz-touch`.
+  - **Garage pinch:** two pointers zoom (`pinchZoom` in `ui/garageModel.ts`, ln-ratio × 1.5 wheel steps).
+  - **Name field:** scrolls into view 0.3 s after focus.
+- **Comfort:**
+  - **Reduced motion:** every animation and transition in the HUD, the menus and the rotate overlay is off under `html.mz-reduced-motion` (one rule in `ui/tokens.css`, not a class list). The countdown digits and toasts then simply appear and go.
+  - **First save:** reduced motion starts on when `prefers-reduced-motion: reduce` matches (`SaveStore.firstLaunch`).
+  - **Colour-blind:** the `--mz-good/warn/bad/player/rival` tokens; every lime, amber and red in `game/hud.css` uses them.
+  - **Minimap shapes** in every mode: the player a triangle along its heading, the leader a diamond, the others circles. In colour-blind mode the player is blue and the rivals orange.
+  - **Hazard cue:** `game/HazardCue.ts`, pure. It has one spot per ice patch, main-loop gate, mine field and debris field, and one per lightning, geyser and jet point, all on the same timelines. The `.mz-hazard` chip sits under the position, clear of the toasts. It shows in colour-blind mode only, never on a split path, and adds no draw calls.
+  - **HUD size:** `--u` × `--mz-hud-scale` (1 / 1.15 / 1.3). The Comfort tab's HUD SIZE replaces LARGE TEXT.
+  - **HAPTICS off** also stops `Rumble` (`Rumble.enabled`).
+- **`touch` is on by default.** The touch e2e runs without `?features=`.
+- **Tests:**
+  - unit tests for `tilt`, `TiltInput`, `HazardCue` (one per hazard kind on its real track), pad remapping in `InputManager` and `Settings`, `pinchZoom`, `Rumble` with haptics off, and `SaveStore.firstLaunch`;
+  - the touch e2e gains "every menu target is at least 44 × 44" (create, menu, profiles, worlds, Grand Prix, every settings tab, every garage tab, plus a garage purchase and a paint change by taps) and "race screens by touch" (a cup started by taps, pause and results panels at 44 points).
+- **Changes nobody asked for:**
+  - **Updated tests:** `__features.test.ts`'s list of shipped flags gains `touch`, and `e2e/menus.spec.ts` picks HUD SIZE LARGE instead of the LARGE TEXT switch.
+  - **Hazard chip placement:** the chip sits under the position, not in the centre, because the race's toasts use the centre.
+- **Screenshots:** `docs/v2/shots/m7c/` has every screen at EXTRA LARGE (956 × 440) and colour-blind mode on Orbital Ring with the hazard cue and the minimap shapes.
+
 **What needs the owner in M7:** the three device gates above, and the default air-brake style (M7b). Everything else is built without questions.
 
 ---
 
-## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; not started)
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20)
 
 SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
 
@@ -1917,7 +1994,7 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 
 ---
 
-### M8a — World Tour, the world map, the results screen (save v9)
+### M8a — World Tour, the world map, the results screen (save v9) — ✅ BUILT (PR #45, `v2/m8a-world-tour`; waiting on the owner's look approval and device check)
 
 **Design decisions:**
 - **World Tour is the world map.** The main menu becomes, in order: CONTINUE CUP (when a cup is running), **WORLD TOUR**, GRAND PRIX, TIME TRIAL, GARAGE, SETTINGS. RACE and WORLDS go away. There is no separate single-race mode.
@@ -2035,15 +2112,32 @@ export interface SettingsData {
 8. **Sound hooks** (add to `core/events.ts`; `AudioSystem` ignores them until M6): `results:tally { amount }` (each line), `results:total { credits }`, `results:unlock { worldId }`, `results:trophy { tier }`, `results:medal { medal }`, `results:champion { tier }`, `ui:locked {}` (a tap on a locked world or cup), `tutorial:step { step }`, `tutorial:done {}`.
 
 **Done when:**
-- [ ] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card.
-- [ ] 4th place pays its credits and unlocks nothing.
-- [ ] An Ace top 3 shows the Rookie, Pilot and Ace pips.
-- [ ] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open.
-- [ ] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared.
-- [ ] With `modes` off nothing changes on the live site (the existing e2e tests pass unchanged).
-- [ ] Map, card and results work with pad, keyboard and touch; the 44-point test covers them.
+- [x] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card (`e2e/worldtour.spec.ts`).
+- [x] 4th place pays its credits and unlocks nothing (`WorldTour.test.ts`; the tally pays the position line regardless).
+- [x] An Ace top 3 shows the Rookie, Pilot and Ace pips (`WorldTour.test.ts`; the results screen draws `newTrophies` as pips).
+- [x] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open (unit and e2e).
+- [x] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared (unit and e2e).
+- [x] With `modes` off nothing changes on the live site (the existing e2e tests pass; two existing unit tests changed only for the new version number and the new `requires` field, see below).
+- [x] Map, card and results work with pad, keyboard and touch; the 44-point test covers them (`touch.spec.ts`).
 
 **Device check:** on the iPhone and the iPad (`VITE_FEATURES=modes,expansion`), by pad and by touch: the map with 8 worlds, a locked world's message, a race from the card, the results screen, NEXT WORLD. **The owner approves the look of the map and the results screen.** No fps gate: nothing in a race renders differently.
+
+
+**As built (branch `v2/m8a-world-tour`)** (read before M8b):
+- **Files:** `game/modes/WorldTour.ts` (the rules), `game/modes/raceResult.ts` (`RaceResult`, `raceTally`, `winnerQuote`), `ui/screens/WorldMap.tsx`, `ui/screens/Results.tsx`, `ui/miniMap.ts` (moved out of `WorldSelect.tsx`); `App` gains `events` (the menu bus), `lastResult`, `resultsScreen`, `openTourCard`/`takeTourCard`, `raceAgain`, `leaveResults`, `resultsNextWorld`, `resultsStandings`. Routes `tour` and `results`.
+- **Save v9** carries every M8 field (`tour`, `season`, `champion`, `tutorialDone`, `records[].trialTime`/`medal`, `settings.ghosts`), as designed.
+- **Decisions made while building (none re-opens a design decision):**
+  - **Progress further along the chain opens every world before it.** `worldUnlocked` is true for the first world, a granted world, the world after a cleared one, *and* any world before a cleared or granted one. So the open worlds are always a run from world 1, whatever order the save got its progress in.
+  - **With `modes` off a race books nothing on the Tour and pays no bonus** (the live economy is unchanged), **but a world raced is added to `tour.granted`**, as the 8 → 9 migration does. A player who races new worlds before M8d turns `modes` on keeps them open.
+  - **A season's finished cups needed their own sanitizer path:** `sanitizeCup` drops a finished cup (a cup is settled at its last race), so the spec's "a `done` cup fails `sanitizeCup`" would have dropped every season. `sanitizeCup(v, tiers, finished = true)` accepts a cup only when every race is recorded.
+  - **The sound hooks are a separate `MenuEvents` map** on `App.events` (the race's `GameBus` lives only as long as a race), so `GameEvents` and its test fixtures are untouched.
+  - **The map's planets are HTML buttons laid over the SVG** (an SVG element has no `click()` for pad confirm). Left and right follow the chain through a new, generic `data-nav-<dir>="<selector>"` attribute in `ui/nav.ts` (the nearest-element rule skipped world 2 from world 1 on the zig-zag).
+  - **The world card makes the map `inert`** while it is open, on both layouts; on a screen under 500 points tall it is a bottom sheet inside the map's box (the screen panel's transform makes `position: fixed` unusable).
+  - **The results screen's "any input" listeners are registered in a layout effect**, so even an input in the screen's first frame is taken by the tally (the e2e probes it with a mount observer). A pad action reaches it through a cancelable `mz-nav` window event the UI root sends first.
+  - **`resultsScreen`** is `menus && modes && worlds && no ?seed`: `?autopilot=1` and `?seed=N` keep the HUD panel, as designed.
+- **Existing tests changed:** `SaveStore.test.ts` (two v7 → v8 tests now expect `SAVE_VERSION`, since a v7 save migrates on to v9), `Championship.test.ts` (its `CupDef` fixtures gain `requires`), `nav.test.ts` (the fake element gains `getAttribute` for the new attribute; plus a test for it). No assertion was loosened.
+- **Measured:** the World Tour sim (`sim/worldTour.sim.test.ts`, two legs, ~26 s locally): the Rookie-preset stand-in finishes P1 on six worlds and P2 on Cryo Station and Cinder Forge; eight clears, eight bonuses. App JS 362.3 KB gzip (+5.1 KB).
+- **Owner:** the look of the map and the results screen; the device check above.
 
 ---
 

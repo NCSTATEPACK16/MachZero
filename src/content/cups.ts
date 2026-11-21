@@ -3,7 +3,7 @@
  * to `WORLDS` never changes a cup. A cup can be played once every one of its worlds is built, so a cup that
  * names a world still to come stays hidden until that world ships.
  */
-import { WORLDS } from './worlds';
+import { WORLDS, type WorldId } from './worlds';
 
 /** What a cup needs to know about a world. */
 export interface CupWorld {
@@ -18,6 +18,8 @@ export interface CupDef {
   tagline: string;
   /** World ids, in race order. */
   worlds: readonly string[];
+  /** With `modes` on, the cup opens once this World Tour world is cleared (IMPLEMENTATION §M8a). */
+  requires: WorldId;
 }
 
 /** Races in every cup today (a cup's own length is `cup.worlds.length`). */
@@ -29,12 +31,14 @@ export const CUPS: readonly CupDef[] = [
     name: 'NEON CUP',
     tagline: 'The five original worlds, in order',
     worlds: ['neon-bay', 'sunset-mesa', 'cryo-station', 'jade-ruins', 'orbital-ring'],
+    requires: 'orbital-ring',
   },
   {
     id: 'storm',
     name: 'STORM CUP',
     tagline: 'Wind, fire and deep water',
     worlds: ['sunset-mesa', 'tempest-spire', 'jade-ruins', 'cinder-forge', 'abyss-line'],
+    requires: 'abyss-line',
   },
 ];
 
@@ -53,4 +57,20 @@ export function cupAvailable(cup: CupDef, worlds: readonly CupWorld[] = WORLDS):
 /** The cups that can be played now, in `CUPS` order. */
 export function availableCups(worlds: readonly CupWorld[] = WORLDS): CupDef[] {
   return CUPS.filter((c) => cupAvailable(c, worlds));
+}
+
+/** What `cupUnlocked` reads from a profile: its World Tour trophies and its cup trophies. */
+export interface CupProgress {
+  tour: { trophies: Partial<Record<WorldId, readonly string[]>> };
+  trophies: Readonly<Record<string, readonly string[]>>;
+}
+
+/**
+ * With `modes` on (IMPLEMENTATION §M8a): a cup is open once its `requires` world is cleared on the World Tour, or
+ * when the profile already holds any trophy of that cup (won before the Tour existed). With `modes` off every cup
+ * is open, as before.
+ */
+export function cupUnlocked(cup: CupDef, profile: CupProgress, modes = true): boolean {
+  if (!modes) return true;
+  return (profile.tour.trophies[cup.requires]?.length ?? 0) > 0 || (profile.trophies[cup.id]?.length ?? 0) > 0;
 }

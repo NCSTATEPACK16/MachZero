@@ -12,7 +12,7 @@ import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES, ITEM_PRICES, SHIELD_TIME, bagTotal,
 import { CHASSIS, CLASS_LABEL, chassisById } from '../../content/ships';
 import { CONFIG } from '../../core/config';
 import { focusFirst, onUiKeyDown } from '../nav';
-import { statBars } from '../garageModel';
+import { pinchZoom, statBars } from '../garageModel';
 
 type Tab = 'ship' | PartSlot | 'paint' | 'items';
 /** The Aero tab and the B variants belong to the 2.1 expansion (feature `expansion`). */
@@ -402,23 +402,42 @@ export function Garage({ app }: { app: App }) {
     opener.current = null;
   }, [buying]);
 
-  // Drag the turntable (sideways turns, up and down tilts); the wheel zooms (§V.3).
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  // Drag the turntable (sideways turns, up and down tilts); the wheel zooms (§V.3); two fingers pinch to zoom (§M7c).
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef(0);
+  const spread = (): number => {
+    const [a, b] = [...pointers.current.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
   const onPointerDown = (e: PointerEvent) => {
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (pointers.current.size === 2) pinch.current = spread();
   };
   const onPointerMove = (e: PointerEvent) => {
-    if (drag.current?.id !== e.pointerId) return;
-    app.orbitShipPreview((e.clientX - drag.current.x) * 0.012, (e.clientY - drag.current.y) * 0.006, 0);
-    drag.current.x = e.clientX;
-    drag.current.y = e.clientY;
+    const at = pointers.current.get(e.pointerId);
+    if (!at) return;
+    if (pointers.current.size >= 2) {
+      at.x = e.clientX;
+      at.y = e.clientY;
+      const d = spread();
+      const dz = pinchZoom(pinch.current, d);
+      if (dz !== 0) app.orbitShipPreview(0, 0, dz);
+      pinch.current = d;
+      return;
+    }
+    app.orbitShipPreview((e.clientX - at.x) * 0.012, (e.clientY - at.y) * 0.006, 0);
+    at.x = e.clientX;
+    at.y = e.clientY;
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     app.orbitShipPreview(0, 0, -Math.sign(e.deltaY) * 0.08);
   };
-  const onPointerUp = () => (drag.current = null);
+  const onPointerUp = (e: PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    pinch.current = pointers.current.size === 2 ? spread() : 0;
+  };
 
   if (!p || !loadout) {
     return (

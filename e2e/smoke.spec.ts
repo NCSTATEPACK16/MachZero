@@ -23,7 +23,7 @@ for (const quality of ['high', 'med', 'low'] as const) {
     // Autopilot starts the race by itself. SwiftShader is slow and the loop clamps frame time, so simulated
     // time can run far below real time: wait on simulated progress, never on a wall-clock budget.
     await page.waitForFunction(
-      () => (window as unknown as { __machzero?: MachZeroDebug }).__machzero?.race.state === 'racing',
+      () => (window as unknown as { __machzero?: Partial<MachZeroDebug> }).__machzero?.race?.state === 'racing',
       undefined,
       { timeout: 60_000 },
     );
@@ -59,7 +59,13 @@ for (const quality of ['high', 'med', 'low'] as const) {
 // Tempest Spire (IMPLEMENTATION §X4) is behind the `expansion` flag, and `?world=` races it whatever the flag says.
 // Its wind streamers, deck chevrons, strike circles and bolts are built with the track, so the warm-up must cover
 // them: the race runs past the first crosswind zone and the first lightning field with no shader compiled on the way.
+/** The three world-race smokes run a race to 2,400–2,500 m on CI's software renderer. */
+const WORLD_RACE_TIMEOUT = 270_000;
+
 test('races Tempest Spire through a wind zone and a lightning field without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -92,6 +98,9 @@ test('races Tempest Spire through a wind zone and a lightning field without cons
 // with the track, so the warm-up must cover them: the race runs past both geyser fields, down the Plunge's dive and
 // onto the crater floor with no shader compiled on the way.
 test('races Cinder Forge past the geysers and down the Plunge without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -128,6 +137,9 @@ test('races Cinder Forge past the geysers and down the Plunge without console er
 // are built with the track, so the warm-up must cover them: the race runs round the Spine and past both jet fields
 // with no shader compiled on the way.
 test('races Abyss Line round the Spine and past the jets without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
