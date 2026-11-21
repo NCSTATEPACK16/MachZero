@@ -5,10 +5,15 @@ type DOMRectLike = { left: number; top: number; right: number; bottom: number; w
 
 /** Just enough of an element for nav.ts: a name, a layout box and focus. */
 class FakeEl {
+  /** data-* attributes (the named neighbours `data-nav-<dir>`). */
+  readonly attrs = new Map<string, string>();
   constructor(
     readonly name: string,
     private readonly box: DOMRectLike,
   ) {}
+  getAttribute(k: string): string | null {
+    return this.attrs.get(k) ?? null;
+  }
   focus(): void {
     (globalThis as unknown as { document: { activeElement: unknown } }).document.activeElement = this;
   }
@@ -28,7 +33,8 @@ class FakeEl {
 }
 
 function screen(els: FakeEl[]): ParentNode {
-  return { querySelectorAll: () => els, contains: (n: unknown) => els.includes(n as FakeEl) } as unknown as ParentNode;
+  // querySelector('#name') finds an element by name (for data-nav-<dir> selectors).
+  return { querySelectorAll: () => els, querySelector: (sel: string) => els.find((e) => `#${e.name}` === sel) ?? null, contains: (n: unknown) => els.includes(n as FakeEl) } as unknown as ParentNode;
 }
 
 const box = (left: number, top: number) => ({ left, top, width: 100, height: 40, right: left + 100, bottom: top + 40 });
@@ -80,6 +86,23 @@ describe('menu navigation', () => {
     els[1].focus(); // b: nothing to the right
     navigate(s, 'right');
     expect(focused()).toBe('c');
+  });
+
+  it('a named neighbour (data-nav-<dir>) wins over the nearest element (the world map chain)', () => {
+    // Planets zig-zag: from p1 the nearest element to the right is p3, but the chain says p2.
+    const els = [new FakeEl('p1', box(0, 200)), new FakeEl('p2', box(150, 0)), new FakeEl('p3', box(300, 180))];
+    els[0].attrs.set('data-nav-right', '#p2');
+    els[1].attrs.set('data-nav-left', '#p1');
+    const s = screen(els);
+    els[0].focus();
+    navigate(s, 'right');
+    expect(focused()).toBe('p2');
+    navigate(s, 'left');
+    expect(focused()).toBe('p1');
+    // Without the attribute the spatial rule picks p3.
+    els[0].attrs.delete('data-nav-right');
+    navigate(s, 'right');
+    expect(focused()).toBe('p3');
   });
 
   it('a first press with nothing focused only focuses the screen', () => {

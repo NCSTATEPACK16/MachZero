@@ -49,7 +49,7 @@ export interface FrameSet {
   roll: Float64Array;
   /** Banking part of the roll only. */
   bank: Float64Array;
-  /** Pipe curl of the cross-section, 0 (flat deck) to 1 (closed tube); see features/pipe.ts. */
+  /** Signed curl of the cross-section: 0 flat, 1 a closed pipe, −1 a closed spine; see features/pipe.ts. */
   curl: Float64Array;
   /** Signed lateral curvature (dT/ds)·rmfRight in the unbanked frame, positive = turning right. */
   curvature: Float64Array;
@@ -383,7 +383,7 @@ export function buildFrames(
   // Wide Gaussian (~45 m sigma) so bank transitions are gradual; periodic so it wraps correctly.
   const bank = smoothPeriodic(rawBank, 45 / ds);
   // A pipe is not banked: the tube would rotate about its floor. Fade the bank out as the deck curls.
-  for (let i = 0; i < count; i++) bank[i] *= 1 - curl[i];
+  for (let i = 0; i < count; i++) bank[i] *= 1 - Math.abs(curl[i]);
   // Nor is a loop: it turns over about its own axis.
   for (const span of loopSpans) for (let i = 0; i < count; i++) bank[i] *= 1 - loopWeight(i * ds, span, length, 60);
 

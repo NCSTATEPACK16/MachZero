@@ -58,7 +58,7 @@ export interface ShipStats {
   ramMass: number;
 }
 
-/** Player assists (per profile). Stored from M1; physics applies them from M7. */
+/** Player assists (per profile). Stored from M1; applied in real races from M7a (physics/Assists.ts, RaceSession). */
 export interface Assists {
   autoAccelerate: boolean;
   /** 0 off, 1 light, 2 strong. */
@@ -265,7 +265,20 @@ export type TrackFeature =
    * A field of lava geysers (Cinder Forge): `count` vents between dStart and dEnd, either side of a clear lane centred
    * at lateral `lane` (m). Each vent erupts once per `period` seconds on the hazard clock; `phase` shifts the field.
    */
-  | { type: 'geysers'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
+  | { type: 'geysers'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number }
+  /**
+   * The Spine (Abyss Line): the pipe turned inside out. The road's cross-section curls **down** around a tube of the
+   * same circumference (2·halfWidth) below the centreline, and ships ride its outside, all the way round: `lateral`
+   * is the arc position round the tube (0 = the crown, ±halfWidth = the bottom seam). It closes over `transition`
+   * metres after dStart and opens over the last `transition` metres before dEnd; rails end where it closes.
+   */
+  | { type: 'spine'; dStart: number; dEnd: number; transition: number }
+  /**
+   * A field of pressure jets on a Spine (Abyss Line): `count` vents on the tube between dStart and dEnd, either side of
+   * a clear lane centred at lateral `lane` (m, round the tube). Each vent fires once per `period` seconds on the hazard
+   * clock; `phase` shifts the field.
+   */
+  | { type: 'jets'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
 
 /** content/tracks/<id>.json */
 export interface TrackDefinition {
@@ -286,7 +299,7 @@ export interface TrackDefinition {
   devTime?: number;
 }
 
-export type SurfaceKind = 'road' | 'air' | 'pipe' | 'ice';
+export type SurfaceKind = 'road' | 'air' | 'pipe' | 'spine' | 'ice';
 
 /** A jump gap resolved onto the built track. */
 export interface TrackJump {
@@ -344,6 +357,8 @@ export interface TrackData {
    * fully closed (uClosedStart..uClosedEnd).
    */
   pipes: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
+  /** Spine extents in u (Abyss Line), as for pipes: the deck curls down round a tube and ships ride its outside. */
+  spines: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
   /** Loop-the-loops in u (empty on most tracks). */
   loops: { uStart: number; uEnd: number }[];
   /** Gravity multiplier while airborne. */
@@ -472,6 +487,10 @@ export interface ShipState {
   empLock: number;
   /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine or a lightning strike. */
   shield: number;
+  /** No-KO assist (IMPLEMENTATION §M7a): damage is halved and never takes energy below 1. Absent = off. Set by the App's RaceSession. */
+  noKO?: boolean;
+  /** Boost-from-lap-1 assist: the boost unlocks at GO instead of on lap 2. Absent = off. Set by the App's RaceSession. */
+  earlyBoost?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -624,4 +643,11 @@ export interface HudActions {
    * results' RACE AGAIN becomes STANDINGS.
    */
   cup?: { onStandings(): void; onRetire(): void };
+  /** Ends the grid intro card early (a tap on it; keys and buttons go through the App's input). */
+  onSkipIntro?(): void;
+  /**
+   * Tilt steering (M7c): `needed` is true when tilt is chosen but no motion data arrives (iOS asks for permission again
+   * after each launch); the intro card then shows ENABLE TILT, which calls `enable` from the tap. Skipped: the slider.
+   */
+  tilt?: { needed(): boolean; enable(): void };
 }

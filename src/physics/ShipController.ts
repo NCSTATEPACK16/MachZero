@@ -12,6 +12,7 @@ import { loopLineCurvature } from './LoopCompensation';
 import { pipeLineCurvature } from './PipeCompensation';
 import { STRIKE_DAMAGE, STRIKE_JAM } from '../track/features/lightning';
 import { GEYSER_DAMAGE, GEYSER_KNOCK_UP } from '../track/features/geyser';
+import { JET_DAMAGE, JET_KNOCK, JET_KNOCK_ROOKIE } from '../track/features/jet';
 import { PLUNGE_SPEED_CAP, buildPlunges, inPlunge, plungeAccel, type BuiltPlunge } from '../track/features/plunge';
 
 /**
@@ -332,7 +333,7 @@ export class ShipController {
       this.right.crossVectors(this.fwd, up);
     }
 
-    if (grounded && this.hasProjection && this.track.pipes.length > 0 && s.path === null) {
+    if (grounded && this.hasProjection && (this.track.pipes.length > 0 || this.track.spines.length > 0) && s.path === null) {
       // Pipe magnetism: where the deck curls, the surface carries the ship along its constant-lateral line
       // (see PipeCompensation), the pipe counterpart of the twist compensation above.
       const k = pipeLineCurvature(this.track, s.trackU, s.lateral);
@@ -445,8 +446,8 @@ export class ShipController {
       // Crosswind (track/features/wind.ts): a push across the road on a grounded ship. Aero parts cut it.
       if (this.windPush !== 0 && grounded) lat += this.windPush * this.stats.pushScale * this.sampleRight.dot(this.right) * dt;
 
-      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth) and the rails come back
-      // there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
+      // Seam guard: as a pipe opens, the deck splits along the top (lateral ±halfWidth; under a spine, the bottom)
+      // and the rails come back there. A ship on the seam would fall through the slot, so the opening tube slides it down the wall.
       const guard = this.seamGuard();
       if (guard !== 0) lat += guard * TUNING.SEAM_GUARD_ACCEL * dt;
 
@@ -545,7 +546,7 @@ export class ShipController {
       const target = CONFIG.RAIL_RESTITUTION * closing;
       if (vnPost < target) v.addScaledVector(n, target - vnPost);
       bounce = closing;
-      if (damageActive) this.drainEnergy(CONFIG.RAIL_DAMAGE_PER_MS * this.stats.damageTakenScale * closing);
+      if (damageActive) this.takeDamage(CONFIG.RAIL_DAMAGE_PER_MS * this.stats.damageTakenScale * closing);
     }
 
     // Tangential handling (bleed on impact, drag while scraping).
@@ -557,7 +558,7 @@ export class ShipController {
       if (impact) keep *= 1 - clamp(TUNING.WALL_BLEED_PER_MS * closing, 0, TUNING.WALL_BLEED_MAX);
       v.addScaledVector(tangent, keep - 1);
       tangentSpeed *= keep;
-      if (damageActive) this.drainEnergy(TUNING.WALL_SCRAPE_DAMAGE * tangentSpeed * dt);
+      if (damageActive) this.takeDamage(TUNING.WALL_SCRAPE_DAMAGE * tangentSpeed * dt);
     }
 
     // Steer the nose off the wall (glance instead of grinding head-on).
@@ -610,7 +611,7 @@ export class ShipController {
     const s = this.state;
     if (!isActiveStatus(s.status)) return;
     if (hazards.damage) {
-      this.drainEnergy(STRIKE_DAMAGE * this.stats.damageTakenScale);
+      this.takeDamage(STRIKE_DAMAGE * this.stats.damageTakenScale);
       s.empLock = Math.max(s.empLock, STRIKE_JAM);
     } else this.scaleVelocity(hazards.hitSpeedScale);
   }
@@ -626,8 +627,27 @@ export class ShipController {
       this.scaleVelocity(hazards.hitSpeedScale);
       return;
     }
-    this.drainEnergy(GEYSER_DAMAGE * this.stats.damageTakenScale);
+    this.takeDamage(GEYSER_DAMAGE * this.stats.damageTakenScale);
     s.velocity.addScaledVector(up, GEYSER_KNOCK_UP);
+    this.body.setLinvel(s.velocity, true);
+    this.updateSpeeds();
+  }
+
+  /**
+   * A pressure jet hit the hull (track/features/jet.ts): a knock along `dir` (unit, round the tube away from the vent)
+   * of JET_KNOCK × pushScale and JET_DAMAGE energy under a damaging hazard policy; otherwise the policy's slow-down and
+   * a smaller knock (JET_KNOCK_ROOKIE × pushScale), and no energy.
+   */
+  applyJet(dir: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
+    const s = this.state;
+    if (!isActiveStatus(s.status)) return;
+    if (hazards.damage) {
+      this.takeDamage(JET_DAMAGE * this.stats.damageTakenScale);
+      s.velocity.addScaledVector(dir, JET_KNOCK * this.stats.pushScale);
+    } else {
+      s.velocity.multiplyScalar(hazards.hitSpeedScale);
+      s.velocity.addScaledVector(dir, JET_KNOCK_ROOKIE * this.stats.pushScale);
+    }
     this.body.setLinvel(s.velocity, true);
     this.updateSpeeds();
   }
@@ -646,7 +666,7 @@ export class ShipController {
   applyMineHit(side: THREE.Vector3, up: THREE.Vector3, hazards: Readonly<HazardPolicy>): void {
     const s = this.state;
     if (!isActiveStatus(s.status)) return;
-    if (hazards.damage) this.drainEnergy(CONFIG.MINE_DAMAGE * this.stats.damageTakenScale);
+    if (hazards.damage) this.takeDamage(CONFIG.MINE_DAMAGE * this.stats.damageTakenScale);
     else s.velocity.multiplyScalar(hazards.hitSpeedScale);
     s.velocity.addScaledVector(side, CONFIG.MINE_KNOCK_SIDE).addScaledVector(up, CONFIG.MINE_KNOCK_UP);
     this.body.setLinvel(s.velocity, true);
@@ -656,7 +676,7 @@ export class ShipController {
   /** Apply damage from a ship-ship collision. */
   applyShipDamage(closingSpeed: number): void {
     if (!isActiveStatus(this.state.status)) return;
-    this.drainEnergy(CONFIG.SHIP_DAMAGE_PER_MS * this.stats.damageTakenScale * closingSpeed);
+    this.takeDamage(CONFIG.SHIP_DAMAGE_PER_MS * this.stats.damageTakenScale * closingSpeed);
   }
 
   /** Preserved pre-solver velocity for impact computations. */
@@ -996,18 +1016,20 @@ export class ShipController {
     if (s.energy >= this.lowEnergyLevel) this.lowEnergyFired = false;
   }
 
-  /** −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the top seam of an opening pipe, else 0. */
+  /**
+   * −1 / +1 (push toward lower / higher lateral, scaled 0..1) near the seam of an opening pipe (its top) or spine (its
+   * bottom), else 0.
+   */
   private seamGuard(): number {
-    const pipes = this.track.pipes;
+    const { pipes, spines } = this.track;
     const s = this.state;
-    if (pipes.length === 0 || !this.hasProjection || s.path !== null) return 0;
+    if ((pipes.length === 0 && spines.length === 0) || !this.hasProjection || s.path !== null) return 0;
     const lead = TUNING.SEAM_GUARD_LEAD / this.track.length;
-    for (const p of pipes) {
-      if (!inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) continue;
-      const w = this.sampleHalfWidth;
-      const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
-      return -Math.sign(s.lateral) * k;
-    }
+    const w = this.sampleHalfWidth;
+    const k = clamp01((Math.abs(s.lateral) - (w - TUNING.SEAM_GUARD_BAND)) / TUNING.SEAM_GUARD_BAND);
+    if (k === 0) return 0;
+    for (const p of pipes) if (inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) return -Math.sign(s.lateral) * k;
+    for (const p of spines) if (inLoopRange(s.trackU, p.uClosedEnd - lead, p.uEnd)) return -Math.sign(s.lateral) * k;
     return 0;
   }
 
@@ -1064,6 +1086,21 @@ export class ShipController {
     this.bus.emit('ship:respawn', { shipId: s.def.id });
   }
 
+  /**
+   * Energy lost to damage (rails and scrapes, ships, mines, lightning, geysers, jets). With the No-KO assist
+   * (IMPLEMENTATION §M7a) the amount is halved and never takes the energy below 1, so damage alone cannot destroy
+   * the ship. Spending energy on a boost is not damage (it calls drainEnergy).
+   */
+  takeDamage(amount: number): void {
+    const s = this.state;
+    if (!s.noKO) {
+      this.drainEnergy(amount);
+      return;
+    }
+    if (!(amount > 0) || s.energy <= NO_KO_FLOOR) return;
+    this.drainEnergy(Math.min(amount * NO_KO_SCALE, s.energy - NO_KO_FLOOR));
+  }
+
   /** Reduce energy (never below 0) and emit ship:lowEnergy once when crossing the threshold. */
   private drainEnergy(amount: number): void {
     if (!(amount > 0)) return;
@@ -1075,6 +1112,10 @@ export class ShipController {
     }
   }
 }
+
+/** No-KO: share of damage taken, and the energy damage never goes below. */
+export const NO_KO_SCALE = 0.5;
+export const NO_KO_FLOOR = 1;
 
 const twistCache = new WeakMap<TrackData, Float32Array>();
 

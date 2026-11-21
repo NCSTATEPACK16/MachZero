@@ -105,7 +105,7 @@ describe('pipe (Cryo Station)', () => {
   it('curlPoint and uncurlPoint invert each other; full curl closes a 2·halfWidth circle', () => {
     const p = { x: 0, y: 0, phi: 0 };
     const back = { lateral: 0, height: 0, phi: 0 };
-    for (const curl of [0, 0.3, 0.7, 1]) {
+    for (const curl of [-1, -0.7, -0.3, 0, 0.3, 0.7, 1]) {
       for (const lat of [-13, -6, 0, 4, 11]) {
         for (const h of [0, 1.2, 3]) {
           curlPoint(lat, h, curl, p);
@@ -119,6 +119,14 @@ describe('pipe (Cryo Station)', () => {
     curlPoint(CONFIG.TRACK_HALF_WIDTH, 0, 1, p);
     expect(p.x).toBeCloseTo(0, 6);
     expect(p.y).toBeCloseTo(2 * PIPE_RADIUS, 6);
+    // A spine (curl −1) closes the deck downward: the edges meet under the crown, the normal points straight down.
+    curlPoint(CONFIG.TRACK_HALF_WIDTH, 0, -1, p);
+    expect(p.x).toBeCloseTo(0, 6);
+    expect(p.y).toBeCloseTo(-2 * PIPE_RADIUS, 6);
+    expect(Math.cos(p.phi)).toBeCloseTo(-1, 6);
+    // Height is measured outward on a spine: a point above the deck is farther from the axis.
+    curlPoint(5, 1.2, -1, p);
+    expect(Math.hypot(p.x, p.y + PIPE_RADIUS)).toBeCloseTo(PIPE_RADIUS + 1.2, 6);
   });
 
   it('surface points of the closed stretch lie on the tube; project() inverts surfacePoint', () => {

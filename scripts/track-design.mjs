@@ -298,6 +298,48 @@ const TRACKS = {
       { s: 200, y: 150, f: [{ type: 'dash', at: 60, lateral: 3 }] },
     ],
   },
+  // World 8. An undersea city of glass domes and brass: a clockwise lap whose signature is the Spine, a 600 m glass
+  // tube the road wraps round (ships ride its outside, all the way round) through a gentle bend, with two fields of
+  // pressure jets on it. Each field's clear lane is on a flank of the tube (`lane`, metres round it from the crown),
+  // so the line rolls round the Spine. No jump and no corkscrew: the Spine is the whole show.
+  'abyss-line': {
+    worldId: 'abyss-line',
+    name: 'ABYSS LINE',
+    elevation: [24, 66],
+    segments: [
+      { s: 380, y: 40, f: [{ type: 'pit', from: 30, to: 250, lateralMin: -13, lateralMax: -7 }] },
+      { r: 300, a: 90, y: 42 },
+      { s: 420, y: 46, adjust: true, f: [{ type: 'dash', at: 140, lateral: 0 }] },
+      { r: 240, a: -45, y: 50 },
+      { r: 240, a: 45, y: 52 },
+      // The Spine: 90 m closing on the straight, the closed tube along 90 m of straight, through the 50° bend and 70 m
+      // on, then 90 m opening on the straight (a ship that held a line round the side must be out of the bend before
+      // the seam opens: the rails come back there). 510 m of closed tube.
+      {
+        s: 200,
+        y: 52,
+        f: [
+          { type: 'spine', from: 20, len: 690, transition: 90 },
+          { type: 'jets', from: 150, to: 300, count: 4, period: 5, phase: 0, lane: 3 },
+          { type: 'jets', from: 390, to: 560, count: 4, period: 5.5, phase: 1.7, lane: -3 },
+        ],
+      },
+      { r: 400, a: 50, y: 54 },
+      { s: 200, y: 54 },
+      { r: 180, a: 100, y: 48 },
+      { s: 300, y: 42, adjust: true, f: [{ type: 'dash', at: 150, lateral: 3 }] },
+      // The glass tunnel through the city: an S-bend that breaks up the back straight (one long boost zone after the
+      // Spine's would let boost timing alone spread the field).
+      { r: 240, a: 35, y: 42 },
+      { r: 240, a: -35, y: 41 },
+      { s: 120, y: 40 },
+      { r: 220, a: -40, y: 40 },
+      { r: 220, a: 40, y: 40 },
+      { s: 200, y: 40 },
+      { r: 260, a: 120, y: 40 },
+      { s: 220, y: 40 },
+    ],
+  },
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -391,8 +433,8 @@ function walk(segments, lengths, emit, start = null) {
           feats.push(f.type === 'pit' ? { ...base, lateralMin: f.lateralMin, lateralMax: f.lateralMax } : base);
         } else if (f.type === 'dash') {
           feats.push({ type: 'dash', dStart: +(d0 + f.at - 6).toFixed(2), dEnd: +(d0 + f.at + 6).toFixed(2), lateralMin: f.lateral - 4, lateralMax: f.lateral + 4 });
-        } else if (f.type === 'pipe') {
-          feats.push({ type: 'pipe', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.from + f.len).toFixed(2), transition: f.transition });
+        } else if (f.type === 'pipe' || f.type === 'spine') {
+          feats.push({ type: f.type, dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.from + f.len).toFixed(2), transition: f.transition });
         } else if (f.type === 'ice') {
           const to = f.to ?? f.from + f.len;
           feats.push({ type: 'ice', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + to).toFixed(2), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip });
@@ -407,6 +449,8 @@ function walk(segments, lengths, emit, start = null) {
           // A crosswind zone may run on past its segment (`len`), like a pipe.
           const to = f.to ?? f.from + f.len;
           feats.push({ type: 'wind', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + to).toFixed(2), dir: f.dir, accel: f.accel ?? 7, period: f.period, phase: f.phase ?? 0, duty: f.duty });
+        } else if (f.type === 'jets') {
+          feats.push({ type: 'jets', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, period: f.period, phase: f.phase ?? 0, lane: f.lane ?? 0 });
         } else if (f.type === 'geysers') {
           feats.push({ type: 'geysers', dStart: +(d0 + f.from).toFixed(2), dEnd: +(d0 + f.to).toFixed(2), count: f.count, period: f.period, phase: f.phase ?? 0, lane: f.lane ?? 0 });
         } else if (f.type === 'lightning') {

@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { RaceState, RacerStanding, ShipId } from './contracts';
+import type { AITier, RaceState, RacerStanding, ShipId } from './contracts';
 import type { ItemKind } from '../content/items';
 
 /**
@@ -37,6 +37,8 @@ export interface GameEvents {
   'hazard:lightning': { shipId: ShipId; strike: number; point: THREE.Vector3 };
   /** A lava geyser hit a ship (Cinder Forge): `geyser` is its index in PhysicsSystem.geysers. */
   'hazard:geyser': { shipId: ShipId; geyser: number; point: THREE.Vector3 };
+  /** A pressure jet hit a ship (Abyss Line's Spine): `jet` is its index in PhysicsSystem.jets. */
+  'hazard:jet': { shipId: ShipId; jet: number; point: THREE.Vector3 };
   /** A crosswind gust started (active) or stopped pushing a ship; `dir` is 1 toward the right rail, −1 toward the left. */
   'ship:wind': { shipId: ShipId; active: boolean; dir: 1 | -1 };
   /** A ship entered (active) or left another's slipstream (physics/Drafting.ts hysteresis). */
@@ -52,11 +54,36 @@ export interface GameEvents {
   /** A CPU fired an EMP at `target`: it lands CONFIG.EMP_WARN_TIME later unless a shield goes up. */
   'item:warn': { from: ShipId; target: ShipId };
   /** A raised shield took an EMP, a mine hit, a lightning strike or a geyser and dropped. */
-  'item:shield': { shipId: ShipId; blocked: 'emp' | 'mine' | 'lightning' | 'geyser'; point: THREE.Vector3 };
+  'item:shield': { shipId: ShipId; blocked: 'emp' | 'mine' | 'lightning' | 'geyser' | 'jet'; point: THREE.Vector3 };
   /** App → HUD/Audio: credits paid to the player's profile at the results. */
   'economy:credits': { delta: number; total: number };
   /** AudioSystem → HUD: master mute changed (keyboard M or HUD button). */
   'audio:mute': { muted: boolean };
+}
+
+/**
+ * Sound hooks for the M8 screens (IMPLEMENTATION §M8a step 8), emitted on the App's menu bus (`App.events`), which
+ * lives as long as the app (each race has its own `GameBus`). Nothing plays them until M6.
+ */
+export interface MenuEvents {
+  /** Results screen: one tally line appeared. */
+  'results:tally': { amount: number };
+  /** Results screen: the credit counter reached the total. */
+  'results:total': { credits: number };
+  /** Results screen: the race opened a world. */
+  'results:unlock': { worldId: string };
+  /** Results screen: a World Tour trophy was earned. */
+  'results:trophy': { tier: AITier };
+  /** Results screen: a Time Trial medal was reached (M8b). */
+  'results:medal': { medal: 'bronze' | 'silver' | 'gold' };
+  /** Results screen: the season was won (M8c). */
+  'results:champion': { tier: AITier };
+  /** A tap or press on a locked world or cup. */
+  'ui:locked': Record<string, never>;
+  /** Tutorial: a step's prompt appeared (M8c). */
+  'tutorial:step': { step: string };
+  /** Tutorial: finished or skipped (M8c). */
+  'tutorial:done': Record<string, never>;
 }
 
 export type Handler<T> = (payload: T) => void;

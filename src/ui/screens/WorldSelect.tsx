@@ -3,11 +3,11 @@
  * locked "coming soon" cards. Each card shows a mini map of its track, the gimmick and your best lap there.
  */
 import type { App } from '../../app/App';
-import { TRACK_DEFS } from '../../content/tracks';
 import { worldsFor, type WorldDef } from '../../content/worlds';
 import { formatTime } from '../../core/math';
 import { TIER_OPTIONS, TIERS } from '../../content/tiers';
 import { Screen, Segmented } from '../components';
+import { miniMap } from '../miniMap';
 
 /** The CPU difficulty for the next race (SPEC §2: the AI dial), saved to the profile. */
 export function TierPicker({ app }: { app: App }) {
@@ -19,22 +19,6 @@ export function TierPicker({ app }: { app: App }) {
       <p class="mzu-note">{TIERS[p.aiTier].hint}</p>
     </div>
   );
-}
-
-/** Plan-view outline of a track definition as an SVG polyline in a 120 × 72 box. */
-function miniMap(trackId: string): string | null {
-  const def = TRACK_DEFS[trackId];
-  if (!def) return null;
-  const xs = def.points.map((p) => p[0]);
-  const zs = def.points.map((p) => p[2]);
-  const minX = Math.min(...xs);
-  const minZ = Math.min(...zs);
-  const w = Math.max(...xs) - minX;
-  const h = Math.max(...zs) - minZ;
-  const s = Math.min(112 / w, 64 / h);
-  const ox = (120 - w * s) / 2;
-  const oz = (72 - h * s) / 2;
-  return def.points.map((p) => `${(ox + (p[0] - minX) * s).toFixed(1)},${(oz + (p[2] - minZ) * s).toFixed(1)}`).join(' ');
 }
 
 function Lock() {

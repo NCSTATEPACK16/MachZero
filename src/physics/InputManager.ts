@@ -1,6 +1,9 @@
 import { CONFIG } from '../core/config';
 import type { ControlInput, IInputManager, KeyBindings, KeyControl, MenuAction } from '../core/contracts';
 import { damp } from '../core/math';
+import { neutralControls } from '../core/controls';
+import type { TouchInput } from './TouchInput';
+import { DEFAULT_PAD_BINDINGS, clonePadBindings, type PadBindings } from '../save/schema';
 
 /** Menu actions produced by keys / buttons, in a fixed order (index used for edge bookkeeping). */
 const MENU_ACTIONS: readonly MenuAction[] = ['pause', 'confirm', 'back', 'mute', 'restart', 'up', 'down', 'left', 'right'];
@@ -137,13 +140,16 @@ function applyDeadzone(x: number, dead: number): number {
   return Math.sign(x) * Math.min(1, (a - dead) / (1 - dead));
 }
 
-/** The device the player last used (prompts show its buttons). */
-export type InputDevice = 'keyboard' | 'pad';
+/** The device the player last used (prompts, the layout and the touch controls follow it). */
+export type InputDevice = 'keyboard' | 'pad' | 'touch';
 
 /** Any pad input beyond this (stick or button) makes the pad the last-used device. */
 const PAD_ACTIVITY = 0.5;
 
-/** Keyboard + gamepad input. Driving state is sampled, menu actions are edge-triggered. */
+/**
+ * Keyboard + gamepad (+ touch, IMPLEMENTATION §M7b) input. Driving state is sampled, menu actions are edge-triggered.
+ * With touch, the steer is the largest of the three devices', the other values the largest, and the latches OR-ed.
+ */
 export class InputManager implements IInputManager {
   /** A gamepad is connected (polled each update()). */
   padConnected = false;
@@ -164,6 +170,7 @@ export class InputManager implements IInputManager {
   private disposed = false;
 
   private kbSteer = 0;
+  private readonly touchOut = neutralControls();
 
   // Gamepad state, refreshed in update().
   private padSteer = 0;
@@ -174,6 +181,10 @@ export class InputManager implements IInputManager {
   private padBoostHeld = false;
   private padFireHeld = false;
   private readonly padPrevButtons = new Uint8Array(16);
+  /** The eight pad driving controls' buttons (Settings → Controls, M7c). Menu buttons are fixed. */
+  private padMap: PadBindings = clonePadBindings(DEFAULT_PAD_BINDINGS);
+  private padItemPrevHeld = false;
+  private padItemNextHeld = false;
   /** Per NAV_DIRS: direction held (d-pad or stick), seconds held, and when it next repeats. */
   private readonly navDown = new Uint8Array(NAV_DIRS.length);
   private readonly navTime = new Float32Array(NAV_DIRS.length);
@@ -181,7 +192,14 @@ export class InputManager implements IInputManager {
   /** performance.now() of the last pad menu press (for dropping iOS key echoes). */
   private padNavAt = -Infinity;
 
-  constructor(private readonly target: Window) {
+  constructor(
+    private readonly target: Window,
+    private readonly touch: TouchInput | null = null,
+  ) {
+    if (touch) {
+      target.addEventListener('pointerdown', this.onPointerDown as EventListener, true);
+      touch.onActivity = () => this.setDevice('touch');
+    }
     target.addEventListener('keydown', this.onEchoKey as EventListener, true);
     target.addEventListener('keydown', this.onKeyDown as EventListener);
     target.addEventListener('keyup', this.onKeyUp as EventListener);
@@ -198,6 +216,20 @@ export class InputManager implements IInputManager {
     this.held.clear();
   }
 
+  /** Replace the pad's driving layout (Settings → Controls). Steering stays on the left stick; menu buttons are fixed. */
+  setPadBindings(bindings: Readonly<PadBindings>): void {
+    this.padMap = clonePadBindings(bindings);
+  }
+
+  /** The pad buttons pressed right now (Settings → Controls' "press a button" capture). */
+  padButtonsDown(): number[] {
+    const pad = this.firstPad();
+    if (!pad) return [];
+    const out: number[] = [];
+    for (let i = 0; i < Math.min(16, pad.buttons.length); i++) if (pad.buttons[i]?.pressed) out.push(i);
+    return out;
+  }
+
   /** Current driving controls; `boost` is true for exactly one sample per press. */
   sample(): ControlInput {
     const kbThrottle = this.isHeld('throttle') ? 1 : 0;
@@ -209,16 +241,18 @@ export class InputManager implements IInputManager {
     const itemCycle = Math.sign(this.cycleLatch);
     this.cycleLatch = 0;
 
-    const steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
+    let steer = Math.abs(this.kbSteer) >= Math.abs(this.padSteer) ? this.kbSteer : this.padSteer;
+    const t = this.touch ? this.touch.read(this.touchOut) : null;
+    if (t && Math.abs(t.steer) > Math.abs(steer)) steer = t.steer;
     return {
-      throttle: Math.max(kbThrottle, this.padThrottle),
-      brake: Math.max(kbBrake, this.padBrake),
+      throttle: Math.max(kbThrottle, this.padThrottle, t?.throttle ?? 0),
+      brake: Math.max(kbBrake, this.padBrake, t?.brake ?? 0),
       steer: Math.max(-1, Math.min(1, steer)),
-      airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft),
-      airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight),
-      boost,
-      fire,
-      itemCycle,
+      airbrakeLeft: Math.max(this.isHeld('airLeft') ? 1 : 0, this.padAirLeft, t?.airbrakeLeft ?? 0),
+      airbrakeRight: Math.max(this.isHeld('airRight') ? 1 : 0, this.padAirRight, t?.airbrakeRight ?? 0),
+      boost: boost || (t?.boost ?? false),
+      fire: fire || (t?.fire ?? false),
+      itemCycle: itemCycle !== 0 ? itemCycle : (t?.itemCycle ?? 0),
     };
   }
 
@@ -250,6 +284,8 @@ export class InputManager implements IInputManager {
     if (Math.abs(this.kbSteer) < 1e-3 && target === 0) this.kbSteer = 0;
 
     this.pollGamepad(dt);
+    // The touch PAUSE button is a menu press like START or Escape (it ages the same way).
+    if (this.touch?.consumePause()) this.press('pause');
   }
 
   dispose(): void {
@@ -259,6 +295,8 @@ export class InputManager implements IInputManager {
     this.target.removeEventListener('keydown', this.onKeyDown as EventListener);
     this.target.removeEventListener('keyup', this.onKeyUp as EventListener);
     this.target.removeEventListener('blur', this.onBlur);
+    this.target.removeEventListener('pointerdown', this.onPointerDown as EventListener, true);
+    this.touch?.releaseAll();
     this.held.clear();
     this.boostLatch = false;
     this.fireLatch = false;
@@ -328,7 +366,13 @@ export class InputManager implements IInputManager {
     this.held.delete(code);
   };
 
+  /** Capture-phase: any finger on the screen makes touch the last-used device. */
+  private readonly onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') this.setDevice('touch');
+  };
+
   private readonly onBlur = (): void => {
+    this.touch?.releaseAll();
     this.held.clear();
     this.boostLatch = false;
     this.fireLatch = false;
@@ -351,6 +395,8 @@ export class InputManager implements IInputManager {
       this.padAirRight = 0;
       this.padBoostHeld = false;
       this.padFireHeld = false;
+      this.padItemPrevHeld = false;
+      this.padItemNextHeld = false;
       this.padPrevButtons.fill(0);
       this.navDown.fill(0);
       return;
@@ -370,24 +416,36 @@ export class InputManager implements IInputManager {
     }
 
     this.padSteer = applyDeadzone(pad.axes[0] ?? 0, STICK_DEADZONE);
-    this.padThrottle = Math.max(btn(PAD.RT), down(PAD.A) ? 1 : 0);
-    this.padBrake = Math.max(btn(PAD.LT), down(PAD.B) ? 1 : 0);
-    this.padAirLeft = down(PAD.LB) ? 1 : 0;
-    this.padAirRight = down(PAD.RB) ? 1 : 0;
+    // The driving controls through the bindings (defaults: RT/Ⓐ, LT/Ⓑ, LB, RB, Ⓧ, Ⓨ, d-pad ◀ ▶). Analog values for
+    // throttle and brake (a trigger's travel); the rest are pressed or not.
+    const m = this.padMap;
+    const level = (list: readonly number[]): number => {
+      let v = 0;
+      for (const i of list) v = Math.max(v, btn(i));
+      return v;
+    };
+    const any = (list: readonly number[]): boolean => {
+      for (const i of list) if (down(i)) return true;
+      return false;
+    };
+    this.padThrottle = level(m.throttle);
+    this.padBrake = level(m.brake);
+    this.padAirLeft = any(m.airLeft) ? 1 : 0;
+    this.padAirRight = any(m.airRight) ? 1 : 0;
 
-    const boostHeld = down(PAD.X);
+    const boostHeld = any(m.boost);
     if (boostHeld && !this.padBoostHeld) this.boostLatch = true;
     this.padBoostHeld = boostHeld;
-    const fireHeld = down(PAD.Y);
+    const fireHeld = any(m.item);
     if (fireHeld && !this.padFireHeld) this.fireLatch = true;
     this.padFireHeld = fireHeld;
-    // Item select: the d-pad's left and right (no race job otherwise; menus read them as navigation too).
-    const dl = down(PAD.DPAD_LEFT);
-    const dr = down(PAD.DPAD_RIGHT);
-    if (dl && this.padPrevButtons[PAD.DPAD_LEFT] === 0) this.cycleLatch--;
-    if (dr && this.padPrevButtons[PAD.DPAD_RIGHT] === 0) this.cycleLatch++;
-    this.padPrevButtons[PAD.DPAD_LEFT] = dl ? 1 : 0;
-    this.padPrevButtons[PAD.DPAD_RIGHT] = dr ? 1 : 0;
+    // Item select (menus also read the d-pad as navigation).
+    const prev = any(m.itemPrev);
+    const next = any(m.itemNext);
+    if (prev && !this.padItemPrevHeld) this.cycleLatch--;
+    if (next && !this.padItemNextHeld) this.cycleLatch++;
+    this.padItemPrevHeld = prev;
+    this.padItemNextHeld = next;
 
     // Menu edges from buttons.
     this.padEdge(PAD.START, down(PAD.START), 'pause');

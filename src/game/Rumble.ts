@@ -19,6 +19,8 @@ export const RUMBLE = {
 export class Rumble {
   private offs: (() => void)[] = [];
   private last = -Infinity;
+  /** Settings → HAPTICS (M7c): off, the pad never rumbles. */
+  enabled = true;
 
   constructor(
     private readonly out: RumbleOut,
@@ -37,6 +39,7 @@ export class Rumble {
       bus.on('hazard:mine', (e) => mine(e.shipId) && this.play(1, 0.8, 300)),
       bus.on('hazard:lightning', (e) => mine(e.shipId) && this.play(0.8, 1, 260)),
       bus.on('hazard:geyser', (e) => mine(e.shipId) && this.play(1, 0.7, 320)),
+      bus.on('hazard:jet', (e) => mine(e.shipId) && this.play(0.8, 0.9, 260)),
       bus.on('ship:destroyed', (e) => mine(e.shipId) && this.play(1, 1, 500)),
     ];
   }
@@ -47,6 +50,7 @@ export class Rumble {
   }
 
   private play(strong: number, weak: number, ms: number): void {
+    if (!this.enabled) return;
     const t = this.now();
     if (t - this.last < RUMBLE.GAP_MS) return;
     this.last = t;

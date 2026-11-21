@@ -295,7 +295,7 @@ export class GraphicsSystem implements IGraphicsSystem {
       }),
       bus.on('item:shield', (e) => {
         const model = this.models.get(e.shipId);
-        if (e.blocked === 'mine' || e.blocked === 'geyser') this.fx.mineBlast(e.point, null);
+        if (e.blocked === 'mine' || e.blocked === 'geyser' || e.blocked === 'jet') this.fx.mineBlast(e.point, null);
         else if (model) this.fx.empHit(model);
         model?.shieldBlocked();
         if (e.shipId === this.playerId) {
@@ -310,6 +310,16 @@ export class GraphicsSystem implements IGraphicsSystem {
         if (e.shipId === this.playerId) {
           this.chase.addImpact(0.45);
           this.post.kickAberration(1);
+        }
+      }),
+      bus.on('hazard:jet', (e) => {
+        // A burst at the hull: the jet's column is drawn with the track (features/jetVisual.ts). A sideways shove, so a
+        // smaller kick than a geyser's.
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.3);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.35);
+          this.post.kickAberration(0.8);
         }
       }),
       bus.on('hazard:lightning', (e) => {

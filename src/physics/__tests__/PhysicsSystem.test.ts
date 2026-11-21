@@ -54,6 +54,7 @@ async function makeRig(track: TrackData = makeSyntheticTrack()): Promise<Rig> {
     'hazard:debris': [],
     'hazard:lightning': [],
     'hazard:geyser': [],
+    'hazard:jet': [],
     'ship:wind': [],
   };
   const subscribe = <K extends keyof GameEvents>(k: K) => bus.on(k, (p) => events[k].push(p));

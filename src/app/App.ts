@@ -3,14 +3,15 @@
  * a route state machine for the menus, and a disposable RaceSession per race. The next race always waits in
  * 'title' state behind the menus, so the backdrop is the real track and field.
  */
-import { batch, computed, effect, signal } from '@preact/signals';
+import { batch, computed, effect, signal, untracked } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
-import type { AITier, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
+import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
-import { DEFAULT_CUP_ID, cupAvailable, cupById } from '../content/cups';
+import { DEFAULT_CUP_ID, cupAvailable, cupById, cupUnlocked } from '../content/cups';
+import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
@@ -21,17 +22,25 @@ import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
-import { WORLDS, worldById, type WorldDef } from '../content/worlds';
+import { WORLDS, worldById, type WorldDef, type WorldId } from '../content/worlds';
+import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
+import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
+import { rosterOf } from '../game/pilotPortrait';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { AI_TIERS, MAX_PROFILES, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
-import { bindHaptics, isNativeApp } from '../native/haptics';
+import { bindHaptics, isNativeApp, setHapticsEnabled, tapUi } from '../native/haptics';
+import { TouchRig } from '../game/TouchControls';
+import { TouchInput } from '../physics/TouchInput';
+import { TiltInput, requestTiltPermission, type TiltPermission } from '../physics/TiltInput';
+import { calibratedNeutral } from '../physics/tilt';
 import { navigate } from '../ui/nav';
 import { RaceSession, type RaceSetup } from './RaceSession';
+import { effectiveAssists } from '../physics/Assists';
 import { initialRoute, isMenuRoute, type Route } from './routes';
 
 export interface AppElements {
@@ -89,11 +98,21 @@ export class App {
   readonly benchmarking = signal(false);
   /** Device whose buttons the prompts show (the last one used; a pad as soon as one connects). */
   readonly inputDevice = signal<InputDevice>('keyboard');
+  /** A gamepad is connected (Settings → Controls shows the pad section). */
+  readonly padConnected = signal(false);
+  /** A key has been pressed this session (Settings → Controls shows the keyboard section). */
+  readonly keyboardSeen = signal(false);
+  /** Settings → Controls is waiting for a pad button (menu navigation is paused meanwhile). */
+  private padCapture: { resolve: (i: number | null) => void; held: Set<number>; until: number } | null = null;
 
   /** True while the race session is a Grand Prix cup race (built from the profile's cup). */
   readonly cupRace = signal(false);
   /** The cup just finished (for the final standings screen), with what it earned. */
   readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
+  /** The last race's outcome, for the results screen (IMPLEMENTATION §M8a). */
+  readonly lastResult = signal<RaceResult | null>(null);
+  /** The menus' sound hooks (IMPLEMENTATION §M8a step 8): results, locked worlds and cups. The race has its own bus. */
+  readonly events = new EventBus<MenuEvents>();
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -101,7 +120,13 @@ export class App {
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
-  private readonly input = new InputManager(window);
+  /** Touch controls (IMPLEMENTATION §M7b), with the `touch` feature only: without it a touch does nothing in a race. */
+  private readonly touchRig: TouchRig | null = FEATURES.touch ? new TouchRig(new TouchInput()) : null;
+  private readonly input = new InputManager(window, this.touchRig?.input ?? null);
+  /** Tilt steering (M7c), with the touch controls only. */
+  private readonly tilt: TiltInput | null = this.touchRig ? new TiltInput(window) : null;
+  /** The steer of the last driving sample (debug hook for the touch e2e). */
+  private lastSteer = 0;
   /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
   private readonly rumble = new Rumble((strong, weak, ms) => this.input.rumble(strong, weak, ms));
   private readonly assets = new AssetLoader();
@@ -126,6 +151,10 @@ export class App {
     let pendingFallback: FallbackReason | null = null;
     this.store = new SaveStore(undefined, { onFallback: (r) => (pendingFallback = r) });
     this.save.value = this.store.load();
+    // A new save starts with reduced motion on when the device asks for it (IMPLEMENTATION §M7c); never later.
+    if (this.store.firstLaunch && typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.save.value = { ...this.save.value, settings: { ...this.save.value.settings, reducedMotion: true } };
+    }
     this.settings = new Settings(this.save.value.settings);
     if (pendingFallback) this.toast(FALLBACK_TEXT[pendingFallback], 'warn', 9);
 
@@ -137,6 +166,37 @@ export class App {
       this.applySettings(s);
       this.updateSave((d) => (d.settings = s));
     });
+
+    // The player's assists follow the profile, the input device and the touch settings, mid-race too.
+    effect(() => {
+      const a = this.playerAssists();
+      untracked(() => this.session?.setAssists(a));
+    });
+
+    // Touch controls follow the touch settings and the effective auto-accelerate, mid-race too.
+    const rig = this.touchRig;
+    if (rig) {
+      rig.haptic = () => tapUi();
+      rig.onHintSeen = () => this.settings.setTouch({ hintSeen: true });
+      effect(() => {
+        const t = this.settings.touch.value;
+        const p = this.menus ? this.activeProfile.value : null;
+        const airbrake = t.airbrake;
+        rig.input.setConfig({ sensitivity: t.sensitivity, airbrake });
+        rig.setConfig({ buttonSize: t.buttonSize, leftHanded: t.leftHanded, airbrake, autoAccelerate: effectiveAssists(p?.assists ?? NO_ASSISTS, 'touch', t).autoAccelerate, hint: !t.hintSeen });
+      });
+      // A touch-first screen gets 44-point menu targets before its first tap (ui.css, M7c).
+      if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) document.documentElement.classList.add('mz-coarse');
+      // The web shows a rotate overlay in portrait on a touch screen (the app is locked to landscape) and pauses.
+      if (!isNativeApp()) {
+        document.documentElement.classList.add('mz-rotate-ok');
+        const portrait = window.matchMedia?.('(orientation: portrait) and (pointer: coarse)');
+        portrait?.addEventListener?.('change', (e) => {
+          const s = this.session;
+          if (e.matches && this.route.value.name === 'race' && s && (s.state === 'racing' || s.state === 'countdown')) s.pause(true);
+        });
+      }
+    }
 
     // The in-race HUD is hidden while a menu screen is up.
     effect(() => {
@@ -182,6 +242,15 @@ export class App {
         },
         get bus() {
           return app.session?.bus;
+        },
+        /** The last-used device and the player's last driving steer (touch e2e). */
+        input: {
+          get device() {
+            return app.inputDevice.value;
+          },
+          get steer() {
+            return app.lastSteer;
+          },
         },
         startRace: () => app.startRace(),
         restartRace: () => app.session?.restart(),
@@ -277,6 +346,10 @@ export class App {
     const p = this.activeProfile.value;
     const def = cupById(cupId);
     if (!p || p.cup || !def || !cupAvailable(def)) return;
+    if (!cupUnlocked(def, p, this.features.modes)) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
     this.lastCup.value = null;
     this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
     void this.startCupRace();
@@ -353,15 +426,38 @@ export class App {
     this.route.value = { name: 'soon', feature, title };
   }
 
+  /** The world select, or with `modes` the World Tour map (IMPLEMENTATION §M8a). */
   openWorlds(): void {
-    this.route.value = { name: 'worlds' };
+    this.route.value = this.features.modes ? { name: 'tour' } : { name: 'worlds' };
   }
 
-  /** World select: remember the world and race it. */
+  /** The world map opens with this world's card (the results screen's NEXT WORLD). */
+  private tourCard: WorldId | null = null;
+
+  /** Open the map with `worldId`'s card showing, and make it the profile's world. */
+  openTourCard(worldId: WorldId): void {
+    this.tourCard = worldId;
+    this.updateProfile((p) => (p.world = worldId));
+    this.route.value = { name: 'tour' };
+  }
+
+  /** The card the map should open with (read once). */
+  takeTourCard(): WorldId | null {
+    const id = this.tourCard;
+    this.tourCard = null;
+    return id;
+  }
+
+  /** World select or World Tour card: remember the world and race it. With `modes` a locked world is refused. */
   selectWorld(worldId: string): void {
     const w = worldById(worldId);
     if (!w?.built) return;
-    this.updateProfile((p) => (p.world = w.id), () => true);
+    const p = this.activeProfile.value;
+    if (this.features.modes && p && !worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
+    this.updateProfile((q) => (q.world = w.id), () => true);
     void this.startRace();
   }
 
@@ -415,6 +511,20 @@ export class App {
   /** CPU difficulty for the active profile's next race. */
   setAiTier(tier: AITier): void {
     this.updateProfile((p) => (p.aiTier = tier));
+  }
+
+  /**
+   * Change the active profile's assists (Settings → ASSISTS, also from the pause menu). They act in the race at once
+   * (the effect in the constructor passes them on); the hazard rules follow No-KO from the next race.
+   */
+  setAssists(patch: Partial<Assists>): void {
+    this.updateProfile((p) => (p.assists = { ...p.assists, ...patch }));
+  }
+
+  /** The player's assists in force: the profile's, plus touch's auto-accelerate (IMPLEMENTATION §M7a). */
+  private playerAssists(): Assists {
+    const p = this.menus ? this.activeProfile.value : null;
+    return effectiveAssists(p?.assists ?? NO_ASSISTS, this.inputDevice.value, this.settings.touch.value);
   }
 
   /** Garage turntable: draw `loadout` into `el`, or stop with null. */
@@ -571,13 +681,32 @@ export class App {
         else if (s.state === 'title' || s.state === 'results') s.start();
         else if (s.state === 'paused') s.pause(false);
       }
-      s.fixed(dt, input.sample());
+      this.stepTilt(dt);
+      const c = input.sample();
+      this.lastSteer = c.steer;
+      s.fixed(dt, c);
       return;
     }
     // Garage: the right stick orbits the turntable and the shoulders zoom (§V.3).
     if (r.name === 'garage') {
       const o = input.orbitInput();
       if (o.x !== 0 || o.y !== 0 || o.zoom !== 0) this.graphics.orbitPreview(o.x * 2.4 * dt, o.y * 1.2 * dt, o.zoom * 1.5 * dt);
+    }
+    // Settings → Controls is capturing a pad button: the first new press is the answer; menus wait.
+    const cap = this.padCapture;
+    if (cap) {
+      const down = input.padButtonsDown();
+      const fresh = down.find((b) => !cap.held.has(b));
+      for (const b of [...cap.held]) if (!down.includes(b)) cap.held.delete(b);
+      if (fresh !== undefined || performance.now() > cap.until) {
+        this.padCapture = null;
+        cap.resolve(fresh ?? null);
+      }
+      for (const a of NAV_ACTIONS) input.consume(a);
+      input.consume('pause');
+      input.sample();
+      s?.fixed(dt, null);
+      return;
     }
     // Menu screens: route gamepad / unfocused-keyboard actions to the UI; Escape acts as back.
     for (const a of NAV_ACTIONS) if (input.consume(a)) this.navHandler?.(a);
@@ -587,13 +716,75 @@ export class App {
     s?.fixed(dt, null);
   }
 
+  /** Tilt (IMPLEMENTATION §M7c): while it is chosen and its data is fresh, it replaces the slider's steer. */
+  private stepTilt(dt: number): void {
+    const rig = this.touchRig;
+    const tilt = this.tilt;
+    if (!rig || !tilt) return;
+    const t = this.settings.touch.value;
+    if (t.steer !== 'tilt') {
+      tilt.stop();
+      rig.input.externalSteer = null;
+      rig.tiltActive = rig.tiltFlat = false;
+      return;
+    }
+    tilt.start();
+    const live = tilt.fresh;
+    rig.input.externalSteer = live ? tilt.update(dt, t.tiltNeutral, t.tiltSensitivity) : null;
+    rig.tiltActive = live;
+    rig.tiltFlat = live && tilt.flat;
+  }
+
+  /** Settings → TILT, or the intro card's ENABLE TILT (inside a tap): ask for motion data; without it, the slider. */
+  async enableTilt(): Promise<TiltPermission> {
+    const r = this.tilt ? await requestTiltPermission() : 'unsupported';
+    if (r === 'granted') {
+      this.tilt?.start();
+      this.settings.setTouch({ steer: 'tilt' });
+    } else {
+      this.settings.setTouch({ steer: 'slider' });
+      this.toast(r === 'denied' ? 'Tilt needs motion access. Using the slider. Allow motion and try again.' : 'This device has no motion sensor. Using the slider.', 'warn', 6);
+    }
+    return r;
+  }
+
+  /** CALIBRATE: the way the device is held now becomes straight ahead. False when no motion data is coming in. */
+  calibrateTilt(): boolean {
+    const roll = this.tilt?.currentRoll ?? null;
+    if (roll === null) {
+      this.toast('No tilt data yet. Hold the device as you play, then press CALIBRATE.', 'warn');
+      return false;
+    }
+    this.settings.setTouch({ tiltNeutral: calibratedNeutral(roll) });
+    this.toast('Tilt calibrated: this is straight ahead.', 'good');
+    return true;
+  }
+
+  /** Wait for the next pad button press (Settings → Controls' capture): its index, or null after 6 s or on cancel. */
+  capturePadButton(): Promise<number | null> {
+    this.cancelPadCapture();
+    return new Promise((resolve) => {
+      this.padCapture = { resolve, held: new Set(this.input.padButtonsDown()), until: performance.now() + 6000 };
+    });
+  }
+
+  cancelPadCapture(): void {
+    const c = this.padCapture;
+    this.padCapture = null;
+    c?.resolve(null);
+  }
+
   private setInputDevice(d: InputDevice): void {
+    if (d === 'keyboard') this.keyboardSeen.value = true;
     this.inputDevice.value = d;
     document.documentElement.classList.toggle('mz-pad', d === 'pad');
+    document.documentElement.classList.toggle('mz-touch', d === 'touch');
+    if (d !== 'touch') this.touchRig?.input.releaseAll();
   }
 
   /** A controller dropping mid-race pauses it (never resumes by itself); connecting one switches the prompts. */
   private padChanged(connected: boolean): void {
+    this.padConnected.value = connected;
     if (connected) {
       this.setInputDevice('pad');
       this.toast('Controller connected.', 'good');
@@ -659,8 +850,9 @@ export class App {
       tier,
       ...(cup ? { gridOrder: cupGridOrder(cup) ?? undefined } : {}),
     });
-    // Hazards: Rookie races telegraph them harder and they only slow you down (SPEC §6); ?hazards= overrides for QA.
-    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' ? 'rookie' : 'normal'));
+    // Hazards: Rookie races, and a profile with No-KO, telegraph them harder and they only slow you down (SPEC §6,
+    // IMPLEMENTATION §M7a); ?hazards= overrides for QA. Fixed for the race once it is built.
+    const hazards = hazardPolicy(this.flags.hazards ?? (tier === 'rookie' || p?.assists.noKO ? 'rookie' : 'normal'));
     // Items come from the live profile; one used is spent from the save at once (a restart does not refill it).
     const items = p
       ? {
@@ -668,7 +860,7 @@ export class App {
           use: (kind: ItemKind) => this.updateProfile((q) => (q.items[kind] = Math.max(0, q.items[kind] - 1))),
         }
       : undefined;
-    const base = { field, autopilot: this.flags.autopilot, hazards, items };
+    const base = { field, autopilot: this.flags.autopilot, hazards, items, assists: this.playerAssists() };
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {
@@ -706,12 +898,13 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, ...(this.touchRig ? { touch: this.touchRig } : {}) });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
       this.session = next;
       this.sessionKey = key;
+      next.setAssists(this.playerAssists()); // they may have changed while it was building
       // Pose the camera on the grid, then compile every shader behind the loading screen (no mid-race stalls).
       next.frame(1 / 60, 1, 0);
       await this.graphics.warmUp();
@@ -728,7 +921,15 @@ export class App {
       onRestart: () => this.session?.restart(),
       onResume: () => this.session?.pause(false),
       onToggleMute: () => this.toggleMute(),
+      onSkipIntro: () => this.endIntro(),
     };
+    if (this.tilt) {
+      const tilt = this.tilt;
+      actions.tilt = {
+        needed: () => this.settings.touch.value.steer === 'tilt' && this.inputDevice.value === 'touch' && !tilt.fresh,
+        enable: () => void this.enableTilt(),
+      };
+    }
     if (this.menus) {
       actions.onMenu = () => this.quitToMenu();
       actions.onSettings = () => this.openSettings('pause');
@@ -737,23 +938,89 @@ export class App {
     return actions;
   }
 
+  /**
+   * With `modes` a race ends on the results screen (IMPLEMENTATION §M8a), not on the HUD's results panel. The
+   * no-menu flows (`?autopilot=1`, `?seed=N`) keep the HUD panel.
+   */
+  get resultsScreen(): boolean {
+    return this.menus && this.features.modes && this.features.worlds && this.flags.seed === null;
+  }
+
   private bindStats(s: RaceSession): void {
     const profileId = this.menus ? this.activeProfile.value?.id : undefined;
     if (!profileId) return;
     s.bus.on('race:results', ({ standings }) => {
       const me = standings.find((r) => r.id === s.player.def.id);
+      const tier = s.player.def.tier ?? 'rookie';
+      // A race on a world counts on the World Tour (a cup race too); the classic and Bonus tracks do not.
+      const world = this.flags.seed === null && s.setup.source.kind === 'authored' ? worldById(s.setup.worldId) : undefined;
       let pay = 0;
-      let total = 0;
+      let tour = null as TourResult | null; // set inside the save update
       this.updateSave((d) => {
         const p = d.profiles.find((x) => x.id === profileId);
         if (!p) return;
-        pay = settleRace(p, me, s.player.def.tier ?? 'rookie');
+        pay = settleRace(p, me, tier);
+        if (!world) return;
+        if (this.features.modes) {
+          tour = bookTourRace(p.tour, world.id, tier, me, tourWorlds(this.features));
+          p.tour = tour.tour;
+          p.credits += tour.bonus;
+        } else if (!p.tour.granted.includes(world.id)) {
+          // Before the Tour is on, a world raced is granted (as the 8 → 9 migration does), so no progress is lost.
+          p.tour = { ...p.tour, granted: [...p.tour.granted, world.id] };
+        }
       });
+      const t: TourResult | null = tour;
+      const firstClear = t?.bonus ?? 0;
       // A cup race also books the cup (and, after the last race, pays the cup bonus).
-      if (this.cupRace.value && this.session === s) pay += this.bookCupRace(standings);
-      total = this.activeProfile.value?.credits ?? 0;
-      if (pay > 0) s.bus.emit('economy:credits', { delta: pay, total });
+      const cup = this.cupRace.value && this.session === s;
+      const cupBonus = cup ? this.bookCupRace(standings) : 0;
+      const total = this.activeProfile.value?.credits ?? 0;
+      const delta = pay + firstClear + cupBonus;
+      if (delta > 0) s.bus.emit('economy:credits', { delta, total });
+      if (!this.resultsScreen || this.session !== s || !world) return;
+      const roster = rosterOf(s.setup.field);
+      this.lastResult.value = {
+        mode: cup ? 'cup' : 'tour',
+        worldId: world.id,
+        tier,
+        standings: standings.map((x) => ({ ...x })),
+        playerId: s.player.def.id,
+        roster,
+        tally: raceTally(me, tier, { firstClear, cup: cupBonus }),
+        credits: total,
+        unlocked: t?.unlocked ?? null,
+        newTrophies: t?.newTrophies ?? [],
+        quote: winnerQuote(standings, roster, s.player.def.id),
+      };
+      this.route.value = { name: 'results' };
     });
+  }
+
+  // ------------------------------------------------------------ Results screen (IMPLEMENTATION §M8a)
+
+  /** RACE AGAIN: the same world and tier, through the grid intro. */
+  raceAgain(): void {
+    void this.startRace();
+  }
+
+  /** Leave the results for a menu screen; the race goes back to the grid behind it. */
+  leaveResults(to: Route): void {
+    this.session?.toTitle();
+    this.route.value = to;
+  }
+
+  /** NEXT WORLD: the map, with the world just unlocked picked and its card open. */
+  resultsNextWorld(): void {
+    const id = this.lastResult.value?.unlocked;
+    if (!id) return;
+    this.session?.toTitle();
+    this.openTourCard(id);
+  }
+
+  /** STANDINGS (a cup race): the cup standings, as the HUD's CUP STANDINGS button does. */
+  resultsStandings(): void {
+    this.quitToMenu();
   }
 
   /** Change the active profile; `changed` false skips the write (nothing happened). */
@@ -835,9 +1102,14 @@ export class App {
     this.audio.setVolumes(s.masterVolume, s.sfxVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
+    setHapticsEnabled(s.haptics);
+    this.rumble.enabled = s.haptics;
     this.input.setBindings(s.keyBindings);
+    this.input.setPadBindings(s.padBindings);
     const root = document.documentElement.classList;
-    root.toggle('mz-large-text', s.largeText);
+    // HUD size (IMPLEMENTATION §M7a): until M7c restyles them, both classes carry the old LARGE TEXT rules.
+    root.toggle('mz-hud-large', s.hudSize === 'large');
+    root.toggle('mz-hud-xl', s.hudSize === 'xl');
     root.toggle('mz-cb', s.colorBlind);
     root.toggle('mz-reduced-motion', s.reducedMotion);
   }

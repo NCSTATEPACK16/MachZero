@@ -16,7 +16,13 @@
  *     radius of at least PLUNGE_MIN_RADIUS, level at both ends, and nothing else on it (no other feature, dash
  *     plate, wind zone or hazard field); outside a Plunge the road is never steeper than MAX_GRADE;
  *   - geyser fields: the same places as lightning, never on a Plunge, a period long enough for the Rookie warning,
- *     and room for the vents beside the clear lane.
+ *     and room for the vents beside the clear lane;
+ *   - spines: the pipe's rules (a gentle bend, long enough transitions, a closed stretch), the tube's bottom
+ *     within the world's elevation band, and both transitions on a straight with SPINE_STRAIGHT_CLOSED metres of
+ *     straight closed tube beside them (a ship holding a line round the side must be out of a bend before the seam
+ *     opens: there the rails come back);
+ *   - jet fields: only on a spine's closed stretch, a period long enough for the Rookie warning, and room for the
+ *     vents beside the clear lane and off the bottom seam.
  */
 import { CONFIG } from '../core/config';
 import type { TrackData, TrackFeature } from '../core/contracts';
@@ -28,9 +34,11 @@ import { STRIKE_MIN_PERIOD, STRIKE_RADIUS, strikeLaneGap } from './features/ligh
 import { laneIntervals } from './features/mine';
 import { PLUNGE_MAX_PITCH, PLUNGE_MIN_RADIUS } from './features/plunge';
 import { GEYSER_MIN_PERIOD, GEYSER_RADIUS, geyserLaneGap } from './features/geyser';
+import { JET_MIN_PERIOD, jetLaneGap, jetSeamGap } from './features/jet';
+import { PIPE_RADIUS } from './features/pipe';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop' | 'wind' | 'lightning' | 'plunge' | 'geyser';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop' | 'wind' | 'lightning' | 'plunge' | 'geyser' | 'spine' | 'jets';
   message: string;
 }
 
@@ -69,6 +77,8 @@ export const VALIDATION = {
   PIPE_MIN_TRANSITION: 60,
   /** A pipe's closed stretch must be at least this long. */
   PIPE_MIN_CLOSED: 150,
+  /** Straight closed tube (m) a spine keeps next to each transition, which is on a straight too. */
+  SPINE_STRAIGHT_CLOSED: 50,
   /** Tolerance (m) on the rail-to-rail separation a branch keeps from the main road once separated. */
   BRANCH_SEPARATION_SLACK: 0.5,
   /** A crosswind zone keeps this far (m) from a corkscrew: the deck rolls there and a push would fight the magnetism. */
@@ -88,6 +98,7 @@ function featureSpan(f: TrackFeature): [number, number] | null {
   switch (f.type) {
     case 'corkscrew':
     case 'pipe':
+    case 'spine':
     case 'loop':
     case 'plunge':
       return [f.dStart, f.dEnd];
@@ -200,14 +211,27 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
       }
     }
   }
+  // Pipes and spines (the pipe turned inside out) bend gently, close and open slowly, and stay closed a while.
   for (const f of track.features) {
-    if (f.type !== 'pipe') continue;
-    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
-    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
+    if (f.type !== 'pipe' && f.type !== 'spine') continue;
+    const code = f.type;
+    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
+    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
     for (let d = f.dStart; d <= f.dEnd; d += 5) {
-      const k = Math.abs(track.sampleAt((((d % L) + L) % L) / L).curvature);
-      if (k > 1 / VALIDATION.PIPE_MIN_RADIUS) {
-        issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+      const s = track.sampleAt((((d % L) + L) % L) / L);
+      if (Math.abs(s.curvature) > 1 / VALIDATION.PIPE_MIN_RADIUS) {
+        issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+        break;
+      }
+      // A spine closes and opens on a straight, with straight closed tube beside it.
+      const tr = f.transition + VALIDATION.SPINE_STRAIGHT_CLOSED;
+      if (f.type === 'spine' && (d - f.dStart < tr || f.dEnd - d < tr) && Math.abs(s.curvature) > VALIDATION.STRAIGHT_K) {
+        issues.push({ code, message: `spine at ${f.dStart.toFixed(0)} m bends at ${d.toFixed(0)} m, within ${tr} m of an end (it must close and open on a straight)` });
+        break;
+      }
+      // A spine's tube hangs 2·R below the crown: its bottom, with a hull under it, stays in the world's band.
+      if (f.type === 'spine' && s.position.y - 2 * PIPE_RADIUS - CONFIG.HOVER_HEIGHT < elevation[0]) {
+        issues.push({ code, message: `spine at ${f.dStart.toFixed(0)} m: the tube's bottom is below ${elevation[0]} m at ${d.toFixed(0)} m` });
         break;
       }
     }
@@ -265,6 +289,22 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
     if (laneIntervals(track.halfWidth, f.lane ?? 0, geyserLaneGap(), GEYSER_RADIUS + 0.5).length === 0) issues.push({ code: 'geyser', message: `${what} leaves no room beside its clear lane` });
     for (const o of [...windZones, ...fields]) {
       if (circularOverlap([f.dStart, f.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'geyser', message: `${what} overlaps the ${o.type === 'wind' ? 'wind zone' : 'lightning field'} at ${o.dStart.toFixed(0)} m` });
+    }
+  }
+
+  // ---- jet fields: only on the closed stretch of a spine ----
+  const spines = track.features.filter((f): f is Extract<TrackFeature, { type: 'spine' }> => f.type === 'spine');
+  for (const f of track.features) {
+    if (f.type !== 'jets') continue;
+    const what = `jet field at ${f.dStart.toFixed(0)} m`;
+    const host = spines.find((p) => circularOverlap([f.dStart, f.dStart], [p.dStart + p.transition, p.dEnd - p.transition], L) && circularOverlap([f.dEnd, f.dEnd], [p.dStart + p.transition, p.dEnd - p.transition], L));
+    if (!host) issues.push({ code: 'jets', message: `${what} is not on the closed stretch of a spine` });
+    if (f.period < JET_MIN_PERIOD) issues.push({ code: 'jets', message: `${what}: period ${f.period} s < ${JET_MIN_PERIOD} s (the Rookie warning would not fit)` });
+    if (!(f.count >= 1)) issues.push({ code: 'jets', message: `${what} has no vents` });
+    if (laneIntervals(track.halfWidth, f.lane ?? 0, jetLaneGap(), jetSeamGap()).length === 0) issues.push({ code: 'jets', message: `${what} leaves no room beside its clear lane and off the seam` });
+    for (const o of track.features) {
+      if (o === f || (o.type !== 'jets' && o.type !== 'wind' && o.type !== 'lightning' && o.type !== 'geysers' && o.type !== 'mines' && o.type !== 'debris')) continue;
+      if (circularOverlap([f.dStart, f.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'jets', message: `${what} overlaps the ${o.type} at ${o.dStart.toFixed(0)} m` });
     }
   }
 
