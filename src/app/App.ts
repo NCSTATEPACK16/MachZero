@@ -10,7 +10,8 @@ import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTi
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
-import { DEFAULT_CUP_ID, cupAvailable, cupById } from '../content/cups';
+import { DEFAULT_CUP_ID, cupAvailable, cupById, cupUnlocked } from '../content/cups';
+import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
@@ -21,7 +22,10 @@ import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
-import { WORLDS, worldById, type WorldDef } from '../content/worlds';
+import { WORLDS, worldById, type WorldDef, type WorldId } from '../content/worlds';
+import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
+import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
+import { rosterOf } from '../game/pilotPortrait';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
@@ -105,6 +109,10 @@ export class App {
   readonly cupRace = signal(false);
   /** The cup just finished (for the final standings screen), with what it earned. */
   readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
+  /** The last race's outcome, for the results screen (IMPLEMENTATION §M8a). */
+  readonly lastResult = signal<RaceResult | null>(null);
+  /** The menus' sound hooks (IMPLEMENTATION §M8a step 8): results, locked worlds and cups. The race has its own bus. */
+  readonly events = new EventBus<MenuEvents>();
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -338,6 +346,10 @@ export class App {
     const p = this.activeProfile.value;
     const def = cupById(cupId);
     if (!p || p.cup || !def || !cupAvailable(def)) return;
+    if (!cupUnlocked(def, p, this.features.modes)) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
     this.lastCup.value = null;
     this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
     void this.startCupRace();
@@ -414,15 +426,38 @@ export class App {
     this.route.value = { name: 'soon', feature, title };
   }
 
+  /** The world select, or with `modes` the World Tour map (IMPLEMENTATION §M8a). */
   openWorlds(): void {
-    this.route.value = { name: 'worlds' };
+    this.route.value = this.features.modes ? { name: 'tour' } : { name: 'worlds' };
   }
 
-  /** World select: remember the world and race it. */
+  /** The world map opens with this world's card (the results screen's NEXT WORLD). */
+  private tourCard: WorldId | null = null;
+
+  /** Open the map with `worldId`'s card showing, and make it the profile's world. */
+  openTourCard(worldId: WorldId): void {
+    this.tourCard = worldId;
+    this.updateProfile((p) => (p.world = worldId));
+    this.route.value = { name: 'tour' };
+  }
+
+  /** The card the map should open with (read once). */
+  takeTourCard(): WorldId | null {
+    const id = this.tourCard;
+    this.tourCard = null;
+    return id;
+  }
+
+  /** World select or World Tour card: remember the world and race it. With `modes` a locked world is refused. */
   selectWorld(worldId: string): void {
     const w = worldById(worldId);
     if (!w?.built) return;
-    this.updateProfile((p) => (p.world = w.id), () => true);
+    const p = this.activeProfile.value;
+    if (this.features.modes && p && !worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
+    this.updateProfile((q) => (q.world = w.id), () => true);
     void this.startRace();
   }
 
@@ -863,7 +898,7 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, rumble: this.rumble, ...(this.touchRig ? { touch: this.touchRig } : {}) });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, ...(this.touchRig ? { touch: this.touchRig } : {}) });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
@@ -903,23 +938,89 @@ export class App {
     return actions;
   }
 
+  /**
+   * With `modes` a race ends on the results screen (IMPLEMENTATION §M8a), not on the HUD's results panel. The
+   * no-menu flows (`?autopilot=1`, `?seed=N`) keep the HUD panel.
+   */
+  get resultsScreen(): boolean {
+    return this.menus && this.features.modes && this.features.worlds && this.flags.seed === null;
+  }
+
   private bindStats(s: RaceSession): void {
     const profileId = this.menus ? this.activeProfile.value?.id : undefined;
     if (!profileId) return;
     s.bus.on('race:results', ({ standings }) => {
       const me = standings.find((r) => r.id === s.player.def.id);
+      const tier = s.player.def.tier ?? 'rookie';
+      // A race on a world counts on the World Tour (a cup race too); the classic and Bonus tracks do not.
+      const world = this.flags.seed === null && s.setup.source.kind === 'authored' ? worldById(s.setup.worldId) : undefined;
       let pay = 0;
-      let total = 0;
+      let tour = null as TourResult | null; // set inside the save update
       this.updateSave((d) => {
         const p = d.profiles.find((x) => x.id === profileId);
         if (!p) return;
-        pay = settleRace(p, me, s.player.def.tier ?? 'rookie');
+        pay = settleRace(p, me, tier);
+        if (!world) return;
+        if (this.features.modes) {
+          tour = bookTourRace(p.tour, world.id, tier, me, tourWorlds(this.features));
+          p.tour = tour.tour;
+          p.credits += tour.bonus;
+        } else if (!p.tour.granted.includes(world.id)) {
+          // Before the Tour is on, a world raced is granted (as the 8 → 9 migration does), so no progress is lost.
+          p.tour = { ...p.tour, granted: [...p.tour.granted, world.id] };
+        }
       });
+      const t: TourResult | null = tour;
+      const firstClear = t?.bonus ?? 0;
       // A cup race also books the cup (and, after the last race, pays the cup bonus).
-      if (this.cupRace.value && this.session === s) pay += this.bookCupRace(standings);
-      total = this.activeProfile.value?.credits ?? 0;
-      if (pay > 0) s.bus.emit('economy:credits', { delta: pay, total });
+      const cup = this.cupRace.value && this.session === s;
+      const cupBonus = cup ? this.bookCupRace(standings) : 0;
+      const total = this.activeProfile.value?.credits ?? 0;
+      const delta = pay + firstClear + cupBonus;
+      if (delta > 0) s.bus.emit('economy:credits', { delta, total });
+      if (!this.resultsScreen || this.session !== s || !world) return;
+      const roster = rosterOf(s.setup.field);
+      this.lastResult.value = {
+        mode: cup ? 'cup' : 'tour',
+        worldId: world.id,
+        tier,
+        standings: standings.map((x) => ({ ...x })),
+        playerId: s.player.def.id,
+        roster,
+        tally: raceTally(me, tier, { firstClear, cup: cupBonus }),
+        credits: total,
+        unlocked: t?.unlocked ?? null,
+        newTrophies: t?.newTrophies ?? [],
+        quote: winnerQuote(standings, roster, s.player.def.id),
+      };
+      this.route.value = { name: 'results' };
     });
+  }
+
+  // ------------------------------------------------------------ Results screen (IMPLEMENTATION §M8a)
+
+  /** RACE AGAIN: the same world and tier, through the grid intro. */
+  raceAgain(): void {
+    void this.startRace();
+  }
+
+  /** Leave the results for a menu screen; the race goes back to the grid behind it. */
+  leaveResults(to: Route): void {
+    this.session?.toTitle();
+    this.route.value = to;
+  }
+
+  /** NEXT WORLD: the map, with the world just unlocked picked and its card open. */
+  resultsNextWorld(): void {
+    const id = this.lastResult.value?.unlocked;
+    if (!id) return;
+    this.session?.toTitle();
+    this.openTourCard(id);
+  }
+
+  /** STANDINGS (a cup race): the cup standings, as the HUD's CUP STANDINGS button does. */
+  resultsStandings(): void {
+    this.quitToMenu();
   }
 
   /** Change the active profile; `changed` false skips the write (nothing happened). */

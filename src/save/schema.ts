@@ -5,12 +5,12 @@
 import type { AITier, Assists, KeyBindings, KeyControl, Loadout, PartSlot, PartTier, PartVariant } from '../core/contracts';
 import { CHASSIS, chassisById } from '../content/ships';
 import { PART_SLOTS, STOCK_PARTS, STOCK_VARIANTS, parsePartKey, partKey, variantOf } from '../content/parts';
-import { WORLDS } from '../content/worlds';
+import { WORLDS, type WorldId } from '../content/worlds';
 import { type ItemBag, clampBag, emptyBag, itemSlots } from '../content/items';
 import { type CupState, type Trophies, sanitizeCup, sanitizeTrophies } from '../game/modes/GrandPrix';
 
 export const SAVE_KEY = 'machzero.save';
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 export const MAX_PROFILES = 8;
 export const PROFILE_NAME_MAX = 12;
@@ -46,9 +46,35 @@ export interface TouchSettings {
   hintSeen: boolean;
 }
 
+export type Medal = 'bronze' | 'silver' | 'gold';
+export const MEDALS: readonly Medal[] = ['bronze', 'silver', 'gold'];
+
 export interface TrackRecord {
   /** Best single lap (s). */
   bestLap?: number;
+  /** Time Trial (IMPLEMENTATION §M8b): best 3-lap total (s) and the best medal reached. */
+  trialTime?: number;
+  medal?: Medal;
+}
+
+/** World Tour progress (IMPLEMENTATION §M8a). */
+export interface TourState {
+  /** Worlds opened by the 8 → 9 migration (raced before World Tour existed). */
+  granted: WorldId[];
+  /** World Tour trophies: tiers at which the world was finished in the top 3 (lower tiers filled in), in tier order. */
+  trophies: Partial<Record<WorldId, AITier[]>>;
+}
+
+/** A championship season in progress (IMPLEMENTATION §M8c). */
+export interface SeasonState {
+  tier: AITier;
+  /** The season's finished cups, in order. The cup in progress is Profile.cup. */
+  done: CupState[];
+}
+
+export interface GhostSettings {
+  best: boolean;
+  dev: boolean;
 }
 
 export interface Profile {
@@ -74,6 +100,14 @@ export interface Profile {
   cup: CupState | null;
   /** Grand Prix cups won, one trophy per CPU tier, in tier order. */
   trophies: Trophies;
+  /** World Tour progress (M8a). */
+  tour: TourState;
+  /** The championship season in progress, or null (M8c). */
+  season: SeasonState | null;
+  /** Champion trophies, in tier order (M8c). */
+  champion: AITier[];
+  /** The first-race tutorial was finished or skipped (M8c). */
+  tutorialDone: boolean;
 }
 
 export interface SettingsData {
@@ -95,6 +129,8 @@ export interface SettingsData {
   detectedQuality: 'low' | 'med' | 'high' | null;
   touch: TouchSettings;
   padBindings: PadBindings;
+  /** Time Trial ghosts shown (M8b). */
+  ghosts: GhostSettings;
 }
 
 export interface SaveData {
@@ -167,7 +203,12 @@ export function defaultSettings(): SettingsData {
     detectedQuality: null,
     touch: defaultTouch(),
     padBindings: clonePadBindings(DEFAULT_PAD_BINDINGS),
+    ghosts: { best: true, dev: true },
   };
+}
+
+export function emptyTour(): TourState {
+  return { granted: [], trophies: {} };
 }
 
 export function emptySave(): SaveData {
@@ -217,6 +258,10 @@ export function createProfile(name: string, badge: number, preset: ProfilePreset
     items: emptyBag(),
     cup: null,
     trophies: {},
+    tour: emptyTour(),
+    season: null,
+    champion: [],
+    tutorialDone: false,
   };
 }
 
@@ -291,8 +336,11 @@ function sanitizeProfile(v: unknown): Profile | null {
   if (isObj(v.records)) {
     for (const [k, r] of Object.entries(v.records)) {
       if (!isObj(r)) continue;
-      const lap = r.bestLap;
-      records[k] = typeof lap === 'number' && Number.isFinite(lap) && lap > 0 ? { bestLap: lap } : {};
+      const rec: TrackRecord = {};
+      if (positive(r.bestLap)) rec.bestLap = r.bestLap;
+      if (positive(r.trialTime)) rec.trialTime = r.trialTime;
+      if (typeof r.medal === 'string' && (MEDALS as readonly string[]).includes(r.medal)) rec.medal = r.medal as Medal;
+      records[k] = rec;
     }
   }
   const st = isObj(v.stats) ? v.stats : {};
@@ -314,7 +362,44 @@ function sanitizeProfile(v: unknown): Profile | null {
     items: clampBag(it, itemSlots({ stats })),
     cup: sanitizeCup(v.cup, AI_TIERS),
     trophies: sanitizeTrophies(v.trophies, AI_TIERS),
+    tour: sanitizeTour(v.tour),
+    season: sanitizeSeason(v.season),
+    champion: tierList(v.champion),
+    tutorialDone: bool(v.tutorialDone, false),
   };
+}
+
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const isWorldId = (v: unknown): v is WorldId => typeof v === 'string' && WORLDS.some((w) => w.id === v);
+
+/** Known tiers only, no duplicates, in AI_TIERS order. */
+function tierList(v: unknown): AITier[] {
+  return Array.isArray(v) ? AI_TIERS.filter((t) => v.includes(t)) : [];
+}
+
+export function sanitizeTour(v: unknown): TourState {
+  if (!isObj(v)) return emptyTour();
+  const granted = Array.isArray(v.granted) ? WORLDS.filter((w) => (v.granted as unknown[]).includes(w.id)).map((w) => w.id) : [];
+  const trophies: TourState['trophies'] = {};
+  if (isObj(v.trophies)) {
+    for (const [id, list] of Object.entries(v.trophies)) {
+      if (!isWorldId(id)) continue;
+      const tiers = tierList(list);
+      if (tiers.length) trophies[id] = tiers;
+    }
+  }
+  return { granted, trophies };
+}
+
+function sanitizeSeason(v: unknown): SeasonState | null {
+  if (!isObj(v) || !(AI_TIERS as readonly unknown[]).includes(v.tier) || !Array.isArray(v.done)) return null;
+  const done: CupState[] = [];
+  for (const raw of v.done) {
+    const c = sanitizeCup(raw, AI_TIERS, true);
+    if (!c) return null;
+    done.push(c);
+  }
+  return { tier: v.tier as AITier, done };
 }
 
 function sanitizeBindings(v: unknown): KeyBindings {
@@ -399,6 +484,7 @@ export function sanitizeSettings(v: unknown): SettingsData {
     detectedQuality: v.detectedQuality === 'low' || v.detectedQuality === 'med' || v.detectedQuality === 'high' ? v.detectedQuality : null,
     touch: sanitizeTouch(v.touch),
     padBindings: sanitizePadBindings(v.padBindings),
+    ghosts: { best: bool(isObj(v.ghosts) ? v.ghosts.best : undefined, d.ghosts.best), dev: bool(isObj(v.ghosts) ? v.ghosts.dev : undefined, d.ghosts.dev) },
   };
 }
 

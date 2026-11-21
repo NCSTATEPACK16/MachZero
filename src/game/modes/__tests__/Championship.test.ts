@@ -13,8 +13,8 @@ function cup(cupId: string, order: number[], tier: CupState['tier'] = 'ace', rac
 // Two cups of the same length as the real ones. 'neon' is real; the second reuses it under another id is not
 // possible (cup length comes from content/cups), so the season tests use the two real cup ids.
 const TWO: CupDef[] = [
-  { id: 'neon', name: 'NEON CUP', tagline: '', worlds: ['a', 'b', 'c', 'd', 'e'] },
-  { id: 'storm', name: 'STORM CUP', tagline: '', worlds: ['a', 'b', 'c', 'd', 'e'] },
+  { id: 'neon', name: 'NEON CUP', tagline: '', worlds: ['a', 'b', 'c', 'd', 'e'], requires: 'orbital-ring' },
+  { id: 'storm', name: 'STORM CUP', tagline: '', worlds: ['a', 'b', 'c', 'd', 'e'], requires: 'abyss-line' },
 ];
 
 describe('Championship: a season across cups (pure, not shown yet)', () => {
