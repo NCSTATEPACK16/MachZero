@@ -1,5 +1,6 @@
 import { CONFIG } from '../core/config';
-import type { HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackData } from '../core/contracts';
+import type { GhostFrame, HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackData } from '../core/contracts';
+import type { Medal } from '../save/schema';
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
 import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
@@ -17,6 +18,34 @@ const MAX_TOASTS = 3;
 const TOAST_MS = 2300;
 /** Arc gauge tops out at boost top speed so the boost range is visible on the dial. */
 const GAUGE_MAX_KMH = CONFIG.BOOST_TOP_SPEED * CONFIG.SPEED_DISPLAY_SCALE;
+/** Seconds a Time Trial split stays up. */
+export const SPLIT_SECONDS = 3;
+
+/** The HUD of a Time Trial (IMPLEMENTATION §M8b step 7). */
+export interface TrialHud {
+  /** This track's medal times. */
+  medalTimes: Readonly<Record<Medal, number>>;
+  /** The best medal held before this run. */
+  held: Medal | null;
+  /** The best ghost's lap times (the splits are measured against them), or null when there is none. */
+  bestLaps: readonly number[] | null;
+}
+
+/** The split at the end of lap `lap` (1-based): the player's elapsed time minus the best ghost's, or null. */
+export function trialSplit(myLaps: readonly number[], bestLaps: readonly number[] | null, lap: number): number | null {
+  if (!bestLaps || lap < 1 || lap > bestLaps.length || lap > myLaps.length) return null;
+  let d = 0;
+  for (let i = 0; i < lap; i++) d += myLaps[i] - bestLaps[i];
+  return d;
+}
+
+/** The split as shown: ▲ −0.42 (ahead of the best) or ▼ +0.42 (behind), so colour is never the only cue. */
+export function formatSplit(d: number): string {
+  const a = Math.abs(d).toFixed(2);
+  return d <= 0 ? `▲ −${a}` : `▼ +${a}`;
+}
+
+const MEDAL_NAME: Readonly<Record<Medal, string>> = { gold: 'GOLD', silver: 'SILVER', bronze: 'BRONZE' };
 
 type ToastKind = 'info' | 'good' | 'warn' | 'bad' | 'record';
 
@@ -165,18 +194,31 @@ export class HUD implements IHUD {
   private readonly offs: Array<() => void> = [];
   /** False when the App's results screen replaces the HUD's results panel (IMPLEMENTATION §M8a). */
   private readonly showResults: boolean;
+  /** Time Trial (M8b): the target row, the split chip and the dev ghost's tag. */
+  private readonly trial: TrialHud | null;
+  private readonly targetEl: HTMLElement | null = null;
+  private readonly targetMedal: HTMLElement | null = null;
+  private readonly targetTime: Txt | null = null;
+  private readonly splitEl: HTMLElement | null = null;
+  private readonly splitTxt: Txt | null = null;
+  private readonly tagEl: HTMLElement | null = null;
+  private splitLeft = 0;
+  private readonly myLaps: number[] = [];
+  private shownTag = '';
 
   constructor(
     root: HTMLElement,
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
-    opts: { showTitle?: boolean; results?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig } = {},
+    opts: { showTitle?: boolean; results?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig; trial?: TrialHud } = {},
   ) {
     this.roster = opts.roster ?? [];
+    this.trial = opts.trial ?? null;
     this.showResults = opts.results !== false;
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
+    if (this.trial) c.dataset.mode = 'trial';
     root.appendChild(c);
     this.container = c;
 
@@ -249,6 +291,20 @@ export class HUD implements IHUD {
     const rt = el('span', 'mz-num', formatTime(0), t2);
     this.lapTime = new Txt(lt);
     this.raceTime = new Txt(rt);
+    if (this.trial) {
+      // TARGET: the next medal's total time, with its name (not colour alone).
+      this.targetEl = el('div', 'mz-target', undefined, lapBox.inner);
+      el('span', 'mz-label', 'TARGET ', this.targetEl);
+      this.targetMedal = el('span', 'mz-medal', '', this.targetEl);
+      this.targetTime = new Txt(el('span', 'mz-num', '', this.targetEl));
+      this.setTarget(this.trial.held);
+      this.splitEl = el('div', 'mz-split', undefined, race);
+      this.splitEl.setAttribute('role', 'status');
+      this.splitTxt = new Txt(el('span', 'mz-num', '', this.splitEl));
+      this.splitEl.hidden = true;
+      this.tagEl = el('div', 'mz-ghost-tag', 'DEV', c);
+      this.tagEl.hidden = true;
+    }
 
     const mapBox = panel('mz-mapbox', race);
     this.minimap = new Minimap(track, 180);
@@ -385,12 +441,13 @@ export class HUD implements IHUD {
     this.offs.push(
       bus.on('race:lap', (e) => {
         if (e.shipId !== PLAYER_ID) return;
+        if (this.trial) this.showSplit(e.lap, e.lapTime);
         if (e.isRecord) this.toast('NEW RECORD', 'record');
         if (e.lap === 1) this.toast('BOOST UNLOCKED', 'good');
         if (e.lap === CONFIG.TOTAL_LAPS - 1) this.toast('FINAL LAP', 'warn');
       }),
       bus.on('race:finish', (e) => {
-        if (e.shipId === PLAYER_ID) this.toast(`FINISH  ${ordinal(e.position)}`, e.position === 1 ? 'good' : 'info');
+        if (e.shipId === PLAYER_ID) this.toast(this.trial ? `FINISH  ${formatTime(e.totalTime)}` : `FINISH  ${ordinal(e.position)}`, e.position === 1 ? 'good' : 'info');
       }),
       bus.on('ship:lowEnergy', (e) => {
         if (e.shipId === PLAYER_ID) this.toast('LOW POWER', 'bad', true);
@@ -404,6 +461,7 @@ export class HUD implements IHUD {
       bus.on('race:state', (e) => {
         if (e.state === 'title' || e.state === 'results' || e.prev === 'results') this.clearToasts();
         if (e.state === 'title' || e.state === 'countdown') this.earned = null;
+        if (e.state === 'countdown' || e.state === 'title') this.resetTrial();
         if (e.state === 'title' || e.state === 'results') this.draftBox.hidden = this.windBox.hidden = true;
       }),
       bus.on('economy:credits', (e) => (this.earned = e)),
@@ -472,10 +530,11 @@ export class HUD implements IHUD {
     this.container.remove?.();
   }
 
-  update(snap: RaceSnapshot, dt: number, hazardTime = 0): void {
+  update(snap: RaceSnapshot, dt: number, hazardTime = 0, ghosts?: readonly GhostFrame[], tag?: { readonly x: number; readonly y: number; readonly visible: boolean } | null): void {
     this.cb = rootHas('mz-cb');
     if (snap.state !== this.shownState) this.applyState(snap);
     this.updateCountdown(snap.countdown, snap.state);
+    if (this.trial) this.updateTrial(dt, snap.state, tag ?? null);
     if (snap.state === 'title' || snap.state === 'results') return;
     if (this.touch) this.touch.update(!this.introShown && (snap.state === 'racing' || snap.state === 'countdown') && rootHas('mz-touch'));
 
@@ -594,7 +653,7 @@ export class HUD implements IHUD {
 
     if (snap.state !== 'paused') {
       const leader = snap.standings.length > 0 ? snap.standings[0].id : -1;
-      this.minimap.update(snap.ships.length > 0 ? snap.ships : [p], p, leader, this.cb);
+      this.minimap.update(snap.ships.length > 0 ? snap.ships : [p], p, leader, this.cb, ghosts);
     }
   }
 
@@ -613,6 +672,55 @@ export class HUD implements IHUD {
     this.cueIcon.set(HAZARD_ICONS[cue.kind]);
     this.cueText.set(cue.side === -1 ? `◀ ${HAZARD_NAMES[cue.kind]}` : cue.side === 1 ? `${HAZARD_NAMES[cue.kind]} ▶` : HAZARD_NAMES[cue.kind]);
     this.cueEl.dataset.side = String(cue.side);
+  }
+
+  /** TARGET: the medal above `held` and its time; with gold held, the best time to beat. */
+  private setTarget(held: Medal | null): void {
+    const t = this.trial;
+    if (!t || !this.targetMedal || !this.targetTime) return;
+    const order: Medal[] = ['bronze', 'silver', 'gold'];
+    const next = order[held ? order.indexOf(held) + 1 : 0];
+    if (next) {
+      this.targetMedal.textContent = MEDAL_NAME[next];
+      this.targetMedal.dataset.medal = next;
+      this.targetTime.set(formatTime(t.medalTimes[next]));
+    } else {
+      this.targetMedal.textContent = 'BEST';
+      this.targetMedal.dataset.medal = 'best';
+      this.targetTime.set(t.bestLaps ? formatTime(t.bestLaps.reduce((a, b) => a + b, 0)) : formatTime(t.medalTimes.gold));
+    }
+  }
+
+  private showSplit(lap: number, lapTime: number): void {
+    this.myLaps[lap - 1] = lapTime;
+    const d = trialSplit(this.myLaps, this.trial?.bestLaps ?? null, lap);
+    if (d === null || !this.splitEl || !this.splitTxt) return;
+    this.splitTxt.set(formatSplit(d));
+    this.splitEl.dataset.s = d <= 0 ? 'ahead' : 'behind';
+    this.splitEl.setAttribute('aria-label', d <= 0 ? `${Math.abs(d).toFixed(2)} seconds ahead of your best` : `${d.toFixed(2)} seconds behind your best`);
+    this.splitEl.hidden = false;
+    this.splitLeft = SPLIT_SECONDS;
+  }
+
+  private resetTrial(): void {
+    this.myLaps.length = 0;
+    this.splitLeft = 0;
+    if (this.splitEl) this.splitEl.hidden = true;
+  }
+
+  private updateTrial(dt: number, state: RaceState, tag: { readonly x: number; readonly y: number; readonly visible: boolean } | null): void {
+    if (this.splitLeft > 0 && state !== 'paused') {
+      this.splitLeft -= dt;
+      if (this.splitLeft <= 0 && this.splitEl) this.splitEl.hidden = true;
+    }
+    const el = this.tagEl;
+    if (!el) return;
+    const show = tag !== null && tag.visible && (state === 'racing' || state === 'countdown');
+    const key = show ? `${(tag.x * 1000) | 0},${(tag.y * 1000) | 0}` : '';
+    if (key === this.shownTag) return;
+    this.shownTag = key;
+    el.hidden = !show;
+    if (show) el.style.transform = `translate(${(tag.x * 100).toFixed(1)}vw, ${(tag.y * 100).toFixed(1)}vh) translate(-50%, -100%)`;
   }
 
   private applyState(snap: RaceSnapshot): void {

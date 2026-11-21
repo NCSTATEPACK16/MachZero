@@ -19,6 +19,7 @@ import { focusFirst } from '../nav';
 import { miniMap } from '../miniMap';
 import { Padlock, TIER_NAMES } from './GrandPrix';
 import { TierPicker } from './WorldSelect';
+import { MedalBadge } from './TimeTrial';
 
 /** Planet centres in the 1000 × 480 map, in tour order. */
 export const PLANET_XY: ReadonlyArray<readonly [number, number]> = [
@@ -49,7 +50,7 @@ export function TierPips({ held, label }: { held: readonly AITier[]; label: stri
   );
 }
 
-function lockLine(worlds: readonly WorldDef[], w: WorldDef): string {
+export function lockLine(worlds: readonly WorldDef[], w: WorldDef): string {
   const i = worlds.indexOf(w);
   const prev = i > 0 ? worlds[i - 1] : null;
   return prev ? `FINISH TOP 3 ON ${prev.name} TO UNLOCK` : 'LOCKED';
@@ -89,6 +90,9 @@ function WorldCard({ app, w, worlds, onClose }: { app: App; w: WorldDef; worlds:
           <div class="mzu-actions">
             <button type="button" class="mzu-chip go" data-autofocus data-tour-race onClick={() => app.selectWorld(w.id)}>
               RACE {w.name}
+            </button>
+            <button type="button" class="mzu-chip" data-tour-trial onClick={() => void app.startTrial(w.id)}>
+              TIME TRIAL
             </button>
             <button type="button" class="mzu-chip" data-tour-close onClick={onClose}>
               MAP
@@ -216,6 +220,7 @@ export function WorldMap({ app }: { app: App }) {
                   <span class="mzu-planet-name">{w.name}</span>
                   {open ? <TierPips held={tourTrophies(tour, w.id)} label={w.name} /> : null}
                   {best ? <span class="mzu-planet-best">{formatTime(best)}</span> : null}
+                  {open && p?.records[w.trackId]?.medal ? <MedalBadge medal={p.records[w.trackId].medal!} /> : null}
                 </span>
               </div>
             );

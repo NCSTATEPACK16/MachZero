@@ -1,6 +1,13 @@
-# Next-session brief: MachZero (M7 built as #41–#43, rolled up in #44; M8a built 2026-11-20; next build: M8b)
+# Next-session brief: MachZero (M7 built as #41–#43, rolled up in #44; M8a built 2026-11-20 as #45; M8b built 2026-11-21; next build: M8c)
 
-Two prompts are in this file. **"Paste this prompt: M8b"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+
+## M8b built (2026-11-21)
+
+- **M8b is built** on `v2/m8b-time-trial` (base `v2/m8a-world-tour`, PR #45): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
+- **Waiting on the owner in M8b:** the device gate: fps with two ghosts on Neon Bay and Abyss Line, on both devices, and the best ghost still there after a relaunch.
+- **Re-bake the dev ghosts** (`npm run ghosts:bake`) whenever a track or the physics changes. The guard test in `sim/ghostBake.sim.test.ts` fails until you do.
+- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → #44 → #45 → M8b.
 
 ## M8a built (2026-11-20)
 
@@ -37,7 +44,7 @@ Two prompts are in this file. **"Paste this prompt: M8b"** (directly below the b
   | 2 | M7b ✅ #42: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
   | 3 | M7c ✅ #43: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
   | 4 | M8a ✅: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
-  | 5 | M8b: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
+  | 5 | M8b ✅: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
   | 6 | M8c: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
   | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
 
@@ -46,7 +53,7 @@ Two prompts are in this file. **"Paste this prompt: M8b"** (directly below the b
 - **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
 - **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
 
-### Paste this prompt: M8b
+### Paste this prompt: M8c
 
 ```
 You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
@@ -57,14 +64,14 @@ READ FIRST, in this order, before writing any code:
   1. docs/v2/NEXT_SESSION.md: current state, the build order and the environment table. Trust the table.
   2. docs/v2/SPEC.md §12 (and §4): what M8 is and why. Every decision is settled; do not re-open one.
   3. docs/v2/IMPLEMENTATION.md §0 (operating rules), §M7's three "As built" notes (M8 builds on save v8, the
-     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's "As built", then "M8b" closely).
-  4. The code M8b changes, as §M8b lists it.
+     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's and M8b's "As built", then "M8c" closely).
+  4. The code M8c changes, as §M8c lists it.
 
-GOAL: build M8b exactly as IMPLEMENTATION §M8b says (Time Trial and ghosts), behind `modes`. Save v9 already
-carries its fields (M8a). One PR on branch v2/m8b-time-trial, stacked on v2/m8a-world-tour (PR #45). Follow
-the build steps in order, tests first. When M8b's PR is pushed and its checks are green, continue with M8c
-(v2/m8c-season-tutorial) and M8d (v2/m8d-release), each stacked on the one before. Stop at each PR's device gate only for what the gate needs
-from the owner (M8b: fps with two ghosts on both devices), and carry on meanwhile.
+GOAL: build M8c exactly as IMPLEMENTATION §M8c says (the championship season and the tutorial), behind `modes`.
+Save v9 already carries its fields (M8a). One PR on branch v2/m8c-season-tutorial, stacked on v2/m8b-time-trial
+(the M8b PR). Follow the build steps in order, tests first. When M8c's PR is pushed and its checks are green,
+continue with M8d (v2/m8d-release), stacked on it. Stop at each PR's device gate only for what the gate needs
+from the owner (M8c: device check; a child or a new player tries the tutorial if one is at hand), and carry on meanwhile.
 
 HOW TO WORK (agreed with the owner; follow exactly):
 - You implement everything yourself, in order. Sub-agents only for read-only lookups.
@@ -90,7 +97,7 @@ the owner, any deviation from the spec with its reason, and update IMPLEMENTATIO
 its "As built" notes) and this file so the next session can resume from the docs alone.
 
 Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then write the
-ghost codec tests.
+season rules tests.
 ```
 
 ## Where things stand (2026-11-15, after the X6 gameplay half)

@@ -4,6 +4,7 @@
  * medal pays once per track. Pure: nothing here saves or pays.
  */
 import { MEDAL_CREDITS } from '../../content/economy';
+import type { TallyLine } from './raceResult';
 import { MEDALS, type Medal, type TrackRecord } from '../../save/schema';
 
 /** A medal's total time is at most the dev time × its factor. */
@@ -46,4 +47,13 @@ export function bookTrial(rec: Readonly<TrackRecord>, total: number, devTime: nu
   const medal = rank(reached) > rank(held) ? reached : held;
   if (medal) record.medal = medal;
   return { record, pay: medalPayout(held, reached), best, reached };
+}
+
+export const MEDAL_NAMES: Readonly<Record<Medal, string>> = { gold: 'GOLD', silver: 'SILVER', bronze: 'BRONZE' };
+
+/** The results tally of a run: one line per medal paid now (bronze first). */
+export function medalTally(previous: Medal | null, reached: Medal | null): TallyLine[] {
+  const lines: TallyLine[] = [];
+  for (let i = rank(previous) + 1; i <= rank(reached); i++) lines.push({ label: `${MEDAL_NAMES[MEDALS[i]]} MEDAL`, amount: MEDAL_CREDITS[MEDALS[i]] });
+  return lines;
 }

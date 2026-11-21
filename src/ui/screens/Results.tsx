@@ -14,6 +14,9 @@ import { worldById } from '../../content/worlds';
 import type { RaceResult } from '../../game/modes/raceResult';
 import { Screen } from '../components';
 import { TierPips } from './WorldMap';
+import { MedalBadge } from './TimeTrial';
+import { MEDAL_NAMES } from '../../game/modes/TimeTrial';
+import { MEDALS } from '../../save/schema';
 
 /** Seconds between tally lines. */
 export const TALLY_STEP = 0.35;
@@ -21,6 +24,7 @@ export const TALLY_STEP = 0.35;
 export const NAV_EVENT = 'mz-nav';
 
 function heading(r: RaceResult): string {
+  if (r.trial) return r.trial.total === null ? 'RETIRED' : r.trial.best && r.trial.previousBest !== null ? 'NEW BEST' : formatTime(r.trial.total);
   const me = r.standings.find((s) => s.id === r.playerId);
   if (!me) return 'RACE OVER';
   if (me.status === 'retired') return 'RETIRED';
@@ -44,6 +48,50 @@ function Standings({ r }: { r: RaceResult }) {
         );
       })}
     </ol>
+  );
+}
+
+/** A Time Trial's left column: the laps, the total, the three medal times and the gap to the best before. */
+function TrialTable({ r }: { r: RaceResult }) {
+  const t = r.trial!;
+  const gap = t.total !== null && t.previousBest !== null ? t.total - t.previousBest : null;
+  return (
+    <div class="mzu-res-trial" aria-label="Your run">
+      <ol class="mzu-res-table">
+        {t.lapTimes.map((lap, i) => (
+          <li key={i}>
+            <span class="pos">{i + 1}</span>
+            <span class="name">LAP {i + 1}</span>
+            <span class="tm">{formatTime(lap)}</span>
+          </li>
+        ))}
+        <li class="me" data-trial-total={t.total ?? undefined}>
+          <span class="pos">Σ</span>
+          <span class="name">TOTAL</span>
+          <span class="tm">{t.total !== null ? formatTime(t.total) : 'DNF'}</span>
+        </li>
+      </ol>
+      {gap !== null ? (
+        <p class={`mzu-res-gap ${gap < 0 ? 'ahead' : 'behind'}`} data-gap={gap.toFixed(3)}>
+          {gap < 0 ? `▲ ${Math.abs(gap).toFixed(2)} S FASTER THAN YOUR BEST` : gap === 0 ? 'SAME AS YOUR BEST' : `▼ ${gap.toFixed(2)} S OFF YOUR BEST (${formatTime(t.previousBest!)})`}
+        </p>
+      ) : t.total !== null ? (
+        <p class="mzu-res-gap">FIRST TIME ON THIS TRACK</p>
+      ) : null}
+      <ul class="mzu-res-medals" aria-label="Medal times">
+        {(['gold', 'silver', 'bronze'] as const).map((m) => {
+          const got = t.reached !== null && MEDALS.indexOf(t.reached) >= MEDALS.indexOf(m);
+          return (
+            <li key={m} class={got ? 'got' : ''} data-medal-row={m}>
+              <MedalBadge medal={m} />
+              <span class="name">{MEDAL_NAMES[m]}</span>
+              <span class="tm">{formatTime(t.medalTimes[m])}</span>
+              <span class="mark">{got ? '✓' : ''}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -106,6 +154,8 @@ function ResultsBody({ app, r }: { app: App; r: RaceResult }) {
     app.events.emit('results:total', { credits: r.credits });
     if (r.unlocked) app.events.emit('results:unlock', { worldId: r.unlocked });
     for (const tier of r.newTrophies) app.events.emit('results:trophy', { tier });
+    const t = r.trial;
+    if (t?.reached && MEDALS.indexOf(t.reached) > (t.previous ? MEDALS.indexOf(t.previous) : -1)) app.events.emit('results:medal', { medal: t.reached });
   }, [done]);
 
   // Any input while the tally runs shows everything at once (and does nothing else). A layout effect, so it holds
@@ -141,12 +191,13 @@ function ResultsBody({ app, r }: { app: App; r: RaceResult }) {
   const world = worldById(r.worldId);
   const unlocked = r.unlocked ? worldById(r.unlocked) : undefined;
   const cup = r.mode === 'cup';
+  const trial = r.mode === 'trial';
   const tierName = TIERS[r.tier].label;
-  const onBack = cup ? () => app.resultsStandings() : () => app.leaveResults({ name: 'tour' });
+  const onBack = cup ? () => app.resultsStandings() : trial ? () => app.leaveResults({ name: 'trial' }) : () => app.leaveResults({ name: 'tour' });
   return (
-    <Screen id="results" title={heading(r)} kicker={`${world?.name ?? ''} · ${tierName} RIVALS${cup ? ' · GRAND PRIX' : ''}`} onBack={onBack} backLabel={cup ? 'STANDINGS' : 'MAP'} wide>
+    <Screen id="results" title={heading(r)} kicker={trial ? `${world?.name ?? ''} · TIME TRIAL` : `${world?.name ?? ''} · ${tierName} RIVALS${cup ? ' · GRAND PRIX' : ''}`} onBack={onBack} backLabel={cup ? 'STANDINGS' : trial ? 'TIME TRIAL' : 'MAP'} wide>
       <div class={`mzu-res${done ? ' done' : ''}`} data-results-done={done ? '' : undefined}>
-        <Standings r={r} />
+        {trial ? <TrialTable r={r} /> : <Standings r={r} />}
         <div class="mzu-res-side">
           <ul class="mzu-res-tally" aria-label="Credits earned">
             {r.tally.slice(0, done ? n : step).map((l) => (
@@ -186,6 +237,18 @@ function ResultsBody({ app, r }: { app: App; r: RaceResult }) {
               <button type="button" class="mzu-chip go" data-autofocus data-res-standings onClick={() => app.resultsStandings()}>
                 STANDINGS
               </button>
+            ) : trial ? (
+              <>
+                <button type="button" class="mzu-chip go" data-autofocus data-res-again onClick={() => app.raceAgain()}>
+                  RACE AGAIN
+                </button>
+                <button type="button" class="mzu-chip" data-res-trial onClick={() => app.leaveResults({ name: 'trial' })}>
+                  TIME TRIAL
+                </button>
+                <button type="button" class="mzu-chip" data-res-garage onClick={() => app.leaveResults({ name: 'garage', back: 'menu' })}>
+                  GARAGE
+                </button>
+              </>
             ) : (
               <>
                 {unlocked ? (

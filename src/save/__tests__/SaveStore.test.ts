@@ -490,3 +490,20 @@ describe('save v9 (IMPLEMENTATION §M8a)', () => {
     expect(store.importJson(store.exportJson(d))).toEqual(d);
   });
 });
+
+describe('Time Trial in the save (IMPLEMENTATION §M8b)', () => {
+  it('an export carries best times and medals but no ghosts, and imports on a clean store', () => {
+    const data = emptySave();
+    const p = createProfile('CLOCK', 1, 'classic');
+    p.records['neon-bay'] = { bestLap: 30.2, trialTime: 93.25, medal: 'gold' };
+    p.records['cryo-station'] = { trialTime: 84.5, medal: 'bronze' };
+    data.profiles.push(p);
+    data.activeProfileId = p.id;
+    const json = new SaveStore(new MemStorage()).exportJson(data);
+    expect(json).not.toMatch(/ghost"|"pos"|"quat"/i);
+    const back = new SaveStore(new MemStorage()).importJson(json);
+    expect(back.profiles[0].records['neon-bay']).toEqual({ bestLap: 30.2, trialTime: 93.25, medal: 'gold' });
+    expect(back.profiles[0].records['cryo-station']).toEqual({ trialTime: 84.5, medal: 'bronze' });
+    expect(back.settings.ghosts).toEqual({ best: true, dev: true });
+  });
+});

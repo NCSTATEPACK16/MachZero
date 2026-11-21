@@ -77,3 +77,20 @@ describe('Time Trial rules (IMPLEMENTATION §M8b step 3)', () => {
     expect(rec).toEqual({ bestLap: 31, trialTime: 110, medal: 'bronze' });
   });
 });
+
+describe('the Time Trial tally', () => {
+  it('one line per medal paid, adding up to medalPayout', async () => {
+    const { medalTally } = await import('../TimeTrial');
+    expect(medalTally(null, 'gold')).toEqual([
+      { label: 'BRONZE MEDAL', amount: 300 },
+      { label: 'SILVER MEDAL', amount: 600 },
+      { label: 'GOLD MEDAL', amount: 1000 },
+    ]);
+    expect(medalTally('silver', 'gold')).toEqual([{ label: 'GOLD MEDAL', amount: 1000 }]);
+    expect(medalTally('gold', 'gold')).toEqual([]);
+    expect(medalTally(null, null)).toEqual([]);
+    for (const [a, b] of [[null, 'silver'], ['bronze', 'gold'], [null, 'bronze']] as const) {
+      expect(medalTally(a, b).reduce((s, l) => s + l.amount, 0)).toBe(medalPayout(a, b));
+    }
+  });
+});

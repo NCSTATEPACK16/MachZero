@@ -15,6 +15,22 @@ export interface TallyLine {
   amount: number;
 }
 
+/** What a Time Trial run did (IMPLEMENTATION §M8b step 5). */
+export interface TrialOutcome {
+  /** The run's 3-lap total, or null when the ship did not finish. */
+  total: number | null;
+  lapTimes: number[];
+  devTime: number;
+  medalTimes: Record<Medal, number>;
+  /** The best total before this run, or null on a first run. */
+  previousBest: number | null;
+  /** This run is the new best (its ghost was kept). */
+  best: boolean;
+  /** The medal this run reached, and the best medal held before it. */
+  reached: Medal | null;
+  previous: Medal | null;
+}
+
 export interface RaceResult {
   mode: 'tour' | 'cup' | 'trial';
   worldId: WorldId;
@@ -28,8 +44,8 @@ export interface RaceResult {
   credits: number;
   unlocked: WorldId | null;
   newTrophies: AITier[];
-  /** Time Trial (M8b). */
-  medal?: { reached: Medal | null; previous: Medal | null; time: number; best: boolean };
+  /** Time Trial (M8b): the run against the clock. */
+  trial?: TrialOutcome;
   /** The winner's catchphrase when a rival won. */
   quote: { pilot: string; text: string } | null;
 }
