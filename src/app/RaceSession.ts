@@ -75,7 +75,7 @@ export interface RaceView {
   results?: boolean;
   /** Controller rumble for the player's ship (§V.3); optional. */
   rumble?: Rumble;
-  /** The touch controls (IMPLEMENTATION §M7b; with the `touch` feature): the HUD builds them in the race view. */
+  /** The touch controls (IMPLEMENTATION §M7b): the HUD builds them in the race view. */
   touch?: TouchRig;
 }
 

@@ -216,8 +216,4 @@ describe('Cup unlocks (IMPLEMENTATION §M8a)', () => {
     expect(cupUnlocked(storm, old)).toBe(true);
     expect(cupUnlocked(neon, old)).toBe(false);
   });
-
-  it('with modes off every cup is open, as before', () => {
-    for (const c of CUPS) expect(cupUnlocked(c, fresh, false)).toBe(true);
-  });
 });

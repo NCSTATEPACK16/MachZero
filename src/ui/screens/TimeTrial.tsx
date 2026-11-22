@@ -1,5 +1,5 @@
 /**
- * The Time Trial screen (IMPLEMENTATION §M8b step 8; route `trial`, feature `modes`): one row per visible world
+ * The Time Trial screen (IMPLEMENTATION §M8b step 8; route `trial`): one row per visible world
  * (its name, mini map, your best time and medal, and the three medal times). Picking an unlocked world starts a
  * trial on its track; a locked world's row says what opens it. Two toggles show or hide the ghosts.
  */

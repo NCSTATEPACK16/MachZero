@@ -6,7 +6,7 @@ import { CONFIG } from '../core/config';
 import { ROOKIE_ASSISTS } from '../save/schema';
 import { PlayerAssists } from '../physics/Assists';
 import { TIERS } from '../content/tiers';
-import type { AITier, ControlInput, RacerStanding, ShipId, ShipState, TrackData } from '../core/contracts';
+import type { AITier, ControlInput, Loadout, RacerStanding, ShipId, ShipState, TrackData } from '../core/contracts';
 import { EventBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
@@ -64,8 +64,9 @@ export interface WorldRaceOptions {
   /** Per rival, its own tier and fits (a mixed field). */
   rivalTiers?: readonly AITier[];
   /** The player stand-in: the tier its autopilot drives at (default the race's), its thrust scale (default the
-   *  race tier's pace: it races at its rivals' pace), and the Rookie preset's assists on top of its steering. */
-  player?: { tier?: AITier; pace?: number; assisted?: boolean };
+   *  race tier's pace: it races at its rivals' pace), the Rookie preset's assists on top of its steering, and its
+   *  loadout (default a stock COMET, `defaultLoadout()`). */
+  player?: { tier?: AITier; pace?: number; assisted?: boolean; loadout?: Loadout };
   /** Keep racing after the player finishes until every ship is home (else the results come RESULTS_DELAY later). */
   untilAllFinish?: boolean;
 }
@@ -78,7 +79,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
   }
   const bus = new EventBus<GameEvents>();
   const physics = await PhysicsSystem.create(track, bus, { hazards: opts.hazards ?? HAZARDS_NORMAL });
-  const field = buildRaceField({ playerName: 'AUTO', playerLoadout: defaultLoadout(), tier, ...(opts.gridOrder ? { gridOrder: opts.gridOrder } : {}), ...(opts.rivalTiers ? { rivalTiers: opts.rivalTiers } : {}) });
+  const field = buildRaceField({ playerName: 'AUTO', playerLoadout: opts.player?.loadout ?? defaultLoadout(), tier, ...(opts.gridOrder ? { gridOrder: opts.gridOrder } : {}), ...(opts.rivalTiers ? { rivalTiers: opts.rivalTiers } : {}) });
   if (opts.player?.tier) field[0].tier = opts.player.tier;
   const playerPace = opts.player?.pace ?? TIERS[tier].paceScale;
   const assists = opts.player?.assisted ? new PlayerAssists(track) : null;

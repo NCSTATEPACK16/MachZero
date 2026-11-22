@@ -1,6 +1,5 @@
-/** Main menu: race, the flag-gated 2.0 modes, settings and profile switching. */
+/** Main menu: World Tour, Grand Prix, Time Trial, the garage, settings and profile switching. */
 import type { App } from '../../app/App';
-import { MENU_PLACEHOLDERS } from '../../app/routes';
 import { Badge } from '../badges';
 import { MenuButton } from '../components';
 import { chassisById } from '../../content/ships';
@@ -25,7 +24,7 @@ const Icon = {
       <path d="M4 12 H20 M12 4 C8 8 8 16 12 20 C16 16 16 8 12 4" fill="none" stroke="currentColor" stroke-width="1.6" />
     </svg>
   ),
-  modes: (
+  trial: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="13" r="7" fill="none" stroke="currentColor" stroke-width="2" />
       <path d="M12 13 L15 10 M10 3 H14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -59,7 +58,7 @@ export function MainMenu({ app }: { app: App }) {
   }, []);
   const p = app.activeProfile.value;
   const cup = p?.cup ?? null;
-  const tour = app.features.modes && app.features.worlds && p ? tourWorlds(app.features) : null;
+  const tour = p ? tourWorlds(app.features) : null;
   return (
     <section ref={ref} class="mzu-screen mzu-main" data-screen="menu" aria-label="Main menu" onKeyDown={(e) => ref.current && onUiKeyDown(ref.current, e)}>
       <div class="mzu-brand">
@@ -78,20 +77,14 @@ export function MainMenu({ app }: { app: App }) {
           />
         ) : null}
         {tour ? (
-          // With `modes` (IMPLEMENTATION §M8a) World Tour replaces RACE and WORLDS: there is no separate single race.
+          // World Tour (IMPLEMENTATION §M8a) is the single race: a world is raced from its card on the map.
           <MenuButton big={!cup} autofocus={!cup} icon={Icon.worlds} label="WORLD TOUR" sub={`${clearedCount(p?.tour ?? emptyTour(), tour)} OF ${tour.length} WORLDS CLEARED`} onClick={() => app.openWorlds()} />
         ) : (
-          <>
-            <MenuButton big={!cup} autofocus={!cup} icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
-            {app.features.worlds ? <MenuButton icon={Icon.worlds} label="WORLDS" sub="Neon Bay, Sunset Mesa and more to come" onClick={() => app.openWorlds()} /> : null}
-          </>
+          <MenuButton big={!cup} autofocus={!cup} icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
         )}
-        {app.features.worlds && p && !cup ? <MenuButton icon={Icon.cup} label="GRAND PRIX" sub="Five races, every world, one cup" onClick={() => app.openGrandPrix()} /> : null}
-        {tour && !cup ? <MenuButton icon={Icon.modes} label="TIME TRIAL" sub="Solo against your ghost and the dev ghost, for medals" onClick={() => app.openTimeTrial()} /> : null}
-        {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
-          <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
-        ))}
-        {app.features.garage && p ? (
+        {p && !cup ? <MenuButton icon={Icon.cup} label="GRAND PRIX" sub="Five races, every world, one cup" onClick={() => app.openGrandPrix()} /> : null}
+        {tour && !cup ? <MenuButton icon={Icon.trial} label="TIME TRIAL" sub="Solo against your ghost and the dev ghost, for medals" onClick={() => app.openTimeTrial()} /> : null}
+        {p ? (
           <MenuButton icon={Icon.garage} label="GARAGE" sub={`${chassisById(p.loadout.chassisId).name} · ${p.credits.toLocaleString('en-US')} CREDITS`} onClick={() => app.openGarage()} />
         ) : null}
         <MenuButton icon={Icon.settings} label="SETTINGS" sub="Sound, comfort, controls, saves" onClick={() => app.openSettings('menu')} />

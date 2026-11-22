@@ -187,7 +187,7 @@ export interface UrlFlags {
   seed: number | null;
   /** ?quality=low|med|high forces a preset for this page load (QA); not saved. */
   quality: 'low' | 'med' | 'high' | null;
-  /** ?world=<id> races that world (with the `worlds` feature; QA and screenshots); not saved. */
+  /** ?world=<id> races that world (QA and screenshots); not saved. */
   world: string | null;
   /** ?hazards=rookie forces the Rookie hazard policy for this page load (QA); not saved. */
   hazards: 'normal' | 'rookie' | null;

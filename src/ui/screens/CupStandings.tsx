@@ -222,11 +222,9 @@ export function CupStandings({ app }: { app: App }) {
             <button type="button" class="mzu-chip go" data-autofocus data-cup-next onClick={() => void app.startCupRace()}>
               NEXT RACE
             </button>
-            {app.features.garage ? (
-              <button type="button" class="mzu-chip" data-cup-garage onClick={() => app.openGarage('cup')}>
-                GARAGE · {p.credits.toLocaleString('en-US')} CR
-              </button>
-            ) : null}
+            <button type="button" class="mzu-chip" data-cup-garage onClick={() => app.openGarage('cup')}>
+              GARAGE · {p.credits.toLocaleString('en-US')} CR
+            </button>
             {season ? <QuitSeason app={app} /> : <QuitCup app={app} />}
           </div>
         </div>

@@ -18,7 +18,7 @@ export interface CupDef {
   tagline: string;
   /** World ids, in race order. */
   worlds: readonly string[];
-  /** With `modes` on, the cup opens once this World Tour world is cleared (IMPLEMENTATION §M8a). */
+  /** The cup opens once this World Tour world is cleared (IMPLEMENTATION §M8a). */
   requires: WorldId;
 }
 
@@ -66,11 +66,9 @@ export interface CupProgress {
 }
 
 /**
- * With `modes` on (IMPLEMENTATION §M8a): a cup is open once its `requires` world is cleared on the World Tour, or
- * when the profile already holds any trophy of that cup (won before the Tour existed). With `modes` off every cup
- * is open, as before.
+ * A cup is open once its `requires` world is cleared on the World Tour (IMPLEMENTATION §M8a), or when the profile
+ * already holds any trophy of that cup (won before the Tour existed).
  */
-export function cupUnlocked(cup: CupDef, profile: CupProgress, modes = true): boolean {
-  if (!modes) return true;
+export function cupUnlocked(cup: CupDef, profile: CupProgress): boolean {
   return (profile.tour.trophies[cup.requires]?.length ?? 0) > 0 || (profile.trophies[cup.id]?.length ?? 0) > 0;
 }

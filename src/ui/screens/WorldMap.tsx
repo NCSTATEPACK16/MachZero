@@ -1,5 +1,5 @@
 /**
- * The world map (IMPLEMENTATION §M8a, feature `modes`): World Tour is a starmap of the visible worlds, joined by a
+ * The world map (IMPLEMENTATION §M8a): World Tour is a starmap of the visible worlds, joined by a
  * path in tour order. Each planet shows its lock, its four tier trophies and the best lap. Picking a world opens
  * its card (a side panel, or a bottom sheet on a short screen): the tier picker and RACE, or for a locked world the
  * line that says what opens it.
@@ -18,7 +18,7 @@ import { Screen } from '../components';
 import { focusFirst } from '../nav';
 import { miniMap } from '../miniMap';
 import { Padlock, TIER_NAMES } from './GrandPrix';
-import { TierPicker } from './WorldSelect';
+import { TierPicker } from './TierPicker';
 import { MedalBadge } from './TimeTrial';
 
 /** Planet centres in the 1000 × 480 map, in tour order. */

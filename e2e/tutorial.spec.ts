@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * The first-race tutorial (IMPLEMENTATION §M8c), with `?features=modes`: a new Rookie profile's first World Tour race
+ * The first-race tutorial (IMPLEMENTATION §M8c): a new Rookie profile's first World Tour race
  * shows the STEER prompt (and the profile gets a free Shield); SKIP removes it and a reload does not bring it back;
  * Settings → Race → REPLAY TUTORIAL does. A Classic profile sees the one-line note and no prompt.
  */
@@ -18,7 +18,7 @@ interface Debug {
   };
 }
 
-const URL = '/?features=modes&debug=1&quality=low';
+const URL = '/?debug=1&quality=low';
 const screen = (page: Page) => page.locator('[data-screen]');
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 const saved = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('machzero.save')!).profiles[0]);

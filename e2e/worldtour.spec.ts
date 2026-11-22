@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * World Tour (IMPLEMENTATION §M8a), with `?features=modes`: a new profile sees world 1 open and world 2 locked, and
+ * World Tour (IMPLEMENTATION §M8a): a new profile sees world 1 open and world 2 locked, and
  * the Neon Cup locked; by keyboard the map's chain, the card's RACE, an autopilot race to the end, the results screen
  * with its tally (FIRST CLEAR 1,000, the unlock card) and NEXT WORLD to Sunset Mesa's card; a save fixture with world 1
  * cleared shows world 2 open; a v8 save with records on three worlds loads with those three open.
@@ -17,7 +17,7 @@ interface Debug {
   };
 }
 
-const URL = '/?features=modes&debug=1&quality=low';
+const URL = '/?debug=1&quality=low';
 const screen = (page: Page) => page.locator('[data-screen]');
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 const planet = (page: Page, id: string) => page.locator(`[data-planet="${id}"]`);
@@ -141,8 +141,9 @@ test('any input shows the whole tally at once; RACE AGAIN and WORLD MAP leave th
   await expect(screen(page)).toHaveAttribute('data-screen', 'results'); // the click on NEXT WORLD was swallowed
   // RACE AGAIN: the same world again, through the grid intro; this time it pays no first-clear bonus.
   await page.locator('[data-res-again]').click();
+  // The new race exists (in 'title') a moment before the route leaves the loading screen: wait for the route.
+  await expect.poll(() => dbg(page, (d) => d.app.route.value.name), { timeout: 90_000 }).toBe('race');
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/title|countdown|racing/);
-  expect(await dbg(page, (d) => d.app.route.value.name)).toBe('race');
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
   await expect(screen(page)).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
   await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 10_000 });

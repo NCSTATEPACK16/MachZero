@@ -83,9 +83,9 @@ test('unplugging the controller pauses the race; the pad drives the pause panel'
   await expect.poll(() => raceState(page), { timeout: 30_000 }).toMatch(/countdown|racing/);
 });
 
-test('menus: the pad-focused control shows a ring, and the d-pad moves across the world cards', async ({ page }) => {
+test('menus: the pad-focused control shows a ring, and the d-pad moves across the world map', async ({ page }) => {
   await installPad(page);
-  await page.goto('/?features=profiles&debug=1');
+  await page.goto('/?debug=1');
   const screen = page.locator('[data-screen]');
   await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.locator('input[type=text]').fill('PAD');
@@ -93,21 +93,20 @@ test('menus: the pad-focused control shows a ring, and the d-pad moves across th
   await page.getByRole('button', { name: "LET'S RACE" }).click();
   await expect(screen).toHaveAttribute('data-screen', 'menu');
 
-  await padPress(page, 13); // first press: pad mode; RACE stays focused or WORLDS takes focus
+  await padPress(page, 13); // first press: pad mode; WORLD TOUR stays focused or GRAND PRIX takes focus
   await expect(page.locator('html')).toHaveClass(/mz-pad/, { timeout: 30_000 });
   const focused = page.locator(':focus');
-  if (!/WORLDS/.test((await focused.textContent()) ?? '')) await padPress(page, 13);
-  await expect(focused).toContainText('WORLDS');
+  if (!/WORLD TOUR/.test((await focused.textContent()) ?? '')) await padPress(page, 12);
+  await expect(focused).toContainText('WORLD TOUR');
   // Script focus from a pad never matches :focus-visible in WebKit, so pad mode draws its own ring.
   expect(await focused.evaluate((e) => getComputedStyle(e).outlineStyle)).toBe('solid');
   await padPress(page, 0);
-  await expect(screen).toHaveAttribute('data-screen', 'worlds');
+  await expect(screen).toHaveAttribute('data-screen', 'tour');
 
-  const card = page.locator('.mzu-world:focus');
-  await expect(card).toHaveCount(1);
-  const first = await card.locator('.mzu-world-name').textContent();
-  await padPress(page, 15); // right: the next card along the grid
-  await expect(card.locator('.mzu-world-name')).not.toHaveText(first ?? '');
+  const planet = page.locator('[data-planet]:focus');
+  await expect(planet).toHaveAttribute('data-planet', 'neon-bay');
+  await padPress(page, 15); // right: the next world along the chain
+  await expect(planet).toHaveAttribute('data-planet', 'sunset-mesa');
   await padPress(page, 14); // left: back again
-  await expect(card.locator('.mzu-world-name')).toHaveText(first ?? '');
+  await expect(planet).toHaveAttribute('data-planet', 'neon-bay');
 });

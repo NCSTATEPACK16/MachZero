@@ -5,8 +5,6 @@
 import { render } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import type { App } from '../app/App';
-import { MENU_PLACEHOLDERS } from '../app/routes';
-import { Screen } from './components';
 import { navigate } from './nav';
 import { CupStandings } from './screens/CupStandings';
 import { Garage } from './screens/Garage';
@@ -14,23 +12,11 @@ import { GrandPrix } from './screens/GrandPrix';
 import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { WorldSelect } from './screens/WorldSelect';
 import { WorldMap } from './screens/WorldMap';
 import { TimeTrial } from './screens/TimeTrial';
 import { NAV_EVENT, Results } from './screens/Results';
 import './tokens.css';
 import './ui.css';
-
-function ComingSoon({ app }: { app: App }) {
-  const r = app.route.value;
-  const info = r.name === 'soon' ? MENU_PLACEHOLDERS.find((m) => m.feature === r.feature) : undefined;
-  return (
-    <Screen id={`soon-${r.name === 'soon' ? r.feature : ''}`} title={info?.title ?? 'COMING SOON'} kicker="COMING SOON" onBack={() => (app.route.value = { name: 'menu' })} backLabel="MENU">
-      <p class="mzu-lead">{info?.blurb}</p>
-      <p class="mzu-note">This part of MachZero 2.0 is still being built{info ? ` (milestone ${info.milestone})` : ''}.</p>
-    </Screen>
-  );
-}
 
 function Loading() {
   return (
@@ -72,13 +58,11 @@ function Root({ app }: { app: App }) {
   else if (r.name === 'menu') screen = <MainMenu app={app} />;
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
   else if (r.name === 'garage') screen = <Garage app={app} />;
-  else if (r.name === 'worlds') screen = <WorldSelect app={app} />;
   else if (r.name === 'tour') screen = <WorldMap app={app} />;
   else if (r.name === 'results') screen = <Results app={app} />;
   else if (r.name === 'trial') screen = <TimeTrial app={app} />;
   else if (r.name === 'gp') screen = <GrandPrix app={app} />;
   else if (r.name === 'cup') screen = <CupStandings app={app} />;
-  else if (r.name === 'soon') screen = <ComingSoon app={app} />;
   else if (r.name === 'loading') screen = <Loading />;
   return (
     <>
