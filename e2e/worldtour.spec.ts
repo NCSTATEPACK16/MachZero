@@ -141,8 +141,9 @@ test('any input shows the whole tally at once; RACE AGAIN and WORLD MAP leave th
   await expect(screen(page)).toHaveAttribute('data-screen', 'results'); // the click on NEXT WORLD was swallowed
   // RACE AGAIN: the same world again, through the grid intro; this time it pays no first-clear bonus.
   await page.locator('[data-res-again]').click();
+  // The new race exists (in 'title') a moment before the route leaves the loading screen: wait for the route.
+  await expect.poll(() => dbg(page, (d) => d.app.route.value.name), { timeout: 90_000 }).toBe('race');
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/title|countdown|racing/);
-  expect(await dbg(page, (d) => d.app.route.value.name)).toBe('race');
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
   await expect(screen(page)).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
   await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 10_000 });

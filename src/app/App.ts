@@ -337,6 +337,10 @@ export class App {
       this.introUntil = performance.now() + INTRO_SECONDS * 1000;
     } else s.start();
     this.route.value = { name: 'race' };
+    if (this.raceNote) {
+      this.toast(this.raceNote, 'info', 5);
+      this.raceNote = null;
+    }
   }
 
   /** End the grid intro card and start the countdown. */
@@ -587,8 +591,11 @@ export class App {
       return;
     }
     this.updateProfile((q) => (q.tutorialDone = true));
-    this.toast('Tutorial: Settings → Race', 'info', 5);
+    this.raceNote = 'Tutorial: Settings → Race';
   }
+
+  /** A note to show once the next race is on screen (not over the loading screen, where it could run out). */
+  private raceNote: string | null = null;
 
   /** Settings → Race → REPLAY TUTORIAL: it runs on the next World Tour race. */
   replayTutorial(): void {
