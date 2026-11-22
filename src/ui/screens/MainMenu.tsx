@@ -10,7 +10,7 @@ import { cupRaces, cupWorld, racesDone, trophiesOf, trophyCount } from '../../ga
 import { worldById } from '../../content/worlds';
 import { clearedCount, tourWorlds } from '../../game/modes/WorldTour';
 import { emptyTour } from '../../save/schema';
-import { TIER_NAMES, Trophies } from './GrandPrix';
+import { Crowns, TIER_NAMES, Trophies } from './GrandPrix';
 import { useRef, useLayoutEffect } from 'preact/hooks';
 
 const Icon = {
@@ -72,8 +72,8 @@ export function MainMenu({ app }: { app: App }) {
             big
             autofocus
             icon={Icon.cup}
-            label="CONTINUE CUP"
-            sub={`${cupById(cup.cupId)?.name ?? 'CUP'} · ${TIER_NAMES[cup.tier]} · RACE ${racesDone(cup) + 1} OF ${cupRaces(cup)} · ${worldById(cupWorld(cup) ?? '')?.name ?? ''}`}
+            label={p?.season ? 'CONTINUE SEASON' : 'CONTINUE CUP'}
+            sub={`${p?.season ? `SEASON CUP ${p.season.done.length + 1} OF ${app.seasonCups().length} · ` : ''}${cupById(cup.cupId)?.name ?? 'CUP'} · ${TIER_NAMES[cup.tier]} · RACE ${racesDone(cup) + 1} OF ${cupRaces(cup)} · ${worldById(cupWorld(cup) ?? '')?.name ?? ''}`}
             onClick={() => app.openCupStandings()}
           />
         ) : null}
@@ -104,6 +104,7 @@ export function MainMenu({ app }: { app: App }) {
             <span class="mzu-pilot-sub">SWITCH PILOT</span>
           </span>
           {trophyCount(p.trophies) ? CUPS.filter((c) => trophiesOf(p.trophies, c.id).length).map((c) => <Trophies key={c.id} won={trophiesOf(p.trophies, c.id)} cup={c.name} small />) : null}
+          {p.champion.length ? <Crowns held={p.champion} small /> : null}
         </button>
       ) : null}
       <div class="mzu-hints" aria-hidden="true">

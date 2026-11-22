@@ -54,7 +54,7 @@ export interface RaceResult {
  * The tally for a race: the position's payout, the tier's extra (Pilot ×1.3 and up), the first-clear bonus and the
  * cup bonus. The lines add up to what `settleRace` paid plus the bonuses. No standing → no lines.
  */
-export function raceTally(me: RacerStanding | undefined, tier: AITier, bonuses: { firstClear?: number; cup?: number } = {}): TallyLine[] {
+export function raceTally(me: RacerStanding | undefined, tier: AITier, bonuses: { firstClear?: number; cup?: number; champion?: number } = {}): TallyLine[] {
   const lines: TallyLine[] = [];
   if (me) {
     const pos = Math.min(RACE_PAYOUTS.length, Math.floor(me.position));
@@ -65,6 +65,7 @@ export function raceTally(me: RacerStanding | undefined, tier: AITier, bonuses: 
   }
   if (bonuses.firstClear) lines.push({ label: 'FIRST CLEAR', amount: bonuses.firstClear });
   if (bonuses.cup) lines.push({ label: 'CUP BONUS', amount: bonuses.cup });
+  if (bonuses.champion) lines.push({ label: 'CHAMPION BONUS', amount: bonuses.champion });
   return lines;
 }
 

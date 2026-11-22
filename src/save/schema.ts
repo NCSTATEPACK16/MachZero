@@ -325,6 +325,7 @@ function sanitizeProfile(v: unknown): Profile | null {
     owned[slot] = [...keys].sort();
   }
   const loadout = sanitizeLoadout(v.loadout);
+  const cup = sanitizeCup(v.cup, AI_TIERS);
   // Only owned parts can be fitted; a slot's variant is 'a' wherever it has no choice.
   const variants = { ...STOCK_VARIANTS, ...loadout.variants };
   for (const slot of PART_SLOTS) {
@@ -360,10 +361,10 @@ function sanitizeProfile(v: unknown): Profile | null {
     records,
     stats,
     items: clampBag(it, itemSlots({ stats })),
-    cup: sanitizeCup(v.cup, AI_TIERS),
+    cup,
     trophies: sanitizeTrophies(v.trophies, AI_TIERS),
     tour: sanitizeTour(v.tour),
-    season: sanitizeSeason(v.season),
+    season: seasonWithCup(sanitizeSeason(v.season), cup),
     champion: tierList(v.champion),
     tutorialDone: bool(v.tutorialDone, false),
   };
@@ -389,6 +390,15 @@ export function sanitizeTour(v: unknown): TourState {
     }
   }
   return { granted, trophies };
+}
+
+/**
+ * A season always has its current cup in `Profile.cup` (the next cup is queued as soon as one finishes): a season
+ * whose cup is missing, at another tier, or one it already played is dropped (IMPLEMENTATION §M8c step 2).
+ */
+function seasonWithCup(season: SeasonState | null, cup: CupState | null): SeasonState | null {
+  if (!season || !cup || cup.tier !== season.tier || season.done.some((d) => d.cupId === cup.cupId)) return null;
+  return season;
 }
 
 function sanitizeSeason(v: unknown): SeasonState | null {

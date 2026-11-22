@@ -466,13 +466,18 @@ describe('save v9 (IMPLEMENTATION §M8a)', () => {
     const standings = (ids: number[]) => ids.map((id, i) => ({ id, name: `S${id}`, position: i + 1, lap: 3, progress: 3, totalTime: 90 + i, bestLap: 30, status: 'finished' as const }));
     let cup = newCup('neon', 'pilot');
     for (let r = 0; r < 5; r++) cup = recordRace(cup, standings([0, 1, 2, 3, 4, 5, 6, 7]) as never);
-    const p = { ...createProfile('s', 0, 'classic'), season: { tier: 'pilot', done: [cup] } };
+    // The season's current cup (M8c: a season always has one in Profile.cup).
+    const p = { ...createProfile('s', 0, 'classic'), season: { tier: 'pilot', done: [cup] }, cup: newCup('storm', 'pilot') };
     expect(sanitizeSave({ version: SAVE_VERSION, profiles: [p] }).profiles[0].season).toEqual({ tier: 'pilot', done: [cup] });
     const half = { ...cup, results: cup.results.slice(0, 2) };
     expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'pilot', done: [cup, half] } }] }).profiles[0].season).toBeNull();
     expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'pilot', done: [{ cupId: 'nope', tier: 'pilot', results: [] }] } }] }).profiles[0].season).toBeNull();
     // An empty season (its first cup still running) is kept.
-    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'ace', done: [] } }] }).profiles[0].season).toEqual({ tier: 'ace', done: [] });
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'ace', done: [] }, cup: newCup('neon', 'ace') }] }).profiles[0].season).toEqual({ tier: 'ace', done: [] });
+    // IMPLEMENTATION §M8c step 2: a season whose current cup is missing, at another tier, or already played is dropped.
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, cup: null }] }).profiles[0].season).toBeNull();
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, cup: newCup('storm', 'ace') }] }).profiles[0].season).toBeNull();
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, cup: newCup('neon', 'pilot') }] }).profiles[0].season).toBeNull();
   });
 
   it('an export from v9 imports unchanged', () => {
@@ -483,6 +488,7 @@ describe('save v9 (IMPLEMENTATION §M8a)', () => {
     p.records = { 'neon-bay': { bestLap: 30.5, trialTime: 92.25, medal: 'silver' } };
     p.champion = ['rookie'];
     p.season = { tier: 'pilot', done: [] };
+    p.cup = newCup('neon', 'pilot');
     p.tutorialDone = true;
     d.profiles.push(p);
     d.activeProfileId = p.id;

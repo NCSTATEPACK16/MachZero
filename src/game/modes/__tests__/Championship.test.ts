@@ -78,3 +78,49 @@ describe('Championship: a season across cups (pure, not shown yet)', () => {
     expect(seasonChampion([], TWO)).toBeNull();
   });
 });
+
+describe('Championship: the season as played (IMPLEMENTATION §M8c step 1)', () => {
+  const NEON_ONLY: CupDef[] = [TWO[0]];
+
+  it('opens with a trophy of every available cup, at any tier, and at least two cups', async () => {
+    const { seasonUnlocked } = await import('../Championship');
+    expect(seasonUnlocked({}, TWO)).toBe(false);
+    expect(seasonUnlocked({ neon: ['legend'] }, TWO)).toBe(false);
+    expect(seasonUnlocked({ neon: ['rookie'], storm: ['ace'] }, TWO)).toBe(true);
+    expect(seasonUnlocked({ neon: ['rookie'], storm: [] }, TWO)).toBe(false);
+    // One cup visible: no championship at all.
+    expect(seasonUnlocked({ neon: ['legend'] }, NEON_ONLY)).toBe(false);
+  });
+
+  it('plays the cups in CUPS order; a finished cup of the current one is booked, anything else refused', async () => {
+    const { newSeason, seasonCup, bookSeasonCup } = await import('../Championship');
+    let s = newSeason('pilot');
+    expect(s).toEqual({ tier: 'pilot', done: [] });
+    expect(seasonCup(s, TWO)?.id).toBe('neon');
+    // The wrong cup, another tier, or an unfinished cup changes nothing.
+    expect(bookSeasonCup(s, cup('storm', [0, 1, 2, 3, 4, 5, 6, 7], 'pilot'), TWO)).toEqual(s);
+    expect(bookSeasonCup(s, cup('neon', [0, 1, 2, 3, 4, 5, 6, 7], 'ace'), TWO)).toEqual(s);
+    expect(bookSeasonCup(s, cup('neon', [0, 1, 2, 3, 4, 5, 6, 7], 'pilot', 3), TWO)).toEqual(s);
+    const neon = cup('neon', [0, 1, 2, 3, 4, 5, 6, 7], 'pilot');
+    const s1 = bookSeasonCup(s, neon, TWO);
+    expect(s1.done).toEqual([neon]);
+    expect(s.done).toEqual([]); // the input is not changed
+    expect(seasonCup(s1, TWO)?.id).toBe('storm');
+    s = bookSeasonCup(s1, cup('storm', [1, 0, 2, 3, 4, 5, 6, 7], 'pilot'), TWO);
+    expect(seasonCup(s, TWO)).toBeNull();
+    expect(seasonFinished(s.done, TWO)).toBe(true);
+    expect(seasonChampion(s.done, TWO)).toEqual({ id: 0, tier: 'pilot' });
+    // A finished season books nothing more.
+    expect(bookSeasonCup(s, cup('neon', [7, 6, 5, 4, 3, 2, 1, 0], 'pilot'), TWO)).toEqual(s);
+  });
+
+  it('the champion bonus is 5,000 × the tier multiplier, once per tier', async () => {
+    const { CHAMPION_BONUS, championBonus } = await import('../Championship');
+    expect(CHAMPION_BONUS).toBe(5000);
+    expect(championBonus('rookie', [])).toBe(5000);
+    expect(championBonus('pilot', ['rookie'])).toBe(6500);
+    expect(championBonus('ace', [])).toBe(8500);
+    expect(championBonus('legend', [])).toBe(11000);
+    expect(championBonus('pilot', ['pilot'])).toBe(0);
+  });
+});
