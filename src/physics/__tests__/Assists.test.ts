@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Assists, ControlInput } from '../../core/contracts';
 import { neutralControls } from '../../core/controls';
 import { makeCircleTrack, makeShip, placeShip } from '../../game/__tests__/helpers';
-import { ASSIST, PlayerAssists } from '../Assists';
+import { ASSIST, PlayerAssists, effectiveAssists } from '../Assists';
 
 const OFF: Assists = { autoAccelerate: false, steering: 0, noKO: false, earlyBoost: false };
 const STRONG: Assists = { autoAccelerate: true, steering: 2, noKO: false, earlyBoost: false };
@@ -67,5 +67,23 @@ describe('PlayerAssists', () => {
     expect(assists.apply(ship, input({}), STRONG)).toEqual(neutralControls());
     ship.status = 'finished';
     expect(assists.apply(ship, input({ steer: 0.2 }), STRONG).steer).toBe(0.2);
+  });
+});
+
+describe('effectiveAssists (IMPLEMENTATION §M7a)', () => {
+  it('is the profile\'s assists, with auto-accelerate also on while touch drives and the touch setting asks for it', () => {
+    const touchOn = { autoAccelerate: true };
+    const touchOff = { autoAccelerate: false };
+    // Profile off: only touch + the touch setting turns it on.
+    expect(effectiveAssists(OFF, 'keyboard', touchOn)).toEqual(OFF);
+    expect(effectiveAssists(OFF, 'pad', touchOn)).toEqual(OFF);
+    expect(effectiveAssists(OFF, 'touch', touchOff)).toEqual(OFF);
+    expect(effectiveAssists(OFF, 'touch', touchOn)).toEqual({ ...OFF, autoAccelerate: true });
+    // Profile on: on whatever the device and the touch setting.
+    for (const d of ['keyboard', 'pad', 'touch'] as const) for (const t of [touchOn, touchOff]) expect(effectiveAssists(STRONG, d, t)).toEqual(STRONG);
+    // The other three pass through untouched, and the input is not mutated.
+    const rookie: Assists = { autoAccelerate: false, steering: 1, noKO: true, earlyBoost: true };
+    expect(effectiveAssists(rookie, 'touch', touchOn)).toEqual({ ...rookie, autoAccelerate: true });
+    expect(rookie.autoAccelerate).toBe(false);
   });
 });

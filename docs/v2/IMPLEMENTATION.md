@@ -1,6 +1,6 @@
 # MachZero 2.0 — Implementation Guide (for the Opus 5.5 build sessions)
 
-Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7. The **2.1 expansion** (SPEC §10: cups, environment effects, upgrades, three new worlds) is section **X**, after §V.
+Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating rules, target architecture, interface changes, and milestones **M0 → M8** pinned to v1's real files. **M7 and M8 were designed on 2026-11-16** (SPEC §11 and §12) and are full build plans, in the style of §X. v1's architecture and its corkscrew-physics notes are in [`../TDD.md`](../TDD.md) §7. The **2.1 expansion** (SPEC §10: cups, environment effects, upgrades, three new worlds) is section **X**, after §V.
 
 ---
 
@@ -1061,7 +1061,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X3 ✅ built (#35) | Upgrades: sidegrades and the Aero slot | `v2/x3-upgrades` | v6 → v7 | Look approval of the new parts; device gate |
 | X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 🟡 gameplay half built (PR #38) | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
-| X6 | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
+| X6 🟡 gameplay half built (PR #39) | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
 | X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
 
 **Rules for every X milestone** (in addition to §0):
@@ -1464,7 +1464,43 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X6 — World 8: Abyss Line (the Spine and pressure jets), and the Storm Cup
+### X6 — World 8: Abyss Line (the Spine and pressure jets), and the Storm Cup — 🟡 GAMEPLAY HALF BUILT (PR #39, draft, stacked on #38; the look waits for `assets/reference/worlds/abyss-line/chosen.jpg`)
+
+**As built: the gameplay half (PR #39)** (read before X7, and before building the look):
+- **What is done:** build steps 1–7 and the placeholder theme of step 8. **What is left:** the real theme, the props, the effect set, the perf table on the real look and the shots. All of it needs `chosen.jpg`. **The `expansion` flag is still off:** whether it turns on here is the owner's call at review (the plan's default was "on here"; see the PR).
+- **The Spine** is the pipe's curl with a sign (`track/features/pipe.ts`): `curlSamples(count, ds, pipes, spines)` writes `up − down`, so a spine is −1 on its closed stretch. `isFlatCurl` and the magnitude of the curl drive `TrackQuery`, `TrackSweep` and `TrackFrames`; `uncurlPoint` takes the curl's sign, so `project` inverts `surfacePoint` on the outside of the tube. Lateral is the arc position round the tube (0 = the crown, ±W = the bottom seam); the tube's radius is `PIPE_RADIUS` (W/π ≈ 4.46 m) below the centreline. `TrackData.spines` holds the extents (`uStart`, `uEnd`, `uClosedStart`, `uClosedEnd`); `surfaceKindAt` reports `'spine'`.
+  - **Shared with the pipe, unchanged in behaviour:** the magnetic lock, `PipeCompensation` (it iterates pipes and spines; its clamp is now −1..1), the seam guard (`ShipController.seamGuard`: the same ease off the seam before the tube opens), collision 40 pieces across, rails that end at |curl| ≥ 0.85, the AI's ±9 m line limit (`PIPE_MAX_LAT`). Pylons skip each spine ±20 m.
+  - **Layout rule found by the hold sim:** a spine must leave its bend before the tube opens. Opening right at the bend's end, a ship holding 154° round the side came out of the bend still heading out and met the rails rising at the seam. The validator's spine rule: both transitions, plus `SPINE_STRAIGHT_CLOSED` (50 m) of closed tube beside each, on a straight.
+- **Spine numbers** (`sim/spine.hold.sim.test.ts`, 12 cases): on five lines (±12, ±7 and 0 m round the tube, up to 154° either side) at 70 and 125 m/s, the height error and the distance from the tube axis are within 0.16 m, the hull stays aligned to the surface (dot ≥ 0.986), never airborne, no respawn, and a ship leaves at the speed it came in (118–125 m/s at 125). A spiral drives 46.5 m round the outside (more than a full turn). The chase camera stays 4.2 m or more outside the tube, rolls with the ship (dot ≥ 0.93) and keeps it on screen. The pipe hold test passes unchanged.
+- **Pressure jets** (`track/features/jet.ts`): `timedField` (shared with lightning and geysers) with a `jets` type. Vents are placed on the curled surface (`buildJets` needs `TrackData.surfacePoint`; `TimedPoint` gains `lane`), radius 2.2 m, 1.5 s warning (× `telegraphScale`), 0.8 s jet, one hit per ship per jet, never within 1.5 m of the bottom seam, a clear lane of 1.5 m margin beside the hull. `PhysicsSystem.checkJets` → `ShipController.applyJet`: the knock is round the tube (forward × the surface normal at the hull), away from the vent (toward the lane for a hull right on it), 9 m/s × `pushScale`, plus 5 energy × `damageTakenScale`; Rookie rules: velocity × 0.85, then a 5 m/s knock, no energy. A Shield takes it (`item:shield` with `blocked: 'jet'`). Event: `hazard:jet { shipId, jet, point }`.
+  - **The knock moves a ship, it does not fling it.** At 120 m/s the full 9 m/s arrives round the tube, and lateral grip bleeds it off in about a tenth of a second: 0.5 s on, the hit ship is 0.81 m further toward the lane than the same pass with the vent idle, at a height error of 0.15 m (`hazards.sim.test.ts`, which compares against that control run). The cost of a jet is the energy, the camera kick and the line change. If the owner wants a bigger shove, raise `JET_KNOCK`.
+- **Track** (`content/tracks/abyss-line.json`): 4,807 m, about 35.7 s a lap at Pilot pace in the race sims (the validator's estimate is 40.7 s), minimum radius 146 m, elevation 40–54 m. The pit straight, a 300 m sweeper, an S-bend, the Spine (690 m: 90 m closing on a straight, 510 m closed through a 400 m-radius 50° bend, 90 m opening on a straight) with two jet fields of 4 vents (periods 5 s and 5.5 s, clear lanes at +3 m and −3 m), a hairpin, the glass-tunnel S-bend on the back straight, two sweepers back to the line, the pit and two dash plates. No jump, no corkscrew.
+- **Validator** (`TrackValidate.ts`, issue codes `spine` and `jets`): a spine follows the pipe rules (transitions, closed length, a plan radius of at least 300 m), plus the straight rule above, and the bottom of its tube stays above the world's lowest elevation. A jet field lies on the closed stretch of a spine, has a period of at least `JET_MIN_PERIOD` (the Rookie warning must fit between two jets), leaves room beside its lane and off the seam, and overlaps no other hazard field or wind zone.
+- **AI** (`AIDriver`): the pipe's `inPipe` covers spines (lines within ±9 m). `avoidHazards` adds a band for a vent only when it fires within 0.5 s of the hull crossing it; inside a spine the way round stays within ±9 m.
+- **World entry:** `abyss-line`, order 8, `expansion: true`, `props: false`, the placeholder theme. **Replace the placeholder line and delete `props: false` when the real theme exists.** With Abyss Line built, the **Storm Cup** is available whenever the flag is on (X1's rule, unchanged).
+- **Telegraph visuals** (`jetVisual.ts`, built with the track, 3 draw calls for the whole track): each vent is a dim ring on the tube that brightens with a quickening pulse over the warning while a bubble stream rises from it; the jet is an 11 m column of white water straight out of the tube that shoots out, holds and collapses.
+- **Feedback:** toast `🫧 PRESSURE JET` (`🛡 JET BLOCKED` with a Shield), the mine's burst at the hull, a camera kick (a little smaller than a geyser's), a heavy haptic tap, pad rumble, and the mine's sound until M6.
+- **Sims:**
+  - `sim/abyss-line.sim.test.ts` (8 races): Rookie and Legend fits finish with no respawn; the tier matrix passes (Pilot and Ace fields clean; mixed field mean position Legend 2.0, Rookie 7.0; Rookie-assisted autopilot on the podium from P8; Pilot autopilot P2, 0.7% off the median); an Ace race replays to the same standings and hits. A field of 8 takes 4 jet hits in a Rookie race and none in a Legend race (192 vent passes).
+  - `sim/stormCup.sim.test.ts`: the whole Storm Cup headless, with a reload mid-cup (the whole-cup sim moved into `sim/cupSim.ts`, shared with the Neon Cup's `grandPrix.sim.test.ts`).
+- **Tests:** 630 unit and sim tests in 68 files (X5: 594 in 64). e2e: two new, the Storm Cup by pad (pick its tab, five races in order to the final standings) and an Abyss Line race round the Spine and past both jet fields with no console error and no shader compiled mid-race.
+- **Desktop perf on the placeholder theme** (`perf-desktop --audit`, 8 ships, 15 s; not the gate, which is measured on the real look):
+
+  | World, preset | fps | p50 / p95 / p99 ms | Grid-frame draw calls | Race median draw calls | Triangles |
+  |---|---|---|---|---|---|
+  | Abyss Line, High | 59.4 | 16.7 / 16.7 / 16.8 | 150 | 120 | 146k |
+  | Abyss Line, Med | 59.8 | 16.7 / 16.8 / 16.8 | 150 | 116 | 146k |
+  | Abyss Line, Low | 59.9 | 16.7 / 16.7 / 16.8 | 129 | 87 | 140k |
+  | Neon Bay, High (shared code; #38 was 170) | 59.9 | 16.7 / 16.8 / 16.8 | 170 | 138 | 141k |
+  | Neon Bay, Low (#38 was 147) | 60.0 | 16.7 / 16.8 / 16.8 | 147 | 102 | 118k |
+
+  The jet vents, streams and columns are 3 draw calls for the whole track. Ship draw calls did not change.
+- **Deviations from the plan:**
+  - **The Spine is 690 m (510 m closed), not 500 m,** so the closed tube runs onto a straight before it opens (the layout rule above).
+  - **The glass tunnel is an S-bend on the back straight,** not a covered section (that is the look's job). Without it the back straight was 735 m: with the Spine's gentle bend that made one long boost zone, and the Pilot field spread by boost timing alone (the Pilot autopilot finished 1.7% off the median, against the 1.5% target). With it the lap is 4,807 m (the plan said about 4.4 km; the lap time is inside 36–41 s).
+  - **The Rookie jet hit keeps a 5 m/s knock,** as the plan says (unlike the geyser's and lightning's Rookie hits, which only slow the ship).
+  - **The clear lanes are at ±3 m,** so each field has vents on both sides of its lane (at ±4 m or ±6 m one side had no room off the seam).
+- **Not asked for, in this PR:** the whole-cup sim moved into `sim/cupSim.ts`; the toast, haptics, rumble and sound on a jet hit.
 
 **Design decisions:**
 - **Look:** an undersea city of glass domes and brass; kelp, light shafts, bubbles. Palette: aqua / brass gold / coral pink. From `assets/reference/worlds/abyss-line/chosen.jpg`.
@@ -1533,57 +1569,823 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, iPhone/iPad, comfort settings
+## M7 — Touch, tilt, assists and comfort — ✅ BUILT (PRs #41 M7a, #42 M7b, M7c; waiting on the owner's device gates)
 
-- **`physics/TouchInput.ts`** implements `IInputManager` and merges with keyboard and gamepad:
-  - Left zone: horizontal drag slider, with origin set on touchstart and ±60 px = full lock.
-  - Right zone: brake and boost buttons, plus accelerate when not auto-accelerating.
-  - Air-brake buttons at the top corners and pause at the top centre.
-  - Uses pointer events with `touch-action: none`. Multi-touch safe.
-  - Haptics via `navigator.vibrate` where supported (not iOS).
-- **Tilt:** `DeviceOrientationEvent.requestPermission()` from a Settings tap (iOS 13+). Steer from gamma, relative to a calibrated neutral angle, with a 3° deadzone and adjustable sensitivity.
-- **Layout editor (light):** left-handed swap and button scale (S, M, L).
-- **Web app manifest** plus icons (generated at build from an SVG badge), `display: fullscreen`, `orientation: landscape`, and a rotate-device overlay in portrait.
-- Safe-area insets (`env(safe-area-inset-*)`) for the notch and home bar.
-- **Comfort settings** live from M1, completed here:
-  - Reduced motion (PostFX, SpeedLines, ChaseCamera shake and FOV punch off or gentle).
-  - Colour-blind palette plus shape cues on the HUD and track markers.
-  - Large-text HUD scale.
-  - Key remapping UI.
-- **Assists** (`physics/Assists.ts`):
-  - Auto-accelerate: throttle 1 unless braking.
-  - Steering assist: blend the player's steer toward an internal `AIDriver`-style line-following steer (weight light 0.3, strong 0.6), plus a rail repulsion when within 2 m of a rail.
-  - No-KO: energy floor 1 and ×0.5 damage.
-  - Early boost: `boostUnlocked` from lap 1.
-  
-  Assists run in the fixed step between input and physics, so they are deterministic and can be tested in the sims.
-- **Device QA:** the user tests on a real iPhone and iPad through the PR preview. Add a checklist to the PR body:
-  - rotate
-  - Add to Home Screen
-  - audio unlock
-  - 3-lap race on Low at ≥ 30 fps (`?debug=1` overlay)
-  - tilt permission
+SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
+
+**Three PRs, in build order, each stacked on the one before (the first on the newest open stack branch):**
+
+| # | PR | Branch | Save | Flag | Needs from the owner |
+|---|---|---|---|---|---|
+| M7a ✅ built (#41) | The four assists work, and the assists screen | `v2/m7a-assists` | v7 → v8 | none (it repairs a promise the live game already makes) | Device check with the pad |
+| M7b ✅ built (#42) | Touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` | Device gate (fps); **the owner picks the default air-brake style** |
+| M7c ✅ built | Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on | `v2/m7c-comfort` | — | `touch` → on | Device gate: tilt on the pipe and the Spine, the Storm Cup by touch, menus by touch |
+
+**Facts checked on 2026-11-16 (`v2/x6-abyss-line`), so the builder does not rediscover them:**
+- **The assists do nothing in the live game.** `physics/Assists.ts` (`PlayerAssists`) is used only by `sim/worldRace.ts`. `App` and `RaceSession` never apply it. `Assists.noKO` and `Assists.earlyBoost` exist in the save and have no code. The "I'M NEW TO RACING GAMES" preset (`ProfileSelect.tsx`) promises all four.
+- **No touch input exists.** `InputManager` reads the keyboard and one gamepad. `InputDevice` is `'keyboard' | 'pad'`. The menus are plain buttons, so taps already work there. The Garage turntable already orbits on a pointer drag (`Garage.tsx`), and zooms only on the wheel.
+- **The HUD sits where thumbs go.** At 956 × 440 (iPhone landscape) and 1180 × 820 (iPad landscape) the power bar (`.mz-energy`) and the boost panel (`.mz-boost`) are bottom-left, and the speed dial (`.mz-speed`) is bottom-right. Position is top-left, the lap box top-centre, the minimap and best times top-right.
+- **Landscape is already locked** in `ios/App/App/Info.plist` (iPhone and iPad) and set in `public/site.webmanifest` (`"display": "fullscreen"`, `"orientation": "landscape"`). The web has no rotate overlay.
+- **Comfort today:** `GraphicsSystem.setComfort({ reducedMotion })` already turns off motion blur, camera shake, colour fringing, speed lines, the draft shimmer, fog motion and lightning flashes, halves weather streaks, and calms the field of view. `colorBlind` only changes the energy bar (`html.mz-cb`). `largeText` sets `html.mz-large-text`. The keyboard remap screen exists (Settings → Controls). `settings.touchSteer` is saved and read by nothing.
+- **The flags `tiers` and `touch` have no reader.** M7b adds the first reader of `touch`. (`tiers` is removed in M8.)
+- **Steering is relative to the ship.** `ControlInput.steer` turns the ship about its own up axis, and `ChaseCamera` rolls with the ship's smoothed up. "Right on the screen" is therefore "right for the ship" on the corkscrew, in the pipe, on the loop and on the Spine.
+
+**Rules for every M7 PR** (in addition to §0):
+- Pad and keyboard play must not change. Every existing test passes unchanged, except where a step below says to update one.
+- Everything a player feels in a race (assists, the slider curve, the tilt curve) is a pure function called in the fixed step, so the sims can drive it and a replay is identical.
+- **Budgets:** app JS ≤ 600 KB gzip. Touch controls are DOM elements: they add **no draw calls** and no per-frame allocation. Device gate: 60 fps, with p95 no more than 1 ms above the build before the PR.
+- Every sim file stays under 60 s on CI. An assertion is never loosened to go green.
+- Sizes in this section are **CSS points (`px` in CSS)**. They are not scaled with the screen: a button is the same physical size on the iPhone and the iPad.
+- Sounds: M7 adds no audio. Where a step names a **sound hook**, emit the bus event and leave the sound to M6.
 
 ---
 
-## M8 — Progression, modes, ghosts, polish → 2.0 complete
+### M7a — The four assists work, and the assists screen — ✅ BUILT (PR #41, `v2/m7a-assists`; waiting on the owner's device check)
 
-- **Modes** (`game/modes/*`) drive `RaceSession` setup and results handling:
-  - **WorldTour:** unlock rules, per-tier trophies, credits.
-  - **GrandPrix:** built early in §GP above. M8 adds its unlock (World Tour world 5 cleared at any tier).
-  - **TimeTrial:** solo, with ghosts and medals.
-- **Ghosts:**
-  - `GhostRecorder` samples the pose at 20 Hz (position Float32 ×3 plus quaternion as smallest-three int16), about 20 KB per 3-lap run, and stores it in IndexedDB through `GhostStore`.
-  - `Ghosts.ts` renders translucent, unlit, depth-tested ships with a fade near the camera.
-  - **Dev ghosts:** `npm run ghosts:bake` runs a headless Legend autopilot on each track, writes `public/game/ghosts/<trackId>.json` and fills `devTime`. Commit the output. Medals are gold ≤ devTime × 1.02, silver ≤ 1.08, bronze ≤ 1.18.
-- **World map screen:** the 5 worlds as planets or islands on a retro starmap, showing lock state, trophies per tier and best times.
-- **Results:** credit tally animation, unlock fanfare, pilot quotes.
-- **Onboarding** for a first-time profile:
-  - "New to racing?" → Rookie preset.
-  - A 30-second interactive tutorial overlay on the first Neon Bay race (steer, boost, pit, air-brake), which can be skipped.
-- **Balance pass:** tune `content/*` against the SPEC §9 targets using the sims, then play every world on Rookie with assists and on Legend without.
-- **Flags:** turn every 2.0 feature flag on for `main`, then remove dead flag code.
-- Update the README, `docs/TDD.md` (a v2 architecture section) and `CODEBASE.md`. PR titled **"MachZero 2.0"** with a feature summary, screenshots from each world and the full QA checklist.
+**Design decisions:**
+- **All four assists become real** for the human player: auto-accelerate, steering assist (off / light 30% / strong 60%), No-KO, boost from lap 1. The numbers in `physics/Assists.ts` (`ASSIST`) do not change.
+- **Presets** are unchanged: Rookie = all four on (`ROOKIE_ASSISTS`), Classic = none (`NO_ASSISTS`).
+- **Assists can change at any time**, from the pause menu too, and during a cup. A change takes effect on the next fixed step, with one exception: the hazard rules (below) are fixed at the start of a race.
+- **Assists never cost anything.** They do not reduce credits, block trophies or (in M8) block medals.
+- **No-KO:**
+  - Energy lost to damage is halved, and damage never takes energy below 1. The ship cannot be destroyed by damage.
+  - "Damage" is: rail hits and scrapes, ship-to-ship hits, mines, debris, gates, lightning, geysers and jets. Spending energy on a boost is not damage and is unchanged.
+  - **No-KO also selects the Rookie hazard rules** (`HAZARDS_ROOKIE`: twice the warning, no energy loss, a hit only slows the ship), as SPEC §6 says. The rules are chosen when the race is built. Turning No-KO on or off mid-race changes the damage rule at once and the hazard rules from the next race.
+- **Boost from lap 1:** the player's boost is unlocked when the lights go out. Rivals are unchanged (lap 2).
+- **Auto-accelerate:** throttle is 1 unless the brake is held (as `PlayerAssists.apply` does today). M7b adds a second source for it (the touch setting); M7a builds the place where the two are combined.
+- **Where the screen lives:** Settings gets an **ASSISTS** tab (per profile; hidden when no profile is active). It is reachable from the pause menu through the existing SETTINGS button.
+- **Not behind a flag.** The preset text on the live site already promises these assists. The owner playtests the preview before merging, as for every PR.
+
+**Save v8 (this PR carries every M7 field, so M7b and M7c need no migration):**
+
+```ts
+// save/schema.ts
+export const SAVE_VERSION = 8;
+export type HudSize = 'normal' | 'large' | 'xl';
+export type AirbrakeStyle = 'slider' | 'buttons';
+export type Step3 = 0 | 1 | 2; // low / medium / high
+export type PadControl = 'throttle' | 'brake' | 'airLeft' | 'airRight' | 'boost' | 'item' | 'itemPrev' | 'itemNext';
+export type PadBindings = Record<PadControl, number[]>; // standard-mapping button indices 0–15, 1 or 2 per control
+
+export interface TouchSettings {
+  steer: TouchSteer;            // 'slider' | 'tilt'; default 'slider' (moved from settings.touchSteer)
+  autoAccelerate: boolean;      // default true
+  sensitivity: Step3;           // slider; default 1
+  airbrake: AirbrakeStyle;      // default 'slider' (the owner may change the default at the M7b gate)
+  buttonSize: 's' | 'm' | 'l';  // default 'm'
+  leftHanded: boolean;          // default false
+  tiltSensitivity: Step3;       // default 1
+  tiltNeutral: number;          // degrees, −20..20; default 0
+  hintSeen: boolean;            // default false; the first-race touch hint was shown
+}
+
+export interface SettingsData {
+  // …unchanged fields…
+  hudSize: HudSize;             // replaces largeText
+  haptics: boolean;             // default true
+  touch: TouchSettings;         // replaces touchSteer
+  padBindings: PadBindings;     // default DEFAULT_PAD_BINDINGS
+}
+```
+
+- `DEFAULT_PAD_BINDINGS` is today's layout: `throttle: [7, 0]` (RT, Ⓐ), `brake: [6, 1]` (LT, Ⓑ), `airLeft: [4]`, `airRight: [5]`, `boost: [2]` (Ⓧ), `item: [3]` (Ⓨ), `itemPrev: [14]`, `itemNext: [15]`.
+- **Migration 7 → 8** (`save/migrations.ts`): `hudSize = largeText ? 'large' : 'normal'`; `touch = { ...defaults, steer: touchSteer }`; `haptics = true`; `padBindings = DEFAULT_PAD_BINDINGS`; delete `largeText` and `touchSteer`. Profiles do not change.
+- `sanitizeSettings` gets `sanitizeTouch` and `sanitizePadBindings` (indices 0–15, at most 2 per control, no index on two controls, a control left empty takes its default).
+- `Settings` (`settings/Settings.ts`) gains the signals `hudSize`, `haptics`, `touch` and `padBindings`, and loses `largeText` and `touchSteer`. `App.applySettings` sets `html.mz-hud-large` / `html.mz-hud-xl` from `hudSize`; until M7c restyles them, both classes carry today's `mz-large-text` rules, so nothing looks different in M7a.
+
+**Build steps (tests first):**
+1. **Save v8.** Write the `SaveStore` tests first: a v7 save with `largeText: true` and `touchSteer: 'tilt'` loads as v8 with `hudSize: 'large'` and `touch.steer: 'tilt'`; a v7 save with neither loads with the defaults; bad `touch` and `padBindings` values fall back to the defaults; an export from v8 imports unchanged. Then the schema, the migration and the `Settings` signals.
+2. **The effective assists, as one pure function** in `physics/Assists.ts`:
+
+   ```ts
+   export function effectiveAssists(profile: Readonly<Assists>, device: InputDevice, touch: Readonly<TouchSettings>): Assists
+   ```
+
+   It returns the profile's assists, with `autoAccelerate` also true when `device === 'touch' && touch.autoAccelerate`. In M7a `InputDevice` has no `'touch'` yet: add the member to the type now (`'keyboard' | 'pad' | 'touch'`), with nothing producing it. Unit tests cover the four combinations.
+3. **Steering assist and auto-accelerate in the race.** `RaceSetup` gains `assists?: Assists` (default `NO_ASSISTS`). `RaceSession` builds one `PlayerAssists(track)` and gains `setAssists(a: Assists)`. In `RaceSession.fixed`, when the player is `driven`, the player's controls are `assists.apply(player, human, current)`; `items.fixed` still gets the raw `human` input. `App` calls `session.setAssists(effectiveAssists(…))` when a race is built, when the profile's assists change and when the input device changes.
+4. **No-KO in physics.** Write `sim/assists.sim.test.ts` first (step 7). Then:
+   - `ShipState` gains `noKO: boolean` (default false; `PhysicsSystem.addShip` sets it false). `RaceSession.setAssists` sets `player.noKO`.
+   - In `ShipController`, every damage call site goes through one new method `takeDamage(amount)`: rail (`RAIL_DAMAGE_PER_MS`), lightning (`STRIKE_DAMAGE`), geyser (`GEYSER_DAMAGE`), jet (`JET_DAMAGE`), mine (`MINE_DAMAGE`), ship-to-ship (`SHIP_DAMAGE_PER_MS`), and any gate or debris site found by searching for `drainEnergy(`. With `noKO`, `takeDamage` halves the amount and leaves `energy ≥ 1`. Without it, it behaves exactly as `drainEnergy` does today. Boost spending keeps calling `drainEnergy`.
+   - `App` (`hazardPolicy(…)` near `App.ts:663`): the Rookie hazard rules apply when the tier is Rookie **or the profile's `assists.noKO` is on**. `?hazards=` still overrides.
+5. **Boost from lap 1.** `ShipState` gains `earlyBoost: boolean` (default false), set by `RaceSession.setAssists`. `RaceManager` sets `boostUnlocked = ship.earlyBoost` where it resets a racer (near line 300) and sets it true at GO for a ship with `earlyBoost`; the lap-2 unlock (near line 394) is unchanged. The HUD hides "BOOST UNLOCKS LAP 2" when the boost is unlocked (it already reads `boostUnlocked`).
+6. **The ASSISTS tab** (`ui/screens/SettingsScreen.tsx`, a new `Assists` component; `App.setAssists(patch)` updates the active profile inside a save update and calls `session.setAssists`):
+   - `AUTO-ACCELERATE` toggle. Hint: "The ship accelerates by itself. Hold the brake to slow down."
+   - `STEERING HELP` segmented: OFF / LIGHT / STRONG. Hint: "Guides you along the road and away from the rails. You stay in control."
+   - `NO KNOCK-OUTS` toggle. Hint: "Half damage, and you can't explode. Hazards warn earlier and only slow you down (from the next race)."
+   - `BOOST FROM LAP 1` toggle.
+   - Two chips: `ROOKIE PRESET` and `CLASSIC PRESET`.
+   - Every control has an icon as well as text (SPEC §2: icon-first). Pad and keyboard focus work as on the other tabs.
+7. **Sims and tests:**
+   - `sim/assists.sim.test.ts` (new): (a) No-KO: a ship held against a rail at full throttle for 20 s is never destroyed and its energy stays ≥ 1; the same run without No-KO destroys it. (b) No-KO: one mine hit costs half the energy of the same hit without it. (c) Boost from lap 1: a boost request on lap 1 starts a boost with `earlyBoost`, and does not without it. (d) Auto-accelerate: with zero throttle input the ship completes a lap of Neon Bay. (e) Two runs with the same seed and assists are identical.
+   - `sim/worldRace.ts`: the assisted player stand-in now goes through the same `RaceSession`-independent path as before, but with `noKO` and `earlyBoost` set from `ROOKIE_ASSISTS`. The Rookie balance test in `tierMatrix.ts` (top 3 from P8 on every track) must still pass, on all 8 tracks.
+   - `RaceSession` test: with `assists` set, the player's controls are assisted and the raw input reaches `items.fixed`.
+   - e2e (`e2e/assists.spec.ts`): create a Rookie profile, open Settings → ASSISTS, see four controls on; set CLASSIC PRESET, see them off; reload, still off.
+
+**Done when:**
+- [ ] A new "I'm new to racing games" profile cannot be knocked out, boosts on lap 1, accelerates by itself and is guided along the road, in a real race in the browser.
+- [ ] A Classic profile plays exactly as before (every existing sim and e2e test passes unchanged).
+- [ ] The ASSISTS tab works with pad, keyboard and mouse, from the menu and from the pause menu, and its changes survive a reload.
+- [ ] A v7 save loads as v8 with nothing lost (test).
+- [ ] The Rookie balance sims pass on all 8 tracks with No-KO and boost from lap 1 in play.
+
+**Device check (no fps gate; nothing renders differently):** on the iPhone with the 8BitDo, a Rookie-preset profile races Orbital Ring: drive into mines and rails on purpose, never explode, boost on lap 1. Then pause → SETTINGS → ASSISTS → CLASSIC PRESET, resume, and the next rail hit drains energy as before.
+
+**As built (2026-11-19, PR #41):**
+- **Save v8** (`save/schema.ts`, `save/migrations.ts` step 7): every M7 field is in, as specified. `defaultTouch()`, `DEFAULT_PAD_BINDINGS`, `PAD_CONTROLS`, `clonePadBindings`, `sanitizeTouch` and `sanitizePadBindings` are exported. A pad control whose buttons are all taken and whose defaults are taken too makes the whole binding set fall back to the defaults (it cannot be left empty). `Settings` has `hudSize`, `haptics`, `touch` (with `setTouch(patch)`) and `padBindings`.
+- **`effectiveAssists`** is in `physics/Assists.ts`. `InputDevice` has `'touch'`, which nothing produces yet.
+- **`RaceSession`** builds one `PlayerAssists` and has `setAssists(a)` and `activeAssists`. `App` passes `assists` in the setup and keeps them current with one signal effect (profile assists, input device, touch settings), and again when a session finishes building. `App.setAssists(patch)` updates the active profile.
+- **No-KO:** `ShipController.takeDamage(amount)` is the one damage path: rail impacts and scrapes (the stone gates and debris are rail contacts), lightning, geysers, jets, mines and ship-to-ship. With `noKO` it takes half and stops at 1 energy (`NO_KO_SCALE`, `NO_KO_FLOOR`). The boost still calls `drainEnergy`. The Rookie hazard rules apply when the tier is Rookie or the profile's No-KO is on. They are fixed when a race is built. A RESTART of the same race keeps them; the next race from the menu picks up the change, because the hazard mode is in the session key.
+- **Boost from lap 1:** `RaceManager` sets `boostUnlocked = earlyBoost` on the grid and unlocks it at GO. The HUD's "BOOST UNLOCKS LAP 2" goes away by itself. Turning the assist on mid-race unlocks the boost at once. Turning it off mid-race leaves an unlocked boost unlocked until the next start.
+- **The ASSISTS tab** sits between RACE and SOUND and is hidden with no profile. `Toggle` and `Segmented` (`ui/components.tsx`) take an optional `icon` (and `Segmented` a `hint`). Each assist row has an icon. The tab's footnote says assists never cost credits or trophies. Screenshots: `docs/v2/shots/m7a/assists-desk.jpg`, `assists-phone.jpg` (956 × 440).
+- **Sims and tests:** `sim/assists.sim.test.ts` has (a) to (e) and also checks that a boost still costs full energy under No-KO. For (a), the ship starts worn down to 12 energy, because a fresh ship loses only about 50 energy in 20 s of slamming rail to rail and would survive with or without No-KO. Without No-KO the run destroys it; with No-KO it bottoms out at 1 and finishes. In `sim/worldRace.ts` the assisted stand-in has No-KO and boost from lap 1. The Rookie balance test passes on all 8 tracks. There are new tests for the save, `effectiveAssists`, early boost in `RaceManager`, and assisted controls in `RaceSession` (the items still get the raw input object), plus `e2e/assists.spec.ts`, which also changes the assists from the pause menu mid-race.
+- **Changes nobody asked for:**
+  - `ShipState.noKO` and `earlyBoost` are optional (absent = off), so the ship literals in existing tests did not change.
+  - The Comfort tab's LARGE TEXT switch writes `hudSize` ('large' / 'normal') until M7c replaces it with HUD SIZE. `e2e/menus.spec.ts` and two unit tests now read `hudSize` and `mz-hud-large`, as the v8 migration requires.
+  - BOOST FROM LAP 1 has a hint: "Your boost is ready when the lights go out, not on lap 2."
+
+---
+
+### M7b — Touch driving and the touch HUD — ✅ BUILT (PR #42, `v2/m7b-touch`; waiting on the owner's device gate and the air-brake default)
+
+**Design decisions:**
+- **Platforms:** the iOS app and mobile web. Android is best effort with no gate. Pad and keyboard keep working. The player can change device in the middle of a race: the device that produced input last owns the prompts and the layout.
+- **Landscape only.** The app is already locked. The web shows a rotate overlay in portrait on a touch device, and pauses a running race.
+- **Default scheme:** auto-accelerate on (the per-device `touch.autoAccelerate`, whatever the profile says); a floating steering slider on the left half; BOOST and BRAKE under the right thumb; the item button above BOOST; pause at the top.
+- **The slider:** the origin is the point where the thumb lands. Full lock is 80 / 60 / 44 points of travel for sensitivity low / medium / high. The response is curved (finer near the centre): `steer = sign(x) · |x|^1.5`, with `x` the travel divided by the full-lock travel, clamped to ±1.
+- **Air-brakes: both styles are built**, chosen by `touch.airbrake`:
+  - `'slider'` (the default): pushing the thumb past full lock applies that side's air-brake. It starts 12 points past full lock and reaches full strength 20 points later.
+  - `'buttons'`: two air-brake buttons above the right-thumb cluster. The slider then stops at full lock.
+  - **The owner picks the final default at the device gate.** The other style stays as a setting.
+- **With auto-accelerate off** an ACCELERATE button appears in the right-thumb cluster.
+- **Items:** tapping the item button uses the selected item. A small chip beside it switches to the next item. The pit needs no button (driving onto the strip recharges).
+- **The touch HUD:** power and speed move to one compact strip at the bottom centre, between the thumbs. The items panel is hidden (the item button shows the item and its count). Position, the lap box, the minimap and the best times stay where they are.
+- **Sizes** are in points and do not grow with the screen. `touch.buttonSize` scales the controls: S × 0.85, M × 1, L × 1.2. `touch.leftHanded` mirrors the whole layout.
+- **Haptics:** a light tick on every touch-button press, in the iOS app. (The on/off setting arrives in M7c; the field exists from M7a and is honoured here.)
+- **A first-race hint:** the first race started by touch shows the zones with labels for 4 s, or until the first touch. It is shown once (`touch.hintSeen`).
+- **Behind `touch`.** Without the flag a touch does nothing in a race, as today.
+
+**Layout (M size; all distances are from the safe-area edge, `env(safe-area-inset-*)`):**
+
+| Control | Size | Place (right-handed) |
+|---|---|---|
+| Steering zone | the left 45% of the screen, from 25% below the top to the bottom | The slider's ring (96 across) and thumb dot (56) are drawn where the thumb lands |
+| BOOST | 88 round | right 24, bottom 24 |
+| BRAKE | 64 round | left of BOOST with a 16 gap, bottom 16 |
+| ACCELERATE (auto-accelerate off) | 72 round | above BRAKE with a 12 gap |
+| ITEM | 56 round | above BOOST with a 12 gap |
+| Item switch chip | 44 round | left of ITEM with an 8 gap |
+| Air-brake L and R (`'buttons'` style) | 56 round each | a row above ITEM, 12 apart |
+| PAUSE | 44 square | top edge, directly right of the lap box |
+| Power and speed strip | 320 × 48 on a screen under 500 points tall; 420 × 60 otherwise | bottom centre, bottom 12 |
+
+- The strip holds: the power bar (with its number and the RECHARGING tag), the speed as a number with KM/H (no dial), and the boost state (a padlock while locked; "BOOST" lit while boosting).
+- The DRAFT and WIND chips and the EMP warning move to just above the strip.
+- On the iPad the layout is the same. The controls sit in the bottom corners at the same point sizes, and the strip uses its larger size.
+- Left-handed: BOOST, BRAKE, ACCELERATE, ITEM and the air-brake buttons go to the left corner, and the steering zone to the right 45%.
+
+**Build steps (tests first):**
+1. **The slider as a pure function** (`physics/touchSteer.ts`, new), with unit tests written first:
+
+   ```ts
+   export const SLIDER_LOCK = [80, 60, 44] as const;      // points of travel to full lock, by sensitivity
+   export const AIRBRAKE_START = 12, AIRBRAKE_RAMP = 20;   // points past full lock
+   export interface SliderOut { steer: number; airbrakeLeft: number; airbrakeRight: number }
+   export function sliderControls(dx: number, sensitivity: Step3, airbrake: AirbrakeStyle, out: SliderOut): SliderOut
+   ```
+
+   Tests: zero at the origin; ±1 at full lock for each sensitivity; the 1.5 curve at half travel (0.354); odd symmetry; no air-brake inside full lock; the ramp from 12 to 32 points past it; no air-brake at all with `'buttons'`.
+2. **`physics/TouchInput.ts`** (new): the state of the touch controls, with no DOM layout knowledge.
+   - Methods called by the controls: `steerStart(pointerId, x)`, `steerMove(pointerId, x)`, `steerEnd(pointerId)`, `press(control, down)` for `'boost' | 'brake' | 'throttle' | 'airLeft' | 'airRight' | 'item' | 'itemNext' | 'pause'`, and `releaseAll()`.
+   - `read(out)` returns steer, throttle, brake, both air-brakes, and the boost, fire and item-cycle latches (cleared on read), using `sliderControls`.
+   - Unit tests: two pointers at once (steer and boost); a second pointer in the steering zone is ignored; `pointercancel` and `releaseAll` leave everything neutral; a boost press latches exactly once.
+3. **`InputManager` merges touch.** It takes an optional `TouchInput`. `sample()`: steer is the largest magnitude of keyboard, pad and touch; the other values are the maximum; the latches are OR-ed. `consume('pause')` also reads the touch pause press. `InputDevice` `'touch'` is set on any `pointerdown` with `pointerType === 'touch'` (a capture listener on `window`), and `App.setInputDevice` toggles `html.mz-touch` beside `html.mz-pad`. The blur handler calls `releaseAll()`. Tests: the device changes keyboard → touch → pad → touch, and the merge rules.
+4. **`game/TouchControls.ts`** (new): builds the controls as DOM inside the HUD root (`.mz-touch-layer`) and forwards pointer events to `TouchInput`.
+   - Pointer events with `setPointerCapture`; `touch-action: none`, `user-select: none` and `-webkit-touch-callout: none` on the layer; `contextmenu` is prevented.
+   - The layer has `pointer-events: none`; only the zone and the buttons take events, so HUD panels and the pause panel still receive taps.
+   - Shown only when `features.touch` is on, the device is `'touch'` and the race is in countdown or racing. It hides (and calls `releaseAll()`) on pause, results and the intro card.
+   - It reads `touch.buttonSize`, `touch.leftHanded`, `touch.airbrake` and the effective auto-accelerate through signals, and updates without a rebuild of the race.
+   - The slider ring and dot move with a CSS `transform` only (no layout work per frame).
+   - `RaceView` gains `touch?: TouchInput`; `HUD` creates `TouchControls` when it is given.
+5. **The touch HUD** (`game/hud.css`, `game/HUD.ts`): under `html.mz-touch`, `.mz-energy`, `.mz-boost` and `.mz-speed` are replaced by the strip (`.mz-strip`, built once in `HUD.ts` and fed by the same `update` values, hidden without `mz-touch`); `.mz-items` is hidden; the chips and the EMP warning move above the strip. The HUD's prompts gain a third span, `.mz-k-touch`, beside `.mz-k-kb` and `.mz-k-pad`; a prompt with no touch form is hidden under `mz-touch`.
+6. **Haptic tick:** `native/haptics.ts` gains `tapUi()` (a light impact, under the existing 60 ms gap rule, nothing in a browser, nothing when `settings.haptics` is off). `TouchControls` calls it on each button press.
+7. **The rotate overlay** (`index.html` and `ui/ui.css`): a fixed panel "ROTATE YOUR DEVICE" with an icon, shown by `@media (orientation: portrait) and (pointer: coarse)`, only on the web (`!isNativeApp()`), only with `features.touch`. `App` pauses a running race when the media query starts to match.
+8. **The first-race hint:** an overlay inside `.mz-touch-layer` that labels STEER, BOOST, BRAKE and the item button, for 4 s of wall-clock time or until the first touch; then `touch.hintSeen = true`.
+9. **The touch-scheme sim** (`sim/touchScheme.sim.test.ts`, new; written before step 4 is wired). A `ScriptedThumbs` driver stands in for a person's two thumbs:
+   - It asks the track's `AIDriver` (Pilot tier) for the steer it wants, then moves a virtual left thumb toward the slider position that gives that steer, at no more than 600 points per second, in whole points. The steer the ship gets is `sliderControls(…)` of that thumb.
+   - The right thumb does **one** thing per step: brake when the AI brakes, else boost when the AI boosts, else nothing. Throttle comes from auto-accelerate. Air-brakes come only from the slider's overdrive (`'slider'` style).
+   - Asserts, on **all 8 tracks** (so the corkscrew, the pipe, the loop, the Plunge and the Spine are covered): 3 laps finished, no respawn, no destruction, `maxLateral` inside the track's limit, and a total time within 12% of the same Pilot `AIDriver` driving directly. Two runs are identical.
+   - A second case per track with the Rookie preset (strong steering help, No-KO): 3 laps, no respawn.
+   - If the file cannot stay under 60 s, split it into two files of 4 tracks each.
+10. **Playwright touch project** (`playwright.config.ts`: a second project, `touch`, with `hasTouch: true`, `isMobile: true`, viewport 956 × 440, running only `e2e/touch.spec.ts` with `?features=touch`):
+    - Tap through profile creation and the main menu to a race, with taps only.
+    - In the race, a touch drag in the steering zone gives the player a positive then a negative steer (`window.__machzero` gains `input: { device, steer }` in debug builds); a tap on BOOST after the unlock starts a boost; a tap on PAUSE pauses and RESUME resumes.
+    - A keyboard key during the race hides the touch layer and shows the keyboard prompts; a touch brings it back.
+    - No console errors.
+
+**Done when:**
+- [ ] With `?features=touch`, a full race can be driven in a browser's touch emulation with no keyboard: steer, brake, boost, use and switch items, pause, resume, finish.
+- [ ] Both air-brake styles work and are switchable in a race from the pause menu (the setting's control arrives in M7c; until then `?airbrake=buttons` selects it for QA).
+- [ ] No HUD value is under a control at 956 × 440, 844 × 390 (a small iPhone) and 1180 × 820, right- and left-handed, at sizes S, M and L (screenshots in the PR body).
+- [ ] The touch-scheme sim passes on all 8 tracks; pad and keyboard tests pass unchanged.
+- [ ] Without the flag nothing changes on the live site.
+- [ ] Budgets hold: app JS, zero added draw calls, and the desktop perf table in the PR body.
+
+**Device gate (build with `VITE_FEATURES=touch,expansion npm run ios:sync`):** on the iPhone 18 Pro Max and the iPad Air, with no pad connected:
+1. A full 8-ship race on Neon Bay by fingers alone, with the performance panel on: 60 fps, p95 no more than 1 ms above the build before.
+2. A race on Cryo Station (the pipe) with each air-brake style. **The owner says which style is the default.**
+3. Left-handed and size L once on each device: nothing is cut off by the notch, the Dynamic Island or the home bar.
+4. Connect the pad mid-race: the touch controls go away and the pad drives. Touch the screen: they come back.
+
+**As built (2026-11-19, PR #42):**
+- **Pure parts, as specified:**
+  - `physics/touchSteer.ts` (`sliderControls`, `SLIDER_LOCK`, `AIRBRAKE_START`, `AIRBRAKE_RAMP`, `SLIDER_CURVE`).
+  - `physics/TouchInput.ts`. It also has `steerOrigin` / `steerTravel` for drawing, `isHeld`, `consumePause`, an `onActivity` callback (InputManager's device switch), and `externalSteer` for M7c's tilt.
+- **`InputManager(window, touch?)`** merges touch as specified. The touch PAUSE becomes a `pause` menu press in `update()`, so it ages like START. A touch `pointerdown` (capture, on `window`) or any touch-control press makes `'touch'` the device. Blur and dispose call `releaseAll()`.
+- **`game/TouchControls.ts`:**
+  - `TouchRig` is one per App: the input, the live layout config, `haptic`, `onHintSeen`. `TouchControls` belongs to each race's HUD and is built inside `.mz-race`, so every distance is from the safe-area edge.
+  - Layout comes from the `TOUCH_LAYOUT` table × `BUTTON_SCALE`. Left-handed mirrors it, with the left air-brake still on the left.
+  - CSS shows the layer only under `html.mz-touch` while counting down or racing. The HUD calls `release()` on pause, results and the intro card.
+- **Touch HUD:** `.mz-strip` holds the power bar with its number and RECHARGING tag, the speed number with KM/H, and the boost state (🔒 while locked or jammed, lit while boosting). It replaces the power, boost and speed panels and the items panel under `html.mz-touch`. DRAFT, WIND and the EMP warning move above the strip. Prompts take an optional touch form (`.mz-k-touch`); one without it is hidden on touch. The intro card says "TAP TO SKIP" and a tap on it skips it (`HudActions.onSkipIntro`).
+- **Haptics:** `tapUi()` and `setHapticsEnabled()` in `native/haptics.ts`. The `haptics` setting already stops `bindHaptics` and `tapUi` (Rumble is M7c).
+- **Rotate overlay:** `.mz-rotate` in `index.html`, shown in portrait on a coarse pointer when `App` has set `html.mz-rotate-ok` (web + `touch`). Turning to portrait pauses a running race.
+- **QA:** `?airbrake=buttons|slider` (`UrlFlags.airbrake`) until M7c's setting. `__machzero.input = { device, steer }` in debug builds.
+- **Sims:** `sim/touchScheme.ts` (`ScriptedThumbs`, `thumbRace`, solo races) runs in two files of 4 tracks each, about 14 s in all.
+  - Thumbs vs the Pilot AI driving directly: −0.2% to +1.2% on all 8 tracks.
+  - No respawn on any track, Rookie preset too. Runs replay identically.
+- **e2e:** a `touch` Playwright project (956 × 440, `hasTouch`, `isMobile`) runs only `e2e/touch.spec.ts`, and the `chromium` project ignores it. Drags use CDP `Input.dispatchTouchEvent`.
+- **Changes nobody asked for:**
+  - **The layout table overlaps itself.** ACCELERATE "above BRAKE" overlaps the next-item chip "left of ITEM". So ACCELERATE keeps its 12-point gap above BRAKE but moves left to clear the chip (`side` 156).
+  - **Air-brake pair moved.** Above ITEM, the pair reached the minimap and the best times on an 844 × 390 phone at size L. It now sits above the BRAKE column (or above ACCELERATE when that shows), left of the chip, 12 apart.
+  - **Smaller minimap on short screens.** On a touch screen under 500 points tall the minimap is 10.5 em instead of 12.5 em, so the best times clear ITEM at size L. Both panels keep their places.
+  - **PAUSE size.** PAUSE stays 44 × 44 at every button size, so it never drops under 44 points.
+  - **Hint labels.** The first-race hint's BOOST and BRAKE labels sit across their buttons.
+- **Screenshots:** `docs/v2/shots/m7b/` at 956 × 440, 844 × 390 and 1180 × 820, right- and left-handed, sizes S, M and L, both air-brake styles, with and without ACCELERATE, plus the first-race hint.
+
+---
+
+### M7c — Tilt, menus by touch, comfort settings, pad remapping; `touch` turns on — ✅ BUILT (branch `v2/m7c-comfort`; waiting on the owner's device gate)
+
+**Design decisions:**
+- **Tilt** is an option (`touch.steer: 'tilt'`). Steering is the device's **roll about the axis that points out of the screen**, like turning a wheel, measured against real gravity.
+  - A 3° deadzone. Full lock at 35° / 25° / 18° for sensitivity low / medium / high. Linear between them. The value is smoothed at 20 per second.
+  - A **CALIBRATE** button sets the neutral angle to the way the device is held now (kept within ±20°).
+  - **Tilt reads real gravity only.** The game's camera roll never enters it. On the corkscrew, in the pipe and on the Spine, tilting the device right steers the ship right on the screen, exactly as the slider does.
+  - When the screen lies nearly flat (gravity in the screen's plane under 3 m/s²) the roll cannot be read: the steer eases to zero and a chip says "HOLD THE DEVICE UPRIGHT".
+  - With tilt the left thumb is free: the left corner shows the two air-brake buttons (72 round each). The right-thumb cluster is unchanged.
+  - **Permission** is asked from a tap (Settings → Controls → TILT). If motion data does not arrive at the start of a race, the grid intro card shows an "ENABLE TILT" button; if the player skips it, that race uses the slider.
+- **Menus by touch:** every target is at least 44 × 44 points. The Garage turntable zooms with a pinch. Lists scroll with a drag. The keyboard and pad hint rows are hidden on touch. No screen needs a different structure.
+- **Reduced motion** keeps everything it does today and adds: no hit flashes and no screen-wide flashes in the HUD or the menus, and no menu transitions. **The camera still rolls with the ship** (it is the steering reference). A new save starts with reduced motion on when the device asks for it (`prefers-reduced-motion: reduce`).
+- **Colour-blind mode** is one blue-and-orange palette plus shapes, so that nothing is told by colour alone:
+  - a hazard cue with an icon and an arrow to the clear side for every hazard (ice, gates, mines, debris, lightning, geysers, jets);
+  - shapes on the minimap (the player a triangle, the leader a diamond, the others circles);
+  - a marker on low power (it exists), a padlock on the locked boost (it exists).
+- **HUD size** replaces LARGE TEXT: NORMAL / LARGE / EXTRA LARGE scale the HUD and the menus by 1 / 1.15 / 1.3. Touch controls keep their own size setting.
+- **Pad remapping** uses the same screen as the keyboard, for the eight driving controls in `PadControl`. Steering stays on the left stick. The menu buttons stay fixed (Ⓐ confirm, Ⓑ back, START pause).
+- **HAPTICS** on/off (Settings → Controls), for the iOS app's haptics and the pad's rumble.
+- **`touch` turns on** in this PR.
+
+**Build steps (tests first):**
+1. **Tilt as a pure function** (`physics/tilt.ts`, new), unit tests first:
+
+   ```ts
+   export const TILT_LOCK_DEG = [35, 25, 18] as const;
+   export const TILT_DEADZONE_DEG = 3, TILT_MIN_GRAVITY = 3; // m/s² in the screen's plane
+   /** Roll in degrees (positive = turned clockwise as the player sees it), or null when the screen is too flat. */
+   export function deviceRoll(gx: number, gy: number, screenAngle: 0 | 90 | 180 | 270): number | null
+   export function tiltSteer(rollDeg: number, neutralDeg: number, sensitivity: Step3): number // −1..1, positive = right
+   ```
+
+   Tests: a level device in each landscape orientation gives 0; a clockwise turn gives a positive steer in **both** landscape orientations; the deadzone; full lock at each sensitivity; the neutral offset; `null` under 3 m/s².
+2. **`physics/TiltInput.ts`** (new): listens to `devicemotion`, reads `accelerationIncludingGravity` and `screen.orientation.angle`, and gives `TouchInput` a smoothed steer.
+   - `requestTiltPermission(): Promise<'granted' | 'denied' | 'unsupported'>` calls `DeviceMotionEvent.requestPermission()` where it exists (iOS 13 and later; it must run inside a tap) and resolves `'granted'` where no permission is needed.
+   - **Check before relying on it** (Context7 and the device): the sign of `accelerationIncludingGravity` differs between iOS and Android, and the WKWebView asks for permission again after each app launch. Normalise the sign per platform in one place, with a comment, and prove the direction at the device gate. If the web API does not deliver events in the Capacitor shell, add `@capacitor/motion` and note it in the PR; if iOS needs `NSMotionUsageDescription` in `Info.plist`, add it ("MachZero uses motion to steer when tilt steering is on.").
+   - `TouchInput.read` uses the tilt steer in place of the slider when `touch.steer === 'tilt'` and tilt data is fresh (an event in the last 0.5 s); otherwise the slider is used and stays on screen.
+   - `TouchControls` in tilt mode: no steering zone; the two air-brake buttons in the left corner; the "HOLD THE DEVICE UPRIGHT" chip.
+3. **Settings → Controls on touch** (`SettingsScreen.tsx`): a TOUCH section first on a touch device: STEERING (SLIDER / TILT; choosing TILT asks for permission and falls back to SLIDER with a message when it is denied), SENSITIVITY (LOW / MEDIUM / HIGH, for the active mode), CALIBRATE TILT, AUTO-ACCELERATE, AIR-BRAKES (PUSH PAST FULL LOCK / BUTTONS), BUTTON SIZE (S / M / L), LEFT-HANDED, HAPTICS. The keyboard section shows when a keyboard has been used; the pad section when a pad is connected. Remove the `?airbrake=` QA parameter from M7b.
+4. **Pad remapping:** `InputManager.setPadBindings(b)` replaces the fixed `PAD.*` reads for the eight driving controls (the menu edges and the garage orbit keep their fixed buttons). `Settings.bindPad(control, slot, index)` follows `bindKey`'s rules (a button moves from its old control; no control is left empty). The Controls tab lists the pad controls with "press a button" capture, and a RESET button for each device. Tests: the defaults reproduce today's behaviour exactly (the existing controller tests pass unchanged); a swap; a reset.
+5. **Menus by touch** (`ui/ui.css`, the screens):
+   - Raise any target under 44 × 44 (tabs, chips, badge and colour swatches, the profile delete button, segmented controls, sliders' thumbs).
+   - `touch-action: pan-y` and momentum scrolling on the scrolling containers; no rubber-band on the page itself.
+   - Hide `.mzu-hints` and focus rings under `html.mz-touch`; `data-autofocus` still sets focus for a later pad.
+   - Garage: a two-pointer pinch on the turntable zooms (`app.orbitShipPreview(0, 0, dz)`); a one-pointer drag orbits as today.
+   - The profile name field: the on-screen keyboard must not leave the form hidden; scroll the field into view on focus.
+   - e2e (`e2e/touch.spec.ts`, more cases): on every screen (profiles, create, menu, worlds, Grand Prix, cup standings, garage and its tabs, livery, settings and its tabs, pause, results) at 956 × 440, every visible `button`, `[role=tab]`, `[role=radio]` and `input` is at least 44 × 44; a garage purchase and a livery change by taps only.
+6. **Comfort:**
+   - Reduced motion: under `html.mz-reduced-motion`, HUD and menu animations that flash or sweep are off (`animation: none`, `transition: none` on the listed classes; list them in the PR). `App` sets `reducedMotion` from `matchMedia('(prefers-reduced-motion: reduce)')` only when it creates the very first save.
+   - Colour-blind: move the HUD's meaning-bearing colours to tokens in `ui/tokens.css` and `game/hud.css` (`--mz-good`, `--mz-warn`, `--mz-bad`, `--mz-rival`, `--mz-player`) with blue-and-orange values under `html.mz-cb`. `game/Minimap.ts` draws the shapes above in every mode.
+   - **The hazard cue** (`game/HazardCue.ts`, new, pure; a HUD chip `.mz-hazard`): each frame, find the nearest hazard ahead of the player on its path within 2.5 s at the current speed that is warning or active; give its kind (an icon) and the clear side (an arrow left or right, or none). It reads the same hazard timelines the AI uses (`hazardClock`, the track's features, `physics.mines`). Shown in colour-blind mode. Unit tests per hazard kind with a fixed clock. No 3D change, so no draw calls.
+   - HUD size: `--mz-hud-scale` and `--mz-ui-scale` (1 / 1.15 / 1.3) from `html.mz-hud-large` and `html.mz-hud-xl`; replace the `mz-large-text` rules. The Comfort tab shows HUD SIZE as a segmented control. Check every screen at EXTRA LARGE at 956 × 440: nothing is cut off (screenshots in the PR).
+   - HAPTICS off stops `bindHaptics`, `tapUi` and `Rumble`.
+7. **Turn the flag on:** `FEATURE_DEFAULTS.touch = true`. Update `e2e` so the touch project runs without `?features=touch`.
+8. **Docs:** SPEC §3's touch layout already points to §11. Update `docs/IOS_TESTFLIGHT.md` with the tilt permission note, mark M7 done in this file with the PR numbers, run `npm run codebase`.
+
+**Done when:**
+- [ ] Tilt steers the right way in both landscape orientations, calibrates, and falls back to the slider when permission is missing (unit tests, and the device gate for the direction).
+- [ ] Every screen passes the 44-point test; a garage purchase, a livery change and a cup start work by taps only.
+- [ ] Reduced motion, colour-blind mode (with the hazard cue), HUD size and haptics each do what the decisions say; the Comfort tab's hints say so in plain words.
+- [ ] The pad's default bindings behave exactly as before; a remap survives a reload.
+- [ ] `touch` is on by default; the smoke, controller and touch e2e projects are green.
+- [ ] Budgets hold (app JS ≤ 600 KB gzip; zero added draw calls).
+
+**Device gate (`VITE_FEATURES=expansion npm run ios:sync`), iPhone 18 Pro Max and iPad Air, no pad:**
+1. **Tilt on curled road:** Cryo Station (the pipe) and Abyss Line (the Spine) by tilt. Tilting right always steers right on the screen, also upside down. Calibrate once while leaning back.
+2. **The Storm Cup by touch** (slider), start to final standings: 60 fps, p95 no more than 1 ms above the build before.
+3. **Menus by touch only:** create a profile, buy and fit a part, change the livery, start a cup, close and reopen the app, CONTINUE CUP.
+4. Reduced motion, colour-blind mode and EXTRA LARGE once each in a race: readable, nothing cut off.
+
+**As built (2026-11-19, branch `v2/m7c-comfort`):**
+- **Tilt:** `physics/tilt.ts` (`deviceRoll`, `tiltSteer`, `calibratedNeutral`) and `physics/TiltInput.ts` (`requestTiltPermission`, `isIOS`, smoothing at 20/s, fresh for 0.5 s).
+  - **Angles:** `screen.orientation.angle` is the content's counter-clockwise rotation (90 = the device's top to the left).
+  - **iOS sign:** iOS readings are negated in one place (`TiltInput`'s `sign`), because WebKit reports the gravity acceleration and the spec reports its reaction.
+  - **Not verified:** **neither the iOS sign nor whether WKWebView needs anything beyond `DeviceMotionEvent.requestPermission()` was checked against current docs or a device** (no docs tool in this session). The device gate's tilt step settles both. `@capacitor/motion` and `NSMotionUsageDescription` were not added; `docs/IOS_TESTFLIGHT.md` says what to do if iOS needs them.
+  - **Each fixed step** in a race, `App.stepTilt` hands the smoothed steer to `TouchInput.externalSteer` while tilt is chosen and fresh, and sets `TouchRig.tiltActive` / `tiltFlat`.
+  - **Tilt mode in `TouchControls`:** no steering zone; the two air-brakes (72) sit in the steering thumb's corner; the "⟲ HOLD THE DEVICE UPRIGHT" chip shows when the screen lies flat.
+  - **Grid card:** it shows ENABLE TILT (`HudActions.tilt`) while tilt is chosen and no motion data arrives.
+  - **App methods:** `App.enableTilt()` (falls back to the slider with a toast) and `App.calibrateTilt()`.
+- **Controls tab:**
+  - **TOUCH section first** on a touch screen (a coarse pointer, or touch as the device): steering, sensitivity of the active mode, CALIBRATE TILT, auto-accelerate, air-brakes, button size, left-handed.
+  - **HAPTICS** always shows.
+  - **KEYBOARD section** once a key was used, or on a fine pointer (`App.keyboardSeen`).
+  - **GAMEPAD section** while a pad is connected (`App.padConnected`), with "press a button" capture and RESET BUTTONS. During capture `App.capturePadButton()` pauses menu navigation, so Ⓐ can be captured too.
+  - **`?airbrake=` is gone.**
+- **Pad remapping:** `InputManager.setPadBindings()` drives the eight controls through `padBindings`. Throttle and brake keep the trigger's analog travel; the rest are pressed or not. The menu edges (Ⓐ, Ⓑ, START, d-pad navigation) and the garage orbit keep their fixed buttons. `InputManager.padButtonsDown()` serves the capture. `Settings.bindPad` / `resetPadBindings` follow `bindKey`'s rules and refuse START (`PAD_START`, it always pauses).
+- **Menus by touch** (`ui/ui.css`):
+  - **44-point minimum:** under `html.mz-touch` or `html.mz-coarse` (set at boot on a coarse pointer), every `#ui` button, tab, radio and input, and the HUD's `.mz-btn` / `.mz-chip`, is at least 44 × 44. Tab rows keep their labels' width and wrap.
+  - **Scrolling:** `touch-action: pan-y` and momentum scrolling on `.mzu-body` / `.mzu-garage-body`; no page overscroll.
+  - **Hidden on touch:** hint rows and focus rings under `mz-touch`.
+  - **Garage pinch:** two pointers zoom (`pinchZoom` in `ui/garageModel.ts`, ln-ratio × 1.5 wheel steps).
+  - **Name field:** scrolls into view 0.3 s after focus.
+- **Comfort:**
+  - **Reduced motion:** every animation and transition in the HUD, the menus and the rotate overlay is off under `html.mz-reduced-motion` (one rule in `ui/tokens.css`, not a class list). The countdown digits and toasts then simply appear and go.
+  - **First save:** reduced motion starts on when `prefers-reduced-motion: reduce` matches (`SaveStore.firstLaunch`).
+  - **Colour-blind:** the `--mz-good/warn/bad/player/rival` tokens; every lime, amber and red in `game/hud.css` uses them.
+  - **Minimap shapes** in every mode: the player a triangle along its heading, the leader a diamond, the others circles. In colour-blind mode the player is blue and the rivals orange.
+  - **Hazard cue:** `game/HazardCue.ts`, pure. It has one spot per ice patch, main-loop gate, mine field and debris field, and one per lightning, geyser and jet point, all on the same timelines. The `.mz-hazard` chip sits under the position, clear of the toasts. It shows in colour-blind mode only, never on a split path, and adds no draw calls.
+  - **HUD size:** `--u` × `--mz-hud-scale` (1 / 1.15 / 1.3). The Comfort tab's HUD SIZE replaces LARGE TEXT.
+  - **HAPTICS off** also stops `Rumble` (`Rumble.enabled`).
+- **`touch` is on by default.** The touch e2e runs without `?features=`.
+- **Tests:**
+  - unit tests for `tilt`, `TiltInput`, `HazardCue` (one per hazard kind on its real track), pad remapping in `InputManager` and `Settings`, `pinchZoom`, `Rumble` with haptics off, and `SaveStore.firstLaunch`;
+  - the touch e2e gains "every menu target is at least 44 × 44" (create, menu, profiles, worlds, Grand Prix, every settings tab, every garage tab, plus a garage purchase and a paint change by taps) and "race screens by touch" (a cup started by taps, pause and results panels at 44 points).
+- **Changes nobody asked for:**
+  - **Updated tests:** `__features.test.ts`'s list of shipped flags gains `touch`, and `e2e/menus.spec.ts` picks HUD SIZE LARGE instead of the LARGE TEXT switch.
+  - **Hazard chip placement:** the chip sits under the position, not in the centre, because the race's toasts use the centre.
+- **Screenshots:** `docs/v2/shots/m7c/` has every screen at EXTRA LARGE (956 × 440) and colour-blind mode on Orbital Ring with the hazard cue and the minimap shapes.
+
+**What needs the owner in M7:** the three device gates above, and the default air-brake style (M7b). Everything else is built without questions.
+
+---
+
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20; M8b built 2026-11-21)
+
+SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
+
+**Four PRs, in build order, each stacked on the one before (M8a on the last M7 PR, or on `main` once M7 is merged):**
+
+| # | PR | Branch | Save | Flag | Needs from the owner |
+|---|---|---|---|---|---|
+| M8a | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
+| M8b ✅ | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
+| M8c | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
+| M8d | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
+
+**Release order (agreed):** M7a → M7b → M7c → M8a → M8b → M8c → M8d. The world looks (X4–X6) and X7 are built whenever their images or approvals arrive. They block nothing, and M8 does not wait for them.
+
+**Facts checked on 2026-11-16 (`v2/x6-abyss-line`):**
+- **Save versions:** M7a takes v8. M8a takes **v9**.
+- **Today every world and every cup is open.** `WorldSelect.tsx` shows `worldsFor(features)`; `CupDef` has no `requires` field. `Profile.records[trackId].bestLap` is the only per-world progress a v7 or v8 save holds.
+- **The results panel is part of the HUD** (`game/HUD.ts`, plain DOM), not a menu screen. `App.bindStats` pays a race on `race:results` through `settleRace` and emits `economy:credits`.
+- **`game/modes/Championship.ts` is pure and unused** (`seasonCups`, `seasonStandings`, `seasonFinished`, `seasonChampion`).
+- **`MEDAL_CREDITS`** (300 / 600 / 1,000) is in `content/economy.ts` and unused. `MENU_PLACEHOLDERS` (`app/routes.ts`) holds the TIME TRIAL "coming soon" card behind `modes`.
+- **A solo race works already:** `sim/partsBalance.sim.test.ts` runs `RaceManager` with one ship.
+- **Flags:** nothing reads `tiers` or (before M7b) `touch`. `profiles`, `garage` and `worlds` are on and have readers in `App.ts`, `MainMenu.tsx` and `routes.ts`. `modes` only shows the placeholder card.
+- **Measured race lengths:** a 3-lap race lasts 81 s (Cryo Station) to 116 s (Orbital Ring).
+- **Measured credits per race** (headless, 8 tracks, an autopilot at the tier's own skill standing in for the player):
+
+  | Tier | Stock | Mk II kit | Mk III kit |
+  |---|---|---|---|
+  | Rookie (Rookie preset) | 940 (P1–P2) | | |
+  | Pilot | 800–860 (P2–P4) | 890 | |
+  | Ace | 290–360 (P4–P8) | 710 | 970 |
+  | Legend | 270 (P7–P8) | 320 | 600 |
+
+- **Kit prices:** one part in each of the 5 slots costs 3,000 (Mk II), 7,500 (Mk III), 16,000 (Prototype). Every part and variant costs 47,700.
+- **Measured solo times** (a Legend autopilot alone on the track, COMET, 3 laps, seconds). "Dev" is the dev-ghost ship: `RIVAL_FITS.legend`, variant A.
+
+  | Track | Dev | Stock | Mk II kit | Mk III kit | Prototype kit |
+  |---|---|---|---|---|---|
+  | neon-bay | 91.79 | 95.52 (×1.041) | 94.55 (×1.030) | 92.97 (×1.013) | 91.35 (×0.995) |
+  | sunset-mesa | 92.11 | 97.06 (×1.054) | 95.80 (×1.040) | 93.92 (×1.020) | 91.88 (×0.997) |
+  | cryo-station | 77.38 | 80.74 (×1.043) | 79.88 (×1.032) | 78.43 (×1.013) | 77.25 (×0.998) |
+  | jade-ruins | 103.89 | 110.08 (×1.060) | 109.18 (×1.051) | 105.11 (×1.012) | 104.60 (×1.007) |
+  | orbital-ring | 109.06 | 112.57 (×1.032) | 112.01 (×1.027) | 110.78 (×1.016) | 108.87 (×0.998) |
+  | tempest-spire | 93.58 | 97.71 (×1.044) | 96.36 (×1.030) | 94.65 (×1.011) | 93.87 (×1.003) |
+  | cinder-forge | 98.19 | 103.23 (×1.051) | 101.70 (×1.036) | 99.55 (×1.014) | 97.99 (×0.998) |
+  | abyss-line | 101.29 | 105.80 (×1.045) | 104.24 (×1.029) | 102.54 (×1.012) | 100.61 (×0.993) |
+
+**Rules for every M8 PR** (in addition to §0):
+- **`main` stays as it is until M8d.** With `modes` off the menu, the world select and the open cups are unchanged. The save migration runs for everyone, and nothing reads the new fields while the flag is off.
+- **No real money, no online features** (SPEC non-goals).
+- **Sounds:** M8 adds none. Each step that wants a sound names a **sound hook**: emit the bus event and leave the sound to M6. The hooks are listed in M8a step 8.
+- **Budgets:** app JS ≤ 600 KB gzip; `public/game` ≤ 15 MB. The world map and every new screen are DOM and SVG: no draw calls. A ghost is one draw call. Device gates: 60 fps, with p95 no more than 1 ms above the build before the PR.
+- Every sim file stays under 60 s on CI. An assertion is never loosened to go green.
+- Every new screen works with pad, keyboard and touch (targets of at least 44 points, M7c's test).
+- **The `expansion` flag stays off** until each new world's look is approved (the owner's decision on #39). Every rule below is written for "the worlds the player can see" (`worldsFor(features)`), so 2.0 can ship with 5 worlds and grows to 8 with no further change.
+
+---
+
+### M8a — World Tour, the world map, the results screen (save v9) — ✅ BUILT (PR #45, `v2/m8a-world-tour`; waiting on the owner's look approval and device check)
+
+**Design decisions:**
+- **World Tour is the world map.** The main menu becomes, in order: CONTINUE CUP (when a cup is running), **WORLD TOUR**, GRAND PRIX, TIME TRIAL, GARAGE, SETTINGS. RACE and WORLDS go away. There is no separate single-race mode.
+- **The unlock chain:** the visible worlds unlock in tour order. World 1 is always open. **A top-3 finish at any tier clears a world and opens the next one.** Worlds 6–8 continue the same chain after world 5.
+- **Trophies:** a top-3 finish at a tier earns that world's trophy for that tier **and every lower tier**. "Cleared" means the world has at least one trophy.
+- **Rookie never grinds:** the Rookie-preset stand-in finishes P1–P2 on every track in the sims, so 8 races clear the Tour.
+- **Old saves:** a migrated profile keeps every world up to the last one it has a lap record on (a "granted" world: open, with no trophy yet). Cup trophies are untouched.
+- **Cups:** the Neon Cup opens when Orbital Ring is cleared; the Storm Cup when Abyss Line is cleared. A profile that already holds a trophy of a cup keeps that cup open.
+- **Rewards:** race payouts and the tier multiplier are unchanged. **The first clear of a world pays 1,000 credits, once per world** (no tier multiplier). The cup bonus stays 3,000 × the tier multiplier.
+- **The world map** shows the visible worlds as planets on a starmap, joined by a path in tour order. Each planet shows its lock, its four tier trophies, the best lap and the best medal. Picking a world opens its card: the tier picker, RACE, and TIME TRIAL (from M8b).
+- **A locked world** shows its name and gimmick and the line "Finish top 3 on <previous world> to unlock".
+- **The old v1 track** and the bonus tracks stay reachable only by `?seed=N`. No menu entry.
+- **The results screen** is a menu screen: a credit tally line by line, then any unlock or trophy, then the winner's quote. Buttons: NEXT WORLD (when one was just unlocked), RACE AGAIN, GARAGE, WORLD MAP.
+
+**Save v9 (this PR carries every M8 field, so M8b and M8c need no migration):**
+
+```ts
+// save/schema.ts
+export const SAVE_VERSION = 9;
+export type Medal = 'bronze' | 'silver' | 'gold';
+
+export interface TrackRecord {
+  bestLap?: number;
+  /** Time Trial: best 3-lap total (s) and the best medal reached. */
+  trialTime?: number;
+  medal?: Medal;
+}
+
+export interface TourState {
+  /** Worlds opened by the 8 → 9 migration (raced before World Tour existed). */
+  granted: WorldId[];
+  /** World Tour trophies: tiers at which the world was finished in the top 3 (lower tiers filled in), in tier order. */
+  trophies: Partial<Record<WorldId, AITier[]>>;
+}
+
+export interface SeasonState {
+  tier: AITier;
+  /** The season's finished cups, in order. The cup in progress is Profile.cup. */
+  done: CupState[];
+}
+
+export interface Profile {
+  // …unchanged fields…
+  tour: TourState;             // default { granted: [], trophies: {} }
+  season: SeasonState | null;  // default null (M8c)
+  champion: AITier[];          // Champion trophies, in tier order; default [] (M8c)
+  tutorialDone: boolean;       // default false for a new profile (M8c)
+}
+
+export interface SettingsData {
+  // …unchanged fields…
+  ghosts: { best: boolean; dev: boolean }; // default both true (M8b)
+}
+```
+
+- **Migration 8 → 9** (`save/migrations.ts`), per profile:
+  - `tour.granted` = every world whose `order` is ≤ the highest `order` among the worlds with `records[trackId].bestLap`; empty when there is no such record. (World 1 needs no grant.)
+  - `tour.trophies = {}`, `season = null`, `champion = []`.
+  - `tutorialDone = stats.races > 0`.
+  - `settings.ghosts = { best: true, dev: true }`.
+- **Sanitizers:** unknown world ids and tiers are dropped; trophies are sorted in `AI_TIERS` order with no duplicates; `season` is dropped when its tier is unknown or a `done` cup fails `sanitizeCup`; `medal` must be one of the three; `trialTime` must be a positive finite number.
+
+**Build steps (tests first):**
+1. **Save v9.** `SaveStore` tests first: a v8 profile with lap records on worlds 1, 2 and 4 loads with `granted` = worlds 1–4; a profile with no records loads with `granted: []`; trophies and credits are untouched; bad `tour`, `season` and `medal` values fall back to the defaults; an export from v9 imports unchanged. Then the schema, the migration and `createProfile`.
+2. **`game/modes/WorldTour.ts`** (new, pure), unit tests first:
+
+   ```ts
+   export const FIRST_CLEAR_BONUS = 1000;
+   export const CLEAR_POSITION = 3;
+   export function tourWorlds(features: { expansion: boolean }): readonly WorldDef[];           // worldsFor, in order
+   export function worldCleared(tour: Readonly<TourState>, id: WorldId): boolean;
+   export function worldUnlocked(tour: Readonly<TourState>, id: WorldId, worlds: readonly WorldDef[]): boolean;
+   export function tourTrophies(tour: Readonly<TourState>, id: WorldId): readonly AITier[];
+   export interface TourResult { tour: TourState; firstClear: boolean; newTrophies: AITier[]; unlocked: WorldId | null; bonus: number }
+   export function bookTourRace(tour: Readonly<TourState>, id: WorldId, tier: AITier, me: RacerStanding | undefined, worlds: readonly WorldDef[]): TourResult;
+   ```
+
+   - `worldUnlocked`: the first visible world; or a granted world; or the visible world before it is cleared.
+   - `bookTourRace`: a clear needs `me.status === 'finished'` and `me.position ≤ 3`. It adds the tier and every lower tier. `firstClear` is true when the world had no trophy. `unlocked` is the next visible world when this race opened it (it was locked before), else null. `bonus` is 1,000 on a first clear, else 0.
+   - Tests: 4th place changes nothing; a destroyed ship in 3rd changes nothing; an Ace clear gives Rookie, Pilot and Ace; a second clear pays no bonus; a granted world that is cleared later still pays its bonus once; the chain with 5 and with 8 visible worlds; a world hidden by the flag neither blocks nor unlocks anything.
+3. **Cup unlocks** (`content/cups.ts`): `CupDef` gains `requires: WorldId` (`neon` → `orbital-ring`, `storm` → `abyss-line`). `cupUnlocked(cup, profile)` is true when `requires` is cleared **or** the profile holds any trophy of that cup. `ui/screens/GrandPrix.tsx` shows a locked cup as a card with a padlock and "Clear <world> to unlock"; `App.startCup` refuses a locked cup. With `modes` off every cup is open, as today. Tests for each case.
+4. **The world map** (`ui/screens/WorldMap.tsx`, new; route `{ name: 'tour' }`):
+   - One SVG, `viewBox="0 0 1000 480"`, over the menu backdrop. Planet centres, in tour order: (90,330) (230,170) (380,300) (520,130) (650,310) (770,150) (870,300) (940,110). A hidden world's planet is not drawn; the path ends at the last visible world.
+   - A planet is a circle filled with the world's `ui.from → ui.to` gradient, with its order number. Radius 34; the picked planet 42 with a ring. A locked planet is grey with a padlock. The path is a dashed polyline, bright up to the last unlocked world.
+   - Under each unlocked planet: four trophy pips (filled for a held tier, in the tier's colour **and** with the tier's initial, so colour alone tells nothing) and a medal dot once M8b lands.
+   - The world card (a side panel on a wide screen, a bottom sheet under 500 points tall): name, tagline, gimmick chip, the mini map (move `miniMap` from `WorldSelect.tsx` to `ui/miniMap.ts`), best lap, trophies, the `TierPicker`, and RACE. For a locked world: the padlock line and no RACE.
+   - Navigation: left and right move along the chain; confirm opens the card; in the card up and down move between the tier picker and RACE; back closes the card, then returns to the menu. Taps do the same. The planet of `profile.world` has focus on entry.
+   - With `modes` on, `MainMenu.tsx` shows WORLD TOUR (sub-line: `<cleared> OF <visible> WORLDS CLEARED`) in place of RACE and WORLDS, and `App.openWorlds` opens the map. `WorldSelect.tsx` stays for `modes` off and is deleted in M8d.
+   - `App.selectWorld` refuses a locked world.
+5. **Booking a Tour race** (`App.bindStats`): on `race:results`, for a race that is not a cup race, a Time Trial or a `?seed` race, call `bookTourRace` inside the same save update as `settleRace`, and add `bonus` to the credits. Build an `app.lastResult` signal (step 6) from the outcome. A cup race books the cup as today and **also** books the Tour (a top 3 in a cup race clears that world).
+6. **The results screen** (`ui/screens/Results.tsx`, new; route `{ name: 'results' }`):
+
+   ```ts
+   export interface TallyLine { label: string; amount: number }
+   export interface RaceResult {
+     mode: 'tour' | 'cup' | 'trial';
+     worldId: WorldId; tier: AITier;
+     standings: RacerStanding[]; playerId: ShipId;
+     tally: TallyLine[];            // e.g. "2ND PLACE" 750, "PILOT ×1.3" 230, "FIRST CLEAR" 1000, "CUP BONUS" 3900
+     credits: number;               // the profile's credits after the tally
+     unlocked: WorldId | null; newTrophies: AITier[];
+     medal?: { reached: Medal | null; previous: Medal | null; time: number; best: boolean }; // M8b
+     quote: { pilot: string; text: string } | null; // the winner's catchphrase when a rival won
+   }
+   ```
+
+   - Layout: the standings table (as the HUD panel has it: position, portrait, name, time) on the left; on the right the tally lines appearing one after another (0.35 s apart), a credit counter that runs up to the total, then the unlock card ("TEMPEST SPIRE UNLOCKED" with the planet) and trophy pips, then the quote.
+   - Any input shows everything at once. With reduced motion everything is shown at once from the start.
+   - Buttons: NEXT WORLD (only when `unlocked` is set; it selects that world and opens its card), RACE AGAIN, GARAGE, WORLD MAP. In a cup race the buttons are STANDINGS only, as today's rule says.
+   - `HUD` gains the option `results: false`: with menus on, the HUD does not build its own results panel, and `App` moves to the `results` route when `race:results` arrives (after the existing results delay). The no-menu flows (`?autopilot=1`, `?seed=N`) keep the HUD panel.
+   - `App.fixed`'s results handling (confirm, back, restart) moves to the screen's buttons.
+7. **Tests:**
+   - `sim/worldTour.sim.test.ts` (new): the Rookie-preset stand-in (`runWorldRace(…, { player: { tier: 'rookie', pace: 1, assisted: true } })`, Rookie hazards) races the 8 worlds in order and `bookTourRace` after each: after 8 races all 8 worlds are cleared and 8 first-clear bonuses were paid. It may reuse the per-world balance races' results through a shared helper so no race is run twice in one file.
+   - e2e (`e2e/worldtour.spec.ts`, `?features=modes`): a new profile sees world 1 open and world 2 locked; a save fixture with world 1 cleared shows world 2 open; the card's RACE starts a race; an autopilot race to the end shows the results screen with a tally; a v8 fixture with records on three worlds shows three worlds open.
+8. **Sound hooks** (add to `core/events.ts`; `AudioSystem` ignores them until M6): `results:tally { amount }` (each line), `results:total { credits }`, `results:unlock { worldId }`, `results:trophy { tier }`, `results:medal { medal }`, `results:champion { tier }`, `ui:locked {}` (a tap on a locked world or cup), `tutorial:step { step }`, `tutorial:done {}`.
+
+**Done when:**
+- [x] With `?features=modes`: a new profile clears Neon Bay with a top 3, sees the tally with FIRST CLEAR 1,000 and the unlock card, and NEXT WORLD opens Sunset Mesa's card (`e2e/worldtour.spec.ts`).
+- [x] 4th place pays its credits and unlocks nothing (`WorldTour.test.ts`; the tally pays the position line regardless).
+- [x] An Ace top 3 shows the Rookie, Pilot and Ace pips (`WorldTour.test.ts`; the results screen draws `newTrophies` as pips).
+- [x] A v8 save loads as v9: the worlds it raced are open, and its cup trophies keep their cups open (unit and e2e).
+- [x] The Neon Cup is locked for a new profile and opens when Orbital Ring is cleared (unit and e2e).
+- [x] With `modes` off nothing changes on the live site (the existing e2e tests pass; two existing unit tests changed only for the new version number and the new `requires` field, see below).
+- [x] Map, card and results work with pad, keyboard and touch; the 44-point test covers them (`touch.spec.ts`).
+
+**Device check:** on the iPhone and the iPad (`VITE_FEATURES=modes,expansion`), by pad and by touch: the map with 8 worlds, a locked world's message, a race from the card, the results screen, NEXT WORLD. **The owner approves the look of the map and the results screen.** No fps gate: nothing in a race renders differently.
+
+
+**As built (branch `v2/m8a-world-tour`)** (read before M8b):
+- **Files:** `game/modes/WorldTour.ts` (the rules), `game/modes/raceResult.ts` (`RaceResult`, `raceTally`, `winnerQuote`), `ui/screens/WorldMap.tsx`, `ui/screens/Results.tsx`, `ui/miniMap.ts` (moved out of `WorldSelect.tsx`); `App` gains `events` (the menu bus), `lastResult`, `resultsScreen`, `openTourCard`/`takeTourCard`, `raceAgain`, `leaveResults`, `resultsNextWorld`, `resultsStandings`. Routes `tour` and `results`.
+- **Save v9** carries every M8 field (`tour`, `season`, `champion`, `tutorialDone`, `records[].trialTime`/`medal`, `settings.ghosts`), as designed.
+- **Decisions made while building (none re-opens a design decision):**
+  - **Progress further along the chain opens every world before it.** `worldUnlocked` is true for the first world, a granted world, the world after a cleared one, *and* any world before a cleared or granted one. So the open worlds are always a run from world 1, whatever order the save got its progress in.
+  - **With `modes` off a race books nothing on the Tour and pays no bonus** (the live economy is unchanged), **but a world raced is added to `tour.granted`**, as the 8 → 9 migration does. A player who races new worlds before M8d turns `modes` on keeps them open.
+  - **A season's finished cups needed their own sanitizer path:** `sanitizeCup` drops a finished cup (a cup is settled at its last race), so the spec's "a `done` cup fails `sanitizeCup`" would have dropped every season. `sanitizeCup(v, tiers, finished = true)` accepts a cup only when every race is recorded.
+  - **The sound hooks are a separate `MenuEvents` map** on `App.events` (the race's `GameBus` lives only as long as a race), so `GameEvents` and its test fixtures are untouched.
+  - **The map's planets are HTML buttons laid over the SVG** (an SVG element has no `click()` for pad confirm). Left and right follow the chain through a new, generic `data-nav-<dir>="<selector>"` attribute in `ui/nav.ts` (the nearest-element rule skipped world 2 from world 1 on the zig-zag).
+  - **The world card makes the map `inert`** while it is open, on both layouts; on a screen under 500 points tall it is a bottom sheet inside the map's box (the screen panel's transform makes `position: fixed` unusable).
+  - **The results screen's "any input" listeners are registered in a layout effect**, so even an input in the screen's first frame is taken by the tally (the e2e probes it with a mount observer). A pad action reaches it through a cancelable `mz-nav` window event the UI root sends first.
+  - **`resultsScreen`** is `menus && modes && worlds && no ?seed`: `?autopilot=1` and `?seed=N` keep the HUD panel, as designed.
+- **Existing tests changed:** `SaveStore.test.ts` (two v7 → v8 tests now expect `SAVE_VERSION`, since a v7 save migrates on to v9), `Championship.test.ts` (its `CupDef` fixtures gain `requires`), `nav.test.ts` (the fake element gains `getAttribute` for the new attribute; plus a test for it). No assertion was loosened.
+- **Measured:** the World Tour sim (`sim/worldTour.sim.test.ts`, two legs, ~26 s locally): the Rookie-preset stand-in finishes P1 on six worlds and P2 on Cryo Station and Cinder Forge; eight clears, eight bonuses. App JS 362.3 KB gzip (+5.1 KB).
+- **Owner:** the look of the map and the results screen; the device check above.
+
+---
+
+### M8b — Time Trial and ghosts — ✅ BUILT (PR #46, `v2/m8b-time-trial`, base `v2/x6-abyss-line` (#39's head, which holds M7 and M8a since #44 and #45 merged); waiting on the owner's device gate)
+
+**Design decisions:**
+- **Time Trial:** solo, 3 laps, on any track whose world is unlocked, with the player's own ship and parts. No rivals, no items. RESTART at any time.
+- **Assists are allowed and medals still count.** Hazards follow the same rule as in a race (the Rookie rules with No-KO on, else normal).
+- **A ghost is a pose recording** (position and rotation at 20 Hz), not an input replay. It does not depend on the physics giving the same result on the iPhone and the desktop.
+- **Storage:** one best ghost per track per profile, in IndexedDB. A profile export does **not** include ghosts; best times and medals are in the export.
+- **Dev ghosts** are baked for all 8 tracks from a solo Legend autopilot on a COMET with the Legend rival parts (`RIVAL_FITS.legend`, variant A), and committed.
+- **Medals** are measured against the dev ghost's total time, the same for every ship and kit, and count whatever tier the profile is set to:
+
+  | Medal | Total time | Who reaches it (from the table at the top of §M8) |
+  |---|---|---|
+  | Gold | ≤ dev × 1.02 | Near-Prototype parts and clean driving (a perfect Mk III lap just makes it) |
+  | Silver | ≤ dev × 1.06 | About Mk II to Mk III parts (a perfect stock run just makes it) |
+  | Bronze | ≤ dev × 1.12 | Stock parts, with 6% or more in hand over a perfect stock run |
+
+  This replaces the first sketch's 1.02 / 1.08 / 1.18: the measured gap between stock and Prototype is only 5%, so the old silver and bronze would have asked for nothing.
+- **Each medal pays once per track:** 300 / 600 / 1,000 (`MEDAL_CREDITS`). A run pays every medal it newly reaches (gold on a first run pays 1,900).
+- **Both ghosts show by default**, each with an on/off toggle (`settings.ghosts`).
+- **A ghost is translucent and unlit, one draw call**, and fades out near the camera.
+
+**Ghost format (`game/ghost/ghostCodec.ts`):**
+
+```ts
+export const GHOST_HZ = 20;      // one sample every 6 fixed steps (FIXED_DT = 1/120 s)
+export const GHOST_VERSION = 1;
+export interface GhostData {
+  version: 1; trackId: string; chassisId: string;
+  totalTime: number; lapTimes: number[];
+  count: number;
+  min: [number, number, number]; size: [number, number, number]; // the samples' bounding box (m)
+  pos: Int16Array;   // 3 per sample: (p − min) / size, scaled to −32767..32767
+  quat: Int16Array;  // 3 per sample: the three smallest components × √2, scaled to ±32767
+  largest: Uint8Array; // 1 per sample: the index of the dropped (largest) component, made positive
+}
+export function encodeGhost(g: GhostData): ArrayBuffer;   // a small JSON header (length-prefixed) + the three arrays
+export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a bad or unknown version
+```
+
+- 13 bytes per sample: an 81–116 s run is **21–30 KB**. (The first sketch said 20 KB at 18 bytes per sample; that would be 29–42 KB.) Eight dev ghosts are about 210 KB of `public/game`.
+- Position error is under 2 cm on a track 1.3 km across.
+
+**Build steps (tests first):**
+1. **Codec and recorder** (`game/ghost/ghostCodec.ts`, `game/ghost/GhostRecorder.ts`, `game/ghost/GhostPlayer.ts`; unit tests first):
+   - `GhostRecorder`: `start()`, `sample(ship)` called every fixed step (it keeps every 6th), `finish(totalTime, lapTimes): GhostData`. It grows its arrays in blocks; no allocation per sample.
+   - `GhostPlayer(ghost)`: `pose(t, outPos, outQuat): boolean` gives the pose at race time `t` (linear for position, normalised linear for rotation); false after the ghost's end.
+   - Tests: encode → decode is exact; a recorded circle plays back within 2 cm and 0.5°; a truncated buffer decodes to null; the size of a 100 s recording is under 30 KB.
+2. **`save/GhostStore.ts`** (new): `get(profileId, trackId): Promise<GhostData | null>`, `put(profileId, trackId, ghost)`, `deleteProfile(profileId)`. Database `machzero-ghosts`, version 1, object store `best`, key `<profileId>:<trackId>`, value the encoded `ArrayBuffer`. Plain IndexedDB, no library. When IndexedDB is missing or fails, an in-memory map is used and nothing throws. `App.deleteProfile` calls `deleteProfile`. Tests with the dev dependency `fake-indexeddb` (dev only; it never reaches the bundle): put → get, the better ghost replaces the old one, a profile's ghosts are deleted, the fallback.
+3. **`game/modes/TimeTrial.ts`** (new, pure), unit tests first:
+
+   ```ts
+   export const MEDAL_FACTORS = { gold: 1.02, silver: 1.06, bronze: 1.12 } as const;
+   export function medalTimes(devTime: number): Record<Medal, number>;
+   export function medalFor(total: number, devTime: number): Medal | null;
+   /** Credits for the medals reached now and not held before. */
+   export function medalPayout(previous: Medal | null, reached: Medal | null): number;
+   export function bookTrial(rec: Readonly<TrackRecord>, total: number, devTime: number): { record: TrackRecord; pay: number; best: boolean; reached: Medal | null };
+   ```
+
+4. **Dev ghosts and times:**
+   - `npm run ghosts:bake` runs `BAKE_GHOSTS=1 vitest run src/sim/ghostBake.sim.test.ts`. For each track in `TRACK_DEFS` it runs the solo dev race (COMET, `RIVAL_FITS.legend`, variant A, tier `legend`, personality `steady`, seed 12345, normal hazards; the harness in `sim/partsBalance.sim.test.ts` is the model: move it to `sim/soloRace.ts`), records the ghost, and writes `public/game/ghosts/<trackId>.bin` and the generated file `src/content/devTimes.ts` (`export const DEV_TIMES: Readonly<Record<string, number>>`). Commit both.
+   - Without `BAKE_GHOSTS` the same file is a guard: for each track, a fresh solo dev run is within 0.5% of `DEV_TIMES[trackId]`, and the committed `.bin` decodes with the same `totalTime`. A failure means "the track or the physics changed: run `npm run ghosts:bake`".
+   - The times in the table at the top of §M8 are what the bake should give today.
+   - `scripts/check-size.mjs` already counts `public/game`.
+5. **The Time Trial race** (`App`, `RaceSession`):
+   - `RaceSetup` gains `trial?: { ghosts: { kind: 'best' | 'dev'; data: GhostData }[] }`. In a trial the field is the player alone (`buildRaceField` with `rivals: 0`, a new option), `items` is undefined, and the grid slot is pole.
+   - `RaceSession` owns a `GhostRecorder` in a trial, samples the player in `fixed`, and on the player's finish hands the `GhostData` to `App`. It gives the ghost poses for the frame to the graphics through `FrameContext.ghosts` (a reused array of `{ kind, position, quaternion, visible }`).
+   - `App.startTrial(worldId)`: loads the two ghosts (the best from `GhostStore`, the dev ghost by `fetch` of `ghosts/<trackId>.bin`, cached), honours `settings.ghosts`, builds the race. A missing ghost is simply not shown.
+   - On `race:results` in a trial: `bookTrial`, pay the medals, save the ghost when `best`, and show the results screen with `mode: 'trial'` (the tally lines are the medals paid; the standings table is replaced by lap times, the total, the three medal times and the gap to the best).
+   - RESTART is offered on the pause panel and on the results (RACE AGAIN). The grid intro card is skipped in a trial.
+6. **`graphics/GhostShips.ts`** (new): for each ghost, one mesh: the chassis' merged hull geometry (the path rivals use on Low: one geometry per ship) with a single `MeshBasicMaterial` (`transparent`, `opacity 0.35`, `depthWrite: false`, fog on). Colour: the best ghost cyan `#19f0ff`, the dev ghost gold `#ffc23a`; in colour-blind mode blue and orange, and the dev ghost also carries a small "DEV" tag sprite drawn in the HUD layer (DOM, no draw call). Opacity falls to 0 between 12 m and 4 m from the camera. No parts, no trail, no shadow, no bloom contribution beyond the material's own. **One draw call per ghost**; none when a ghost is off or past its end.
+7. **HUD in a trial** (`game/HUD.ts`): no position, no items, no rival list on the minimap (ghosts show as hollow markers). The lap box adds TARGET: the next medal's total time and its icon. At each lap line a split shows the gap to the best ghost (`−0.42` green or blue, `+0.42` red or orange, with ▲ / ▼ so colour is not the only cue) for 3 s.
+8. **The Time Trial screen** (`ui/screens/TimeTrial.tsx`; route `{ name: 'trial' }`; the menu's TIME TRIAL entry and the world card's TIME TRIAL button open it): one row per visible world: name, mini map, your best time, your medal, the three medal times. A locked world's row shows the padlock line. Two toggles: MY BEST GHOST, DEV GHOST. Remove the placeholder from `MENU_PLACEHOLDERS`. The world map's medal dot reads `records[trackId].medal`.
+9. **Tests:**
+   - `sim/medals.sim.test.ts` (new), using `sim/soloRace.ts` on all 8 tracks: a stock run is ≤ dev × 1.07 (bronze has 5% in hand); a stock run is > dev × 1.02 (gold is not free); a Prototype-kit run is ≤ dev × 1.01 (gold has 1% in hand); a Mk II-kit run is ≤ dev × 1.06 (silver is reachable). If a track fails, tune that track or the parts with the owner; do not move the factors per track.
+   - e2e (`e2e/timetrial.spec.ts`, `?features=modes`): open TIME TRIAL, start Neon Bay on autopilot, finish, see a time and a medal state; start again and see `window.__machzero.ghosts()` report two ghosts with the best one present; reload and the best time is still there.
+
+**Done when:**
+- [x] A Time Trial run records a ghost; the next run shows it and the dev ghost; each toggle hides its ghost (`e2e/timetrial.spec.ts`; `RaceSession.test.ts`).
+- [x] A better time replaces the ghost; a worse one does not (`GhostStore.test.ts`; `bookTrial` in `TimeTrial.test.ts`).
+- [x] Medals are paid once each, and the results screen shows which were paid (the tally has one line per medal paid; `TimeTrial.test.ts`, the e2e).
+- [x] The 8 dev ghosts and `devTimes.ts` are committed, and the guard test passes (`sim/ghostBake.sim.test.ts`).
+- [x] The medal sims pass on all 8 tracks (`sim/medals.sim.test.ts`).
+- [x] A ghost adds one draw call: at most one each, none off screen (the perf table in the PR body; `GhostShips.test.ts`).
+- [x] Deleting a profile deletes its ghosts (`GhostStore.test.ts`; `App.deleteProfile`). An exported save imports on a clean browser with times and medals and no ghosts, without an error (`SaveStore.test.ts`).
+
+**Device gate (`VITE_FEATURES=modes,expansion`), iPhone and iPad:** a Time Trial on Neon Bay and on Abyss Line with both ghosts on and the performance panel on: 60 fps, p95 no more than 1 ms above an 8-ship race on the build before. Close the app, reopen it, and the best ghost is still there.
+
+
+**As built (branch `v2/m8b-time-trial`)** (read before M8c):
+- **Files:**
+  - `game/ghost/`: `ghostCodec.ts`, `GhostRecorder.ts`, `GhostPlayer.ts`, `GhostCapture.ts` (records one ship's run from the race bus; the Time Trial race and the bake both use it), `devGhosts.ts` (fetch and cache).
+  - `save/GhostStore.ts`; `game/modes/TimeTrial.ts` (adds `nextMedal`, `medalTally`, `MEDAL_NAMES`); `graphics/GhostShips.ts`; `ui/screens/TimeTrial.tsx`.
+  - Sims: `sim/soloRace.ts` (the harness, with `kit()` and `devLoadout()`), `sim/ghostBake.sim.test.ts`, `sim/medals.sim.test.ts`.
+  - Content: `content/devTimes.ts`, `public/game/ghosts/*.bin`.
+- **Plumbing:**
+  - `buildRaceField` takes `rivals`.
+  - `RaceManager` gains `time`: seconds since GO, still running after the player finishes, so the ghosts carry on.
+  - `RaceSetup.trial = { ghosts, hud }`; `FrameContext.ghosts` (`GhostFrame`); `GraphicsSystem.setGhosts`, `ghostTag` and `setColorBlind`.
+  - `HUD` takes `trial` (`TrialHud`); `Minimap.update` takes the ghosts.
+  - `App`: `startTrial`, `openTimeTrial`; route `trial`. `MENU_PLACEHOLDERS` is empty.
+- **Decisions made while building (none re-opens a design decision):**
+  - **A ghost stores the rotation the ship is drawn with** (the body rotation with its visual bank), so a ghost leans into turns as the ship did.
+  - **`GhostStore.put` keeps a ghost only when it is faster than the one held**, so the store itself guarantees "a worse run does not replace the ghost". The next trial waits for the last write, so RACE AGAIN always races the ghost just set.
+  - **The best ghost is read even when MY BEST GHOST is off**: the splits are measured against it. The toggles are read when a trial starts.
+  - **Trial hazards:** the Rookie rules with No-KO on, else normal, whatever the profile's tier (the design's parenthetical). The tier only sets the autopilot's skill.
+  - **A trial pays only medals.** It does not count as a race in `stats`, pays no race credits and books nothing on the World Tour. Its laps still set the track's best lap record.
+  - **TARGET** is the next medal above the one held; with gold held it shows the best total. The split is `▲ −0.42` (ahead) or `▼ +0.42` (behind), beside the lap box (the toasts use the space under it; in a trial they sit a row lower, under the taller lap box).
+  - **The ghosts show during the countdown at their start pose** and play by race time. Ghost opacity fades by distance to the camera (12 m to 4 m); `MeshBasicMaterial`, fog on, `depthWrite` off, `renderOrder` 2.
+  - **Ghost geometry:** the chassis' LOD1 hull with stock parts, merged into one position-only geometry, scaled by its class. Without ship assets it is a wedge.
+  - **The DEV tag** is projected by `GhostShips` and drawn by the HUD (DOM): no draw call.
+  - **Navigation:**
+    - Pause → MENU in a trial, and the results' Ⓑ, go back to the Time Trial screen.
+    - Trial results show the laps, the total, the gap to the best and the three medal times. The buttons are RACE AGAIN, TIME TRIAL and GARAGE.
+    - The world card gains a TIME TRIAL button, and the map's planets show the medal held.
+- **Existing tests changed:** `partsBalance.sim.test.ts` now uses `sim/soloRace.ts`; its assertions are unchanged. No assertion was loosened.
+- **Measured:**
+  - **Dev times:** 77.38 s (Cryo Station) to 109.06 s (Orbital Ring), the table at the top of §M8 to the hundredth.
+  - **Ghost files:** 20–28 KB each, 212 KB for all 8.
+  - **Medal sims:** stock ×1.032–1.060, Mk II ×1.027–1.051, Prototype ×0.993–1.007.
+  - **Draw calls** (SwiftShader, Neon Bay, 9 s in):
+
+    | Quality | 8-ship race | Trial with ghosts off | Trial with two ghosts |
+    |---|---|---|---|
+    | Low | 128 | 77 | 78 |
+    | High | 173 | 96 | 97 |
+
+    In both samples one ghost was off screen and culled.
+  - **App JS:** 369.3 KB gzip (+7.0 KB).
+- **Owner:** the device gate below.
+
+
+---
+
+### M8c — The championship season and the tutorial
+
+**Design decisions (championship):**
+- **A season is every available cup, in `CUPS` order, at one tier.** With two cups that is 10 races.
+- **It opens when the profile holds a trophy of every available cup, at any tier, and at least two cups are available.** With only the Neon Cup visible there is no championship entry.
+- It sits on the GRAND PRIX screen as a third card, **CHAMPIONSHIP**.
+- **Inside a season each cup plays exactly as a cup does** (points, grid order, retire rule, no restarts, the cup trophy and the cup bonus). After a cup's final standings comes the season table, then the next cup.
+- **Scoring** is `Championship.ts` as built: the sum of cup points; ties break on cups won, then the best cup rank, then ship id.
+- **Reward:** the player who ends the season in 1st gets the **Champion trophy** for that tier and **5,000 × the tier multiplier** credits, once per tier. A later win at a tier already held pays nothing more.
+- **One thing at a time:** while a season runs, the menu shows CONTINUE SEASON, and a single cup cannot be started. A season can be abandoned (QUIT SEASON, with a confirm); nothing already paid is taken back.
+
+**Design decisions (tutorial):**
+- It runs **once per profile, on the first World Tour race, for a profile created with the Rookie preset.** A Classic profile gets a one-line note on its first race: "Tutorial: Settings → Race".
+- **Prompts appear over the real race**; the race is never paused. Each prompt clears when the player does the action. There is a SKIP button, and the pause panel has SKIP TUTORIAL.
+- The steps: **steer, boost, air-brake, pit, item.** Prompts show the last-used device's control (key, pad button or touch zone), with an icon as well as text.
+- **So that the item step has an item, a profile's first tutorial race starts with one free Shield** if the profile holds no item.
+- It can be replayed: Settings → Race → REPLAY TUTORIAL (it runs on the next World Tour race).
+
+**Build steps (tests first):**
+1. **Season state** (`game/modes/Championship.ts`, additions; unit tests first):
+
+   ```ts
+   export const CHAMPION_BONUS = 5000;
+   export function seasonUnlocked(trophies: Readonly<Trophies>, cups?: readonly CupDef[]): boolean;
+   export function newSeason(tier: AITier): SeasonState;
+   export function seasonCup(season: Readonly<SeasonState>, cups?: readonly CupDef[]): CupDef | null; // the cup to play now
+   export function bookSeasonCup(season: Readonly<SeasonState>, finished: CupState): SeasonState;
+   export function championBonus(tier: AITier, held: readonly AITier[]): number; // 0 when the tier is held
+   ```
+
+   Tests: unlock needs every available cup and at least two; cups come in `CUPS` order; a cup at another tier is refused; the bonus is paid once per tier; the existing standings and tiebreak tests stay.
+2. **App flow:** `App.startSeason(tier)` sets `profile.season` and starts the first cup through the existing cup code (`profile.cup = newCup(cupId, tier)`). When a cup finishes while `profile.season` is set: book the cup as today, then `bookSeasonCup`; if the season is finished, compute `seasonChampion`; if it is the player, add the Champion trophy and the bonus, emit `results:champion`; clear `season`. `App.quitSeason()` clears `season` and `cup`. `sanitizeProfile` drops a `season` whose current cup is missing or at another tier.
+3. **Screens:** `GrandPrix.tsx` gains the CHAMPIONSHIP card (locked with "Win every cup to unlock", or the tier picker and START; or CONTINUE SEASON). `CupStandings.tsx` shows "SEASON · CUP n OF m" when a season runs, and after a cup's final standings a **season table** view (rank, portrait, name, points, cups won) with NEXT CUP or, at the end, the champion card. `MainMenu.tsx` reads CONTINUE SEASON. The pilot card shows Champion trophies (a crown per tier, with the tier's initial).
+4. **`sim/season.sim.test.ts`** (new): a whole season at Pilot from the shared cup sim (`sim/cupSim.ts`): 10 races, a reload in the middle of the second cup, the season table equals `seasonStandings` of the two cups, and the champion is paid once. If the file cannot stay under 60 s, drive the second cup from recorded standings of `stormCup.sim.test.ts` rather than racing it again.
+5. **`game/Tutorial.ts`** (new, pure state machine; unit tests first):
+
+   ```ts
+   export type TutorialStep = 'steer' | 'boost' | 'airbrake' | 'pit' | 'item';
+   export interface TutorialView { step: TutorialStep | null; done: boolean }
+   export class Tutorial {
+     constructor(track: TrackData, opts: { hasItem: boolean });
+     /** Call every fixed step with the player's state and raw input. */
+     update(dt: number, ship: ShipState, input: ControlInput, race: { state: string; lap: number }): TutorialView;
+     skip(): void;
+   }
+   ```
+
+   | Step | Shown when | Cleared when | Gives up after |
+   |---|---|---|---|
+   | steer | the lights go out | \|steer\| > 0.3 for 1 s in total | 12 s |
+   | boost | the boost is unlocked and the road ahead is straight for 2 s | `ship.boosting` | 2 showings of 8 s |
+   | airbrake | 1.5 s before a bend the track marks as sharp (use the AI's curvature look-ahead) | an air-brake input > 0.5 for 0.3 s | 2 showings of 6 s |
+   | pit | energy < 70%, or lap 2 starts, and the pit strip is within 300 m | the ship is on the pit strip | 2 showings of 8 s |
+   | item | 3 s after the steps before it are done, on a straight, when `hasItem` | the item is used | 10 s |
+
+   One prompt at a time, in this order; a step that gives up is marked done. The tutorial is done when every step is done or the race ends. Tests drive each row with a scripted ship.
+6. **Wiring:** `RaceSession` owns a `Tutorial` when `RaceSetup.tutorial` is set (`App` sets it for a Tour race of a profile with `tutorialDone === false` that was created with the Rookie preset, or after REPLAY TUTORIAL). The HUD draws the prompt (`.mz-tutorial`: an icon, a short line, the control in the device's form, and SKIP), above the bottom strip and clear of the touch controls. On done or skip `App` sets `tutorialDone = true`. `Profile` needs to know its preset for the Classic note: use `assists` at creation (all four on = Rookie); no new field. The free Shield is added to `profile.items` when the tutorial race is built and the bag is empty.
+7. **Tests:** e2e (`e2e/tutorial.spec.ts`, `?features=modes`): a new Rookie profile's first Tour race shows the steer prompt; SKIP removes it and a reload does not show it again; REPLAY TUTORIAL brings it back; a Classic profile sees the note and no prompt. `e2e/grandprix.spec.ts`: the CHAMPIONSHIP card is locked for a new profile and open for a fixture with both cup trophies.
+
+**Done when:**
+- [ ] A season runs both cups in order with the season table between them, survives a reload at any point, and pays the Champion trophy and bonus once.
+- [ ] With one cup visible there is no CHAMPIONSHIP card.
+- [ ] A new Rookie profile gets the five prompts in a real race, each clearing on the action; SKIP and REPLAY work.
+- [ ] Prompts show the right control for keyboard, pad and touch, and never cover the power, speed or a touch control.
+- [ ] `modes` off: nothing changes on the live site.
+
+**Device check:** on the iPad by touch and on the iPhone by pad (`VITE_FEATURES=modes,expansion`): a new Rookie profile's first race with the tutorial. If a child or a first-time player is at hand, let them play it without help and note where they stop. Then start a season from a fixture profile and play one race.
+
+---
+
+### M8d — Balance pass, flags on, the "MachZero 2.0" release
+
+**Design decisions:**
+- **Prices and payouts stay as they are.** The measurements at the top of §M8 already meet the targets:
+  - a first Mk II part (600) after 1 Rookie race (the stand-in earns 750–1,000);
+  - a full Mk III kit (7,500) after about 10 Pilot races (800–860 a race on stock);
+  - a full Prototype kit (16,000) after about 25 more Ace races (710 a race on a Mk II kit, 970 on Mk III; cups, first clears and medals shorten it).
+- **SPEC §4.4 holds:** stock wins on Rookie and is mid-pack on Pilot; on Ace and Legend a stock ship finishes near the back, so upgrades matter there.
+- **Flags:** `modes` turns on. Then the flags `profiles`, `garage`, `worlds`, `tiers`, `touch` and `modes` are **removed** with their dead branches. `music` (M6) and `expansion` (the world looks) stay.
+- **A world without an approved look stays hidden.** 2.0 ships with the worlds visible on that day.
+
+**Build steps:**
+1. **`sim/economy.sim.test.ts`** (new; the numbers are bands around today's measurements, so a later change to payouts, pace or parts that breaks the economy fails here):
+   - Rookie preset, stock, Neon Bay: the first race pays ≥ 600.
+   - Pilot, stock, the mean over the visible-in-`expansion` 8 tracks: 650–1,000 credits a race.
+   - Ace, Mk II kit: 550–900. Ace, Mk III kit: 750–1,150.
+   - Ace, stock: ≤ 450. Legend, stock: ≤ 400.
+   - It uses `runWorldRace` with a new option `player.loadout` (replacing the fixed `defaultLoadout()`); 5 cases × 8 races is about 90 s of sim, so split it into two files.
+2. **The §9 matrix on 8 tracks × 4 tiers:** every per-world sim file already runs `describeTierMatrix`. Confirm all 8 are green with M7's assists in play, and record the table (finishing positions of the two balance stand-ins per track) in the PR body. If a target fails, tune `content/tiers.ts` or the track, never the assertion.
+3. **The other guards, all green:** `sim/medals.sim.test.ts` (M8b), `sim/worldTour.sim.test.ts` (M8a), `sim/season.sim.test.ts` (M8c), `sim/touchScheme.sim.test.ts` (M7b), `sim/partsBalance.sim.test.ts` (X3).
+4. **Play pass (the builder, in the browser, then the owner on the devices):** every visible world on the Rookie preset with touch emulation and on Legend with no assists. Write what was changed, if anything, in the as-built notes.
+5. **Flags:** set `FEATURE_DEFAULTS.modes = true` in one commit (so it can be reverted alone). In the next commit reduce `FEATURE_NAMES` to `['music', 'expansion']` and delete: every `features.profiles` / `garage` / `worlds` / `modes` / `touch` branch (`App.ts`, `MainMenu.tsx`, `routes.ts`, `TouchControls`), `MENU_PLACEHOLDERS`, the `soon` route and its screen, `ui/screens/WorldSelect.tsx`, and the v1 title screen inside the HUD if only the no-profile flow used it (`?autopilot=1` and `?seed=N` must still start a race directly: the smoke test depends on it). `?features=all` keeps working for the two flags left; unknown names are ignored as today. Update `__features.test.ts` and every e2e URL that names a removed flag.
+6. **Docs:** README (what the game is now, the modes, the controls for keyboard, pad and touch); `docs/TDD.md` gains a v2 architecture section (the app shell, saves and migrations, modes, ghosts, input devices); mark M7 and M8 done in this file; update `NEXT_SESSION.md`; `npm run codebase`.
+7. **The release PR**, titled **"MachZero 2.0"**: a feature summary, a screenshot of each visible world, the map, the results screen, a Time Trial with ghosts, the touch layout on iPhone and iPad sizes; the sim tables; the sizes from `npm run size`; and the QA checklist below.
+
+**Done when (SPEC §9 and §12):**
+- [ ] Every visible world is playable in World Tour, Grand Prix and Time Trial with keyboard, pad and touch.
+- [ ] All sims are green: the 8 × 4 matrix, the balance targets, economy, medals, World Tour, season, touch scheme.
+- [ ] `FEATURE_NAMES` is `music` and `expansion` only, and no dead flag branch remains (`grep -rn "features\.\(profiles\|garage\|worlds\|tiers\|touch\|modes\)" src` finds nothing).
+- [ ] Saves from v1 to v8 load as v9 with nothing lost (the migration tests).
+- [ ] Sizes: app JS ≤ 600 KB gzip, Rapier ≤ 1.7 MB gzip, `public/game` ≤ 15 MB. No console errors in the smoke test.
+
+**Device gate (the owner; the full QA checklist), iPhone 18 Pro Max and iPad Air:**
+1. A new Rookie profile by touch: tutorial, clear Neon Bay, the unlock, buy a Mk II part, clear world 2.
+2. A Classic profile by pad: a Pilot race, the Neon Cup's first race, close and reopen, CONTINUE CUP.
+3. Time Trial with both ghosts: 60 fps, p95 no more than 1 ms above the M8c build.
+4. An old save from the live site (export it before updating) imports with its worlds open and its trophies kept.
+5. Reduced motion, colour-blind mode and EXTRA LARGE once each on the map, the results and a Time Trial.
+6. An 8-ship race on each visible world at the device's own preset: 60 fps.
+
+**What needs the owner in M8:** the look of the map and the results screen (M8a), the device gates above, and the merge of the release PR. Everything else is built without questions.
 
 ---
 

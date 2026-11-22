@@ -43,8 +43,9 @@ Two **independent** dials:
   - **Reduced motion** turns off radial blur, camera shake, chromatic aberration and speed lines, and gives a gentler FOV change.
   - **Colour-blind-safe mode** uses a HUD and track-marker palette plus shape cues (arrows, icons), not colour alone.
   - Separate master, music and SFX volume.
-  - **Large-text HUD.**
-  - **Remappable keyboard.**
+  - **HUD size:** normal, large or extra large (§11; it replaces the large-text toggle).
+  - **Remappable keyboard and pad.**
+  - Details of every assist and comfort setting: §11.
 - Icon-first UI: a 7-year-old who can't read "BOOST UNLOCKS LAP 2" can still see a locked padlock over the boost icon.
 
 ## 3. Platforms, input and performance
@@ -56,11 +57,11 @@ Two **independent** dials:
 | Android tablets and phones | Touch, optional tilt | Best effort, same presets |
 
 - **Landscape only** on phones and tablets (a rotate-device prompt appears in portrait).
-- **Touch layout:**
-  - Left thumb: steering slider (or tilt).
-  - Right thumb: brake, boost and accelerate (accelerate is hidden when auto-accelerate is on).
-  - Air-brakes: two shoulder buttons at the top corners.
-  - Pause: top centre.
+- **Touch layout** (decided in §11, 2026-11-16, which replaces the first sketch of this list):
+  - Left thumb: a floating steering slider (or tilt).
+  - Right thumb: boost, brake and the item button (plus accelerate when auto-accelerate is off).
+  - Air-brakes: push the slider past full lock, or two buttons (a setting).
+  - Pause: at the top, beside the lap box.
 - **Tilt-to-steer** is optional. iOS asks for motion permission, which is requested from a tap inside Settings.
 - **Web app manifest**, so "Add to Home Screen" gives full-screen landscape play on iPhone (Safari has no Fullscreen API on iPhone).
 - **Quality presets** Low, Med and High are picked automatically on first launch from a short benchmark plus device hints, and can be changed in Settings. Presets scale render resolution, MSAA, bloom resolution, motion blur, shadows, scenery density, particle count, ship level of detail and draw distance. See IMPLEMENTATION §M1.
@@ -68,7 +69,10 @@ Two **independent** dials:
 ## 4. Game modes and progression
 
 ### 4.1 World Tour (the main path)
-- The five worlds are played in order, one race each (3 laps).
+
+> §12 (agreed 2026-11-16) completes §4.1–§4.4: the chain over 8 worlds, trophies, the map, the medal times and the rewards.
+
+- The worlds are played in order, one race each (3 laps).
 - **Finishing in the top 3 unlocks the next world** (the unlock is global to the profile). Finishing 4th–8th still earns credits.
 - The Tour can be played at any AI tier; cleared tiers show as trophies on the world map.
 
@@ -81,10 +85,10 @@ Two **independent** dials:
 ### 4.3 Time Trial and ghosts
 - Solo, 3 laps, on any unlocked track.
 - **Your best ghost** (per track, per profile) and a **dev ghost** (recorded from the Legend AI) race alongside as translucent ships.
-- **Medals** are measured against the dev ghost's total time:
+- **Medals** are measured against the dev ghost's total time (the numbers are from §12.3, which replaced 2 / 8 / 18% after the times were measured):
   - Gold within 2%
-  - Silver within 8%
-  - Bronze within 18%
+  - Silver within 6%
+  - Bronze within 12%
 - Each medal pays credits once.
 
 ### 4.4 Economy (credits)
@@ -336,3 +340,122 @@ This extends §5.2. Tiers, prices and the design rule in §4.4 are unchanged: **
 - Each sidegrade pair passes the 1% balance rule in the sims.
 - The device budget in §10.3 holds at every gate. The §9 size budgets hold: app JS ≤ 600 KB gzipped, game content ≤ 15 MB loaded per world.
 - Saves from every earlier version load with nothing lost.
+
+## 11. M7: touch, tilt, assists and comfort (agreed 2026-11-16)
+
+> Status: **agreed** (design interview, 2026-11-16). This section completes §2 and §3. It reopens nothing else. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) §M7 has the build plan in three PRs.
+
+### 11.1 What M7 adds, and why
+
+| Part | What | Why |
+|---|---|---|
+| **Assists that work** | Auto-accelerate, steering help, No-KO and boost from lap 1 act in real races, with a screen to change them | The "I'm new to racing games" preset already promises them, and until M7 only the test sims used them. Pillar 2: anyone can finish |
+| **Touch driving** | A steering slider, boost, brake, items and pause under two thumbs, on the iPhone, the iPad and mobile web | Until M7 the game is playable on iOS only with a controller |
+| **Tilt** | Optional steering by turning the device like a wheel | Some players, and many children, find it more natural than a slider |
+| **Comfort** | Reduced motion, colour-blind mode, HUD size, haptics on/off, pad remapping | Ages 7 to 70 on the same iPad (§2) |
+
+### 11.2 Assists
+
+- The four assists and the two presets are as §2 says. They are saved per profile.
+- A player can change an assist at any time, in the pause menu too, and in the middle of a cup.
+- **Assists never cost anything:** no fewer credits, no blocked trophy, no blocked medal.
+- **No-KO** halves damage, and damage never takes energy below 1. It also selects the Rookie hazard rules of §6 from the next race.
+- **Boost from lap 1** applies to the player only.
+
+### 11.3 Driving by touch
+
+- **Where:** the iOS app and mobile web. Android is best effort. Pad and keyboard keep working, and the player can change device in the middle of a race; the prompts and the layout follow the device used last.
+- **Landscape only**, with a rotate overlay on the web.
+- **Auto-accelerate is on for every touch player.** It is a setting of the device, separate from the profile's assist. With it off, an accelerate button appears.
+- **Steering:** a floating slider on the left half of the screen. The origin is where the thumb lands. Three sensitivities.
+- **Right thumb:** a large boost button, a brake button, and the item button above them. A small chip switches the item. The pit needs no button.
+- **Air-brakes:** by default, pushing the slider past full lock applies that side's air-brake. Two buttons are the other option. The owner chooses the final default on the devices.
+- **The HUD on touch:** power and speed move to one strip at the bottom centre, between the thumbs. Nothing a player must read sits under a thumb.
+- **Sizes** are physical: a button is as large on the iPad as on the iPhone. Settings: button size (S, M, L) and a left-handed layout.
+- **Haptics:** a light tick on each button press, on top of the hit and boost haptics.
+
+### 11.4 Tilt
+
+- Steering is the device's roll, like a wheel, read from gravity. There is a calibrate button, a small deadzone and three sensitivities.
+- **On curled road** (the corkscrew, the pipe, the loop, the Spine) the camera rolls with the ship, so right on the screen is always right for the ship. Tilt reads real gravity only: upside down in the pipe, tilting right still steers right on the screen.
+- Permission is asked from a tap. Without it the slider is used.
+- With tilt, the left thumb gets two air-brake buttons.
+
+### 11.5 Menus by touch
+
+Every target is at least 44 points. The Garage ship turns with a drag and zooms with a pinch. Lists scroll with a drag. Keyboard and pad hints are hidden on touch.
+
+### 11.6 Comfort
+
+- **Reduced motion** turns off motion blur, camera shake, colour fringing, speed lines, lightning flashes, hit flashes and menu transitions, and calms the field of view. The camera still rolls with the ship. A new save starts with it on when the device asks for reduced motion.
+- **Colour-blind mode** is one blue-and-orange palette plus shapes: an icon and a clear-side arrow for every hazard warning, shapes for the ships on the minimap, a marker on low power.
+- **HUD size:** normal, large, extra large.
+- **Remapping:** the keyboard and the pad's driving buttons.
+- **Haptics** can be turned off.
+
+### 11.7 Success criteria (M7 done)
+
+- A full race, and the whole Storm Cup, can be played by fingers alone on the iPhone and the iPad at 60 fps.
+- A scripted two-thumb driver finishes 3 laps on all 8 tracks in the sims, with and without the Rookie preset.
+- Every menu can be used by touch alone, with targets of at least 44 points.
+- A Rookie-preset player cannot be knocked out. A Classic player with a pad or keyboard plays exactly as before.
+
+## 12. M8: progression, modes and ghosts (agreed 2026-11-16)
+
+> Status: **agreed** (design interview, 2026-11-16). This section completes §4 and decides what §10 left to M8. The pillars and the non-goals still hold. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) §M8 has the build plan in four PRs.
+
+### 12.1 What M8 adds, and why
+
+| Part | What | Why |
+|---|---|---|
+| **World Tour** | The worlds unlock in order on a world map, with trophies per tier | It gives the game a main path and always something to do next (§1) |
+| **Time Trial and ghosts** | Solo runs against your best ghost and a dev ghost, for medals | A goal for experts that needs no rivals (pillar 2) |
+| **The championship** | A season of every cup at one tier | The end game for a player who has won the cups |
+| **Results and tutorial** | A credit tally with unlocks, and a first-race tutorial | A new player sees what they earned and learns the five controls |
+| **2.0 complete** | The balance pass, every finished flag on and removed | The release |
+
+### 12.2 World Tour
+
+- **World Tour is the world map.** The main menu is: Continue Cup (when one is running), World Tour, Grand Prix, Time Trial, Garage, Settings. There is no separate single-race mode.
+- **The chain:** world 1 is open. A top-3 finish at any tier clears a world and opens the next. Worlds 6–8 continue the chain after world 5. The chain covers the worlds the player can see, so it grows when a new world's look is approved.
+- **Trophies:** a top-3 finish at a tier earns the world's trophy for that tier and every lower tier.
+- **The map** shows each world as a planet with its lock, its four trophies, the best lap and the best medal. A locked world says how to unlock it.
+- **Old saves:** a profile keeps every world up to the last one it had raced, and all its cup trophies.
+- **Cups:** the Neon Cup opens when world 5 is cleared and the Storm Cup when world 8 is cleared. A profile that already holds a cup's trophy keeps that cup.
+- **A Rookie player never grinds:** eight top-3 finishes on Rookie clear the Tour.
+
+### 12.3 Time Trial and ghosts
+
+- Solo, 3 laps, on any unlocked track, with your own ship and parts, no items, restart at any time. Assists are allowed and medals still count.
+- **A ghost is a recording of where the ship was**, 20 times a second. It is about 21–30 KB. Your best ghost per track is kept on the device; a profile export holds times and medals, not ghosts.
+- **The dev ghost** is a Legend autopilot alone on the track, on a COMET with the Legend rivals' parts.
+- **Medals**, the same for every ship: gold within 2% of the dev ghost's time, silver within 6%, bronze within 12%. Measured: a perfect stock run is 3–6% off the dev time and a Prototype kit matches it. So bronze is for stock parts, silver for about Mk II to Mk III, gold for near-Prototype parts and clean driving.
+- Each medal pays once per track: 300, 600, 1,000. A run pays every medal it newly reaches.
+- Both ghosts show by default; each can be turned off.
+
+### 12.4 The economy
+
+- **Prices and payouts do not change.** Measured in the race sims: about 940 credits a race on Rookie, 800 on Pilot with stock parts, 700–970 on Ace with a Mk II to Mk III kit, and under 400 on Ace or Legend with stock parts.
+- **Targets (they hold today, and a sim keeps them):** a first Mk II part after 1 Rookie race; a full Mk III kit after about 10 Pilot races; a full Prototype kit after about 25 more Ace races.
+- **One-time rewards:** the first clear of a world pays 1,000. A cup pays 3,000 × the tier multiplier. The Champion trophy pays 5,000 × the tier multiplier, once per tier.
+
+### 12.5 The championship
+
+- A season is every available cup in order at one tier (10 races with two cups). It opens when the profile holds a trophy of every cup, and needs at least two cups.
+- Each cup plays as a cup does. The season table sums the cup points (§10.4 has the tiebreaks). The winner gets the Champion trophy for that tier.
+- A season is saved after every race and can be abandoned.
+
+### 12.6 Results and tutorial
+
+- **Results:** the credit tally line by line, then any unlock or trophy, then the winner's quote. Buttons: Next World (when one was unlocked), Race Again, Garage, World Map.
+- **Tutorial:** once per profile, on the first World Tour race of a profile made with the Rookie preset. Prompts appear over the real race and clear when the player does the action: steer, boost, air-brake, pit, item. It can be skipped, and replayed from Settings. The first tutorial race starts with one free Shield so the item step has an item.
+
+### 12.7 Flags and the release
+
+- `expansion` stays off until each new world's look is approved. 2.0 ships with the worlds visible on that day.
+- The last M8 PR turns `modes` on and removes the flags `profiles`, `garage`, `worlds`, `tiers`, `touch` and `modes`. `music` and `expansion` stay.
+- **Release order:** M7a, M7b, M7c, M8a, M8b, M8c, M8d. The world looks and X7 are built when their images or approvals arrive and block nothing.
+
+### 12.8 Success criteria (2.0 done)
+
+§9 holds, with these changes: "five worlds" reads "every visible world"; the sims run on 8 tracks × 4 tiers; and new sims guard the economy targets, the medal times, the World Tour chain, a whole season and the touch scheme. Saves from every earlier version load as v9 with nothing lost.

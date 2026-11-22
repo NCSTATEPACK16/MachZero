@@ -28,7 +28,7 @@ const cache = new WeakMap<TrackData, PipeTables>();
 
 /** Extra geodesic curvature (1/m, positive = curves left) of the constant-lateral line through (u, lateral). */
 export function pipeLineCurvature(track: TrackData, u: number, lateral: number): number {
-  if (track.pipes.length === 0) return 0;
+  if (track.pipes.length === 0 && track.spines.length === 0) return 0;
   const t = tablesFor(track);
   return lookupLineTables(t.tables, t.n, t.halfWidth, u, lateral);
 }
@@ -48,7 +48,8 @@ function tablesFor(track: TrackData): PipeTables {
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const side = new THREE.Vector3();
-  for (const pipe of track.pipes) {
+  // Pipes and spines alike (a spine's curl is negative: the same tables, the deck bends the other way).
+  for (const pipe of [...track.pipes, ...track.spines]) {
     const i0 = Math.floor(pipe.uStart * n) - 2;
     const rows = Math.ceil(wrap01(pipe.uEnd - pipe.uStart) * n) + 5;
     const k = new Float32Array(rows * cols);
@@ -79,7 +80,7 @@ function tablesFor(track: TrackData): PipeTables {
   return t;
 }
 
-/** The curl that puts lateral `lat` at point `pt` (inverse of curlPoint along the cross-section angle). */
+/** The signed curl that puts lateral `lat` at point `pt` (inverse of curlPoint along the cross-section angle). */
 function curlFromPoint(pt: THREE.Vector3, s: { position: THREE.Vector3; right: THREE.Vector3; up: THREE.Vector3 }, lat: number, W: number): number {
   if (Math.abs(lat) < 1e-6) return 0;
   const dx = pt.clone().sub(s.position);
@@ -87,5 +88,5 @@ function curlFromPoint(pt: THREE.Vector3, s: { position: THREE.Vector3; right: T
   const y = dx.dot(s.up);
   // The deck point at lateral lat is (sin φ, 1 − cos φ)/κ with φ = κ·lat, so tan(φ/2) = y / x.
   const phi = 2 * Math.atan2(y, x * Math.sign(lat)) * Math.sign(lat);
-  return clamp((phi / lat) * (W / Math.PI), 0, 1);
+  return clamp((phi / lat) * (W / Math.PI), -1, 1);
 }

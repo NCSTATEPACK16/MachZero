@@ -9,6 +9,7 @@ import { buildDebris } from './features/debris';
 import { buildMines } from './features/mine';
 import { buildStrikes, STRIKE_RADIUS } from './features/lightning';
 import { buildGeysers, GEYSER_RADIUS } from './features/geyser';
+import { buildJets, JET_RADIUS } from './features/jet';
 
 const W = 1000;
 const PLAN_H = 760;
@@ -104,6 +105,8 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
     else if (f.type === 'wind') label((f.dStart + f.dEnd) / 2, `WIND ${f.dir > 0 ? '→ R' : '← L'} ${(f.dEnd - f.dStart).toFixed(0)} m`, '#ffe14d');
     else if (f.type === 'lightning') label((f.dStart + f.dEnd) / 2, `LIGHTNING ×${f.count}`, '#b98cff');
     else if (f.type === 'geysers') label((f.dStart + f.dEnd) / 2, `GEYSERS ×${f.count}`, '#ff6a1f');
+    else if (f.type === 'spine') label(f.dStart + 30, `SPINE ${(f.dEnd - f.dStart).toFixed(0)} m`, '#ffc24a');
+    else if (f.type === 'jets') label((f.dStart + f.dEnd) / 2, `JETS ×${f.count}`, '#ff6f91');
     else if (f.type === 'plunge') {
       let lo = Infinity;
       for (let d = f.dStart; d <= f.dEnd; d += 5) lo = Math.min(lo, at(d).position.y);
@@ -137,6 +140,10 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
   for (const g of buildGeysers(track)) {
     marks.push(`<circle cx="${px(g.position.x)}" cy="${pz(g.position.z)}" r="${Math.max(2, GEYSER_RADIUS * scale).toFixed(1)}" fill="#ff6a1f" fill-opacity="0.5" stroke="#ff6a1f" stroke-width="1"/>`);
   }
+  // Pressure jets: each vent at its true size, at its place round the Spine seen from above.
+  for (const j of buildJets(track)) {
+    marks.push(`<circle cx="${px(j.position.x)}" cy="${pz(j.position.z)}" r="${Math.max(2, JET_RADIUS * scale).toFixed(1)}" fill="#ff6f91" fill-opacity="0.5" stroke="#ff6f91" stroke-width="1"/>`);
+  }
   // Crosswind zones: a yellow band over the deck with arrows across the road, pointing the way the gust pushes.
   for (const f of track.features) {
     if (f.type !== 'wind') continue;
@@ -151,14 +158,15 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
       marks.push(`<line x1="${px(a.position.x - a.right.x * k)}" y1="${pz(a.position.z - a.right.z * k)}" x2="${px(a.position.x + a.right.x * k)}" y2="${pz(a.position.z + a.right.z * k)}" stroke="#ffe14d" stroke-width="1.5" marker-end="url(#arrow)"/>`);
     }
   }
-  // Pipes: a translucent cyan sleeve over the deck; ice patches: pale strips on their lateral band.
+  // Pipes and spines: a translucent sleeve over the deck (cyan, brass); ice patches: pale strips on their lateral band.
   for (const f of track.features) {
-    if (f.type !== 'pipe' && f.type !== 'ice') continue;
+    if (f.type !== 'pipe' && f.type !== 'spine' && f.type !== 'ice') continue;
     for (let d = f.dStart; d < f.dEnd; d += 6) {
       const a = at(d);
       const b = at(Math.min(d + 6, f.dEnd));
-      if (f.type === 'pipe') {
-        marks.push(`<line x1="${px(a.position.x)}" y1="${pz(a.position.z)}" x2="${px(b.position.x)}" y2="${pz(b.position.z)}" stroke="#7fe8ff" stroke-opacity="0.45" stroke-width="${(2.6 * track.halfWidth * scale).toFixed(1)}"/>`);
+      if (f.type === 'pipe' || f.type === 'spine') {
+        const c = f.type === 'pipe' ? '#7fe8ff' : '#ffc24a';
+        marks.push(`<line x1="${px(a.position.x)}" y1="${pz(a.position.z)}" x2="${px(b.position.x)}" y2="${pz(b.position.z)}" stroke="${c}" stroke-opacity="0.45" stroke-width="${(2.6 * track.halfWidth * scale).toFixed(1)}"/>`);
       } else {
         const mid = (f.lateralMin + f.lateralMax) / 2;
         const w = ((f.lateralMax - f.lateralMin) * scale).toFixed(1);
@@ -187,10 +195,10 @@ export function renderTrackSvg(track: TrackData, report: TrackReport): string {
   }
   prof.push(`<path d="${path}" fill="none" stroke="#19f0ff" stroke-width="2"/>`);
   for (const f of track.features) {
-    if (f.type !== 'jump' && f.type !== 'corkscrew' && f.type !== 'pipe') continue;
+    if (f.type !== 'jump' && f.type !== 'corkscrew' && f.type !== 'pipe' && f.type !== 'spine') continue;
     const a = f.type === 'jump' ? f.dTakeoff : f.dStart;
     const b = f.type === 'jump' ? f.dLanding : f.dEnd;
-    const c = f.type === 'jump' ? '#ff4f6e' : f.type === 'pipe' ? '#7fe8ff' : '#ffb319';
+    const c = f.type === 'jump' ? '#ff4f6e' : f.type === 'pipe' ? '#7fe8ff' : f.type === 'spine' ? '#ffc24a' : '#ffb319';
     prof.push(`<rect x="${((a / L) * W).toFixed(1)}" y="${top}" width="${(((b - a) / L) * W).toFixed(1)}" height="${PROFILE_H}" fill="${c}" fill-opacity="0.25"/>`);
   }
   prof.push(

@@ -11,6 +11,7 @@ describe('worlds', () => {
     expect(WORLDS.slice(5).every((w) => w.expansion)).toBe(true);
     expect(WORLDS[5].id).toBe('tempest-spire');
     expect(WORLDS[6].id).toBe('cinder-forge');
+    expect(WORLDS[7].id).toBe('abyss-line');
   });
 
   it('every built world has its authored track and a theme of its own (never Neon Bay by fallback)', () => {
@@ -28,11 +29,10 @@ describe('worlds', () => {
     expect(worldById('tempest-spire')?.built).toBe(true);
   });
 
-  it('a cup with an expansion world is not offered while the flag is off', () => {
-    const allBuilt = [...WORLDS, { id: 'abyss-line', built: true, expansion: true as const }];
+  it('with Abyss Line built the Storm Cup is available, and it is not offered while the expansion flag is off', () => {
     const storm = CUPS.find((c) => c.id === 'storm')!;
-    expect(availableCups(allBuilt)).toContain(storm);
-    expect(availableCups(allBuilt.filter((w) => !('expansion' in w && w.expansion)))).not.toContain(storm);
+    expect(availableCups()).toContain(storm);
+    expect(availableCups(worldsFor({ expansion: true })).map((c) => c.id)).toEqual(['neon', 'storm']);
     expect(availableCups(worldsFor({ expansion: false })).map((c) => c.id)).toEqual(['neon']);
   });
 });

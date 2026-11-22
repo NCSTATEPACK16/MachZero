@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../../core/config';
 import { SaveStore, type StorageLike } from '../SaveStore';
 import { MIGRATIONS, migrate } from '../migrations';
-import { DEFAULT_KEY_BINDINGS, SAVE_KEY, SAVE_VERSION, createProfile, defaultSettings, emptySave, sanitizeSave } from '../schema';
+import { DEFAULT_KEY_BINDINGS, DEFAULT_PAD_BINDINGS, SAVE_KEY, SAVE_VERSION, createProfile, defaultSettings, defaultTouch, emptySave, sanitizePadBindings, sanitizeSave } from '../schema';
+import { newCup, recordRace } from '../../game/modes/GrandPrix';
 
 class MemStorage implements StorageLike {
   readonly map = new Map<string, string>();
@@ -34,7 +35,7 @@ describe('SaveStore', () => {
     p.credits = 1234;
     data.profiles.push(p);
     data.activeProfileId = p.id;
-    data.settings.largeText = true;
+    data.settings.hudSize = 'large';
     data.settings.keyBindings.boost = ['KeyB'];
     store.save(data);
     const again = new SaveStore(mem).load();
@@ -282,5 +283,227 @@ describe('SaveStore', () => {
     expect(() => store.importJson('nope')).toThrow(/not valid JSON/);
     expect(() => store.importJson('{"hello":1}')).toThrow(/not a MachZero save/);
     expect(() => store.importJson(JSON.stringify({ version: SAVE_VERSION + 5 }))).toThrow(/newer version/);
+  });
+});
+
+describe('save v8 (IMPLEMENTATION §M7a)', () => {
+  const v7Settings = (extra: Record<string, unknown>): Record<string, unknown> => {
+    const s: Record<string, unknown> = { ...defaultSettings(), ...extra };
+    delete s.hudSize;
+    delete s.haptics;
+    delete s.touch;
+    delete s.padBindings;
+    return s;
+  };
+
+  it('a v7 save with LARGE TEXT and tilt loads as v8 with HUD size LARGE and tilt steering', () => {
+    const p = createProfile('ada', 3, 'rookie');
+    p.credits = 777;
+    const mem = new MemStorage();
+    mem.setItem(SAVE_KEY, JSON.stringify({ version: 7, profiles: [p], activeProfileId: p.id, settings: v7Settings({ largeText: true, touchSteer: 'tilt', colorBlind: true }) }));
+    const d = new SaveStore(mem).load();
+    expect(d.version).toBe(SAVE_VERSION);
+    expect(d.settings.hudSize).toBe('large');
+    expect(d.settings.touch).toEqual({ ...defaultTouch(), steer: 'tilt' });
+    expect(d.settings.haptics).toBe(true);
+    expect(d.settings.padBindings).toEqual(DEFAULT_PAD_BINDINGS);
+    expect(d.settings.colorBlind).toBe(true);
+    expect('largeText' in d.settings).toBe(false);
+    expect('touchSteer' in d.settings).toBe(false);
+    expect(d.profiles[0]).toEqual(p); // profiles do not change
+  });
+
+  it('a v7 save with neither loads with the defaults', () => {
+    const out = migrate({ version: 7, profiles: [], activeProfileId: null, settings: v7Settings({ largeText: false, touchSteer: 'slider' }) }) as Record<string, unknown>;
+    expect(out.version).toBe(SAVE_VERSION);
+    const d = sanitizeSave(out);
+    expect(d.settings).toEqual(defaultSettings());
+    // A v7 save with no settings object at all.
+    expect(sanitizeSave(migrate({ version: 7, profiles: [] })).settings).toEqual(defaultSettings());
+  });
+
+  it('bad touch and pad-binding values fall back to the defaults', () => {
+    const bad = sanitizeSave({
+      version: SAVE_VERSION,
+      profiles: [],
+      settings: {
+        ...defaultSettings(),
+        hudSize: 'huge',
+        haptics: 'yes',
+        touch: { steer: 'wheel', autoAccelerate: 3, sensitivity: 7, airbrake: 'flaps', buttonSize: 'xl', leftHanded: null, tiltSensitivity: -1, tiltNeutral: 99, hintSeen: 'no' },
+        padBindings: { throttle: [99, -1, 'a'], brake: 'x', boost: [7, 7, 8, 9] },
+      },
+    });
+    expect(bad.settings.hudSize).toBe('normal');
+    expect(bad.settings.haptics).toBe(true);
+    expect(bad.settings.touch).toEqual({ ...defaultTouch(), tiltNeutral: 20 }); // a number out of range is clamped
+    // throttle had nothing valid → its defaults; boost keeps two buttons that are free (7 is throttle's).
+    expect(bad.settings.padBindings.throttle).toEqual([7, 0]);
+    expect(bad.settings.padBindings.brake).toEqual([6, 1]);
+    expect(bad.settings.padBindings.boost).toEqual([8, 9]);
+    expect(sanitizeSave({ version: SAVE_VERSION, settings: { touch: 'x', padBindings: null } }).settings.padBindings).toEqual(DEFAULT_PAD_BINDINGS);
+  });
+
+  it('pad bindings: at most two per control, and no button on two controls', () => {
+    const b = sanitizePadBindings({ throttle: [0, 1, 2], brake: [1, 6], airLeft: [4], airRight: [5], boost: [3], item: [3, 2], itemPrev: [14], itemNext: [15] });
+    expect(b.throttle).toEqual([0, 1]);
+    expect(b.brake).toEqual([6]);
+    expect(b.boost).toEqual([3]);
+    expect(b.item).toEqual([2]);
+    const all = Object.values(b).flat();
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('an export from v8 imports unchanged', () => {
+    const store = new SaveStore(new MemStorage());
+    const d = emptySave();
+    d.profiles.push(createProfile('max', 5, 'rookie'));
+    d.activeProfileId = d.profiles[0].id;
+    d.settings = { ...defaultSettings(), hudSize: 'xl', haptics: false, touch: { ...defaultTouch(), steer: 'tilt', leftHanded: true, tiltNeutral: -7.5, hintSeen: true }, padBindings: { ...DEFAULT_PAD_BINDINGS, boost: [10] } };
+    expect(store.importJson(store.exportJson(d))).toEqual(d);
+  });
+});
+
+describe('SaveStore first launch (IMPLEMENTATION §M7c)', () => {
+  it('is set only when nothing was stored', () => {
+    const mem = new MemStorage();
+    const a = new SaveStore(mem);
+    a.load();
+    expect(a.firstLaunch).toBe(true);
+    a.save(emptySave());
+    const b = new SaveStore(mem);
+    b.load();
+    expect(b.firstLaunch).toBe(false);
+  });
+});
+
+describe('save v9 (IMPLEMENTATION §M8a)', () => {
+  /** A v8-shaped profile: today's profile without the v9 fields. */
+  const v8Profile = (records: Record<string, { bestLap?: number }>, races = 0): Record<string, unknown> => {
+    const p: Record<string, unknown> = { ...createProfile('ada', 2, 'classic'), records, stats: { races, wins: 0 }, credits: 4321, trophies: { neon: ['rookie', 'pilot'] } };
+    delete p.tour;
+    delete p.season;
+    delete p.champion;
+    delete p.tutorialDone;
+    return p;
+  };
+  const v8Settings = (): Record<string, unknown> => {
+    const s: Record<string, unknown> = { ...defaultSettings() };
+    delete s.ghosts;
+    return s;
+  };
+  const load = (save: Record<string, unknown>) => {
+    const mem = new MemStorage();
+    mem.setItem(SAVE_KEY, JSON.stringify(save));
+    return new SaveStore(mem).load();
+  };
+
+  it('a v8 profile with lap records on worlds 1, 2 and 4 loads with worlds 1–4 granted; trophies and credits untouched', () => {
+    const p = v8Profile({ 'neon-bay': { bestLap: 31.2 }, 'sunset-mesa': { bestLap: 33 }, 'jade-ruins': { bestLap: 40.5 }, classic: { bestLap: 50 } }, 12);
+    const d = load({ version: 8, profiles: [p], activeProfileId: p.id, settings: v8Settings() });
+    expect(d.version).toBe(9);
+    const q = d.profiles[0];
+    expect(q.tour).toEqual({ granted: ['neon-bay', 'sunset-mesa', 'cryo-station', 'jade-ruins'], trophies: {} });
+    expect(q.credits).toBe(4321);
+    expect(q.trophies).toEqual({ neon: ['rookie', 'pilot'] });
+    expect(q.records['jade-ruins']).toEqual({ bestLap: 40.5 });
+    expect(q.season).toBeNull();
+    expect(q.champion).toEqual([]);
+    expect(q.tutorialDone).toBe(true); // it has raced
+    expect(d.settings.ghosts).toEqual({ best: true, dev: true });
+  });
+
+  it('a v8 profile with no records loads with nothing granted and the tutorial still to do', () => {
+    const p = v8Profile({ classic: { bestLap: 50 }, 'bonus-7': { bestLap: 20 } });
+    const q = load({ version: 8, profiles: [p], activeProfileId: p.id, settings: v8Settings() }).profiles[0];
+    expect(q.tour).toEqual({ granted: [], trophies: {} });
+    expect(q.tutorialDone).toBe(false);
+  });
+
+  it('a record on an expansion world grants every world before it', () => {
+    const p = v8Profile({ 'abyss-line': { bestLap: 44 } }, 1);
+    const q = load({ version: 8, profiles: [p], activeProfileId: p.id, settings: v8Settings() }).profiles[0];
+    expect(q.tour.granted).toHaveLength(8);
+  });
+
+  it('a new profile starts with an empty tour, no season and the tutorial to do', () => {
+    const p = createProfile('new', 0, 'rookie');
+    expect(p.tour).toEqual({ granted: [], trophies: {} });
+    expect(p.season).toBeNull();
+    expect(p.champion).toEqual([]);
+    expect(p.tutorialDone).toBe(false);
+  });
+
+  it('bad tour, season, champion, medal and trial-time values fall back to the defaults', () => {
+    const p = {
+      ...createProfile('bad', 0, 'classic'),
+      tour: { granted: ['atlantis', 'sunset-mesa', 'neon-bay', 'neon-bay', 3], trophies: { 'neon-bay': ['ace', 'rookie', 'ace', 'god'], mars: ['rookie'], 'sunset-mesa': 'pilot', 'jade-ruins': [] } },
+      season: { tier: 'god', done: [] },
+      champion: ['legend', 'x', 'rookie', 'rookie'],
+      tutorialDone: 'yes',
+      records: { 'neon-bay': { bestLap: 30, trialTime: -4, medal: 'platinum' }, 'sunset-mesa': { trialTime: 95.5, medal: 'gold' }, 'cryo-station': { trialTime: Infinity, medal: 2 } },
+    };
+    const q = sanitizeSave({ version: SAVE_VERSION, profiles: [p], settings: { ...defaultSettings(), ghosts: { best: 'no', dev: false } } });
+    const r = q.profiles[0];
+    // Unknown worlds and tiers dropped; tiers sorted in tier order with no duplicates; empty lists dropped.
+    expect(r.tour).toEqual({ granted: ['neon-bay', 'sunset-mesa'], trophies: { 'neon-bay': ['rookie', 'ace'] } });
+    expect(r.season).toBeNull();
+    expect(r.champion).toEqual(['rookie', 'legend']);
+    expect(r.tutorialDone).toBe(false);
+    expect(r.records['neon-bay']).toEqual({ bestLap: 30 });
+    expect(r.records['sunset-mesa']).toEqual({ trialTime: 95.5, medal: 'gold' });
+    expect(r.records['cryo-station']).toEqual({});
+    expect(q.settings.ghosts).toEqual({ best: true, dev: false });
+    // Junk instead of objects.
+    const j = sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...createProfile('j', 0, 'classic'), tour: 'x', season: [], champion: {} }], settings: { ghosts: 7 } });
+    expect(j.profiles[0].tour).toEqual({ granted: [], trophies: {} });
+    expect(j.profiles[0].season).toBeNull();
+    expect(j.profiles[0].champion).toEqual([]);
+    expect(j.settings.ghosts).toEqual({ best: true, dev: true });
+  });
+
+  it('a season keeps its finished cups; a season with an unfinished or broken cup is dropped', () => {
+    const standings = (ids: number[]) => ids.map((id, i) => ({ id, name: `S${id}`, position: i + 1, lap: 3, progress: 3, totalTime: 90 + i, bestLap: 30, status: 'finished' as const }));
+    let cup = newCup('neon', 'pilot');
+    for (let r = 0; r < 5; r++) cup = recordRace(cup, standings([0, 1, 2, 3, 4, 5, 6, 7]) as never);
+    const p = { ...createProfile('s', 0, 'classic'), season: { tier: 'pilot', done: [cup] } };
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [p] }).profiles[0].season).toEqual({ tier: 'pilot', done: [cup] });
+    const half = { ...cup, results: cup.results.slice(0, 2) };
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'pilot', done: [cup, half] } }] }).profiles[0].season).toBeNull();
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'pilot', done: [{ cupId: 'nope', tier: 'pilot', results: [] }] } }] }).profiles[0].season).toBeNull();
+    // An empty season (its first cup still running) is kept.
+    expect(sanitizeSave({ version: SAVE_VERSION, profiles: [{ ...p, season: { tier: 'ace', done: [] } }] }).profiles[0].season).toEqual({ tier: 'ace', done: [] });
+  });
+
+  it('an export from v9 imports unchanged', () => {
+    const store = new SaveStore(new MemStorage());
+    const d = emptySave();
+    const p = createProfile('max', 5, 'rookie');
+    p.tour = { granted: ['neon-bay', 'sunset-mesa'], trophies: { 'neon-bay': ['rookie', 'pilot'], 'cryo-station': ['rookie'] } };
+    p.records = { 'neon-bay': { bestLap: 30.5, trialTime: 92.25, medal: 'silver' } };
+    p.champion = ['rookie'];
+    p.season = { tier: 'pilot', done: [] };
+    p.tutorialDone = true;
+    d.profiles.push(p);
+    d.activeProfileId = p.id;
+    d.settings = { ...defaultSettings(), ghosts: { best: false, dev: true } };
+    expect(store.importJson(store.exportJson(d))).toEqual(d);
+  });
+});
+
+describe('Time Trial in the save (IMPLEMENTATION §M8b)', () => {
+  it('an export carries best times and medals but no ghosts, and imports on a clean store', () => {
+    const data = emptySave();
+    const p = createProfile('CLOCK', 1, 'classic');
+    p.records['neon-bay'] = { bestLap: 30.2, trialTime: 93.25, medal: 'gold' };
+    p.records['cryo-station'] = { trialTime: 84.5, medal: 'bronze' };
+    data.profiles.push(p);
+    data.activeProfileId = p.id;
+    const json = new SaveStore(new MemStorage()).exportJson(data);
+    expect(json).not.toMatch(/ghost"|"pos"|"quat"/i);
+    const back = new SaveStore(new MemStorage()).importJson(json);
+    expect(back.profiles[0].records['neon-bay']).toEqual({ bestLap: 30.2, trialTime: 93.25, medal: 'gold' });
+    expect(back.profiles[0].records['cryo-station']).toEqual({ trialTime: 84.5, medal: 'bronze' });
+    expect(back.settings.ghosts).toEqual({ best: true, dev: true });
   });
 });

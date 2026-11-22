@@ -15,6 +15,9 @@ import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { WorldSelect } from './screens/WorldSelect';
+import { WorldMap } from './screens/WorldMap';
+import { TimeTrial } from './screens/TimeTrial';
+import { NAV_EVENT, Results } from './screens/Results';
 import './tokens.css';
 import './ui.css';
 
@@ -54,6 +57,8 @@ function Root({ app }: { app: App }) {
   const layer = useRef<HTMLDivElement>(null);
   useEffect(() => {
     app.navHandler = (action) => {
+      // A screen may take a pad action for itself first (the results screen: any input shows the whole tally).
+      if (!window.dispatchEvent(new Event(NAV_EVENT, { cancelable: true }))) return;
       const screen = layer.current?.querySelector<HTMLElement>('[data-screen]');
       if (screen) navigate(screen, action);
     };
@@ -68,6 +73,9 @@ function Root({ app }: { app: App }) {
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
   else if (r.name === 'garage') screen = <Garage app={app} />;
   else if (r.name === 'worlds') screen = <WorldSelect app={app} />;
+  else if (r.name === 'tour') screen = <WorldMap app={app} />;
+  else if (r.name === 'results') screen = <Results app={app} />;
+  else if (r.name === 'trial') screen = <TimeTrial app={app} />;
   else if (r.name === 'gp') screen = <GrandPrix app={app} />;
   else if (r.name === 'cup') screen = <CupStandings app={app} />;
   else if (r.name === 'soon') screen = <ComingSoon app={app} />;

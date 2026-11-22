@@ -69,6 +69,8 @@ export interface RaceFieldOptions {
   gridOrder?: readonly ShipId[];
   /** Per rival (roster order), its own tier and fits instead of the race's: a mixed field (tier sims). */
   rivalTiers?: readonly AITier[];
+  /** How many rivals (roster order; default all 7). A Time Trial has none (IMPLEMENTATION §M8b). */
+  rivals?: number;
 }
 
 /** Player (id 0) + 7 rivals (ids 1..7). Rivals fill the grid slots the player doesn't take, in roster order. */
@@ -87,7 +89,7 @@ export function buildRaceField(opts: RaceFieldOptions): ShipDefinition[] {
   };
   const freeSlots: number[] = [];
   for (let g = 0; g < RACE_SIZE; g++) if (g !== playerGrid) freeSlots.push(g);
-  const rivals = RIVALS.map((p, i): ShipDefinition => {
+  const rivals = RIVALS.slice(0, Math.max(0, Math.min(RIVALS.length, opts.rivals ?? RIVALS.length))).map((p, i): ShipDefinition => {
     chassisById(p.chassisId); // validates the id
     const tier = opts.rivalTiers?.[i] ?? opts.tier;
     const loadout: Loadout = { chassisId: p.chassisId, parts: { ...RIVAL_FITS[tier] }, variants: { ...RIVAL_VARIANTS[p.personality] }, livery: { ...p.livery, decal: i % 6 } };

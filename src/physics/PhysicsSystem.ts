@@ -26,6 +26,7 @@ import { MINE_LIFT } from '../track/features/mine';
 import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
 import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikeActive, strikeCycle } from '../track/features/lightning';
 import { type BuiltGeyser, buildGeysers, GEYSER_RADIUS, geyserActive, geyserCycle } from '../track/features/geyser';
+import { type BuiltJet, buildJets, JET_RADIUS, jetActive, jetCycle } from '../track/features/jet';
 import type { TimedPoint } from '../track/features/timedField';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
@@ -108,9 +109,14 @@ export class PhysicsSystem implements IPhysicsSystem {
   readonly strikes: readonly BuiltStrike[];
   /** Lava geyser vents (Cinder Forge), on the hazard clock. */
   readonly geysers: readonly BuiltGeyser[];
+  /** Pressure-jet vents on the Spine (Abyss Line), on the hazard clock. */
+  readonly jets: readonly BuiltJet[];
   /** The cycle in which each ship was last hit by each strike point or vent (key ship·1024 + index): one hit per cycle. */
   private readonly strikeHitCycle = new Map<number, number>();
   private readonly geyserHitCycle = new Map<number, number>();
+  private readonly jetHitCycle = new Map<number, number>();
+  private readonly jetDir = new THREE.Vector3();
+  private readonly jetPoint = new THREE.Vector3();
   private readonly strikeLocal = new THREE.Vector3();
   private readonly strikeInv = new THREE.Quaternion();
 
@@ -164,6 +170,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.winds = buildWinds(track);
     this.strikes = buildStrikes(track);
     this.geysers = buildGeysers(track);
+    this.jets = buildJets(track);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -299,6 +306,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.mineField.reset(0);
     this.strikeHitCycle.clear();
     this.geyserHitCycle.clear();
+    this.jetHitCycle.clear();
   }
 
   /** The crosswind (m/s² along the road's right) at main-loop u now. */
@@ -325,7 +333,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     radius: number,
     cycle: number,
     hitCycle: Map<number, number>,
-    blocked: 'lightning' | 'geyser',
+    blocked: 'lightning' | 'geyser' | 'jet',
     hit: (c: ShipController) => void,
   ): void {
     for (const c of this.controllerList) {
@@ -369,6 +377,28 @@ export class PhysicsSystem implements IPhysicsSystem {
       this.hitTimedPoint(g, GEYSER_RADIUS, geyserCycle(g, t), this.geyserHitCycle, 'geyser', (c) => {
         c.applyGeyser(g.up, this.hazards);
         this.bus.emit('hazard:geyser', { shipId: c.state.def.id, geyser: g.index, point: c.state.position.clone() });
+      });
+    }
+  }
+
+  /**
+   * Pressure jets: while a vent fires, every racing hull that touches its jet is hit, once per jet. The knock is round
+   * the tube (along the curled surface, across the road), away from the vent: toward the side of it the hull is on, or
+   * toward the field's clear lane for a hull right over it.
+   */
+  private checkJets(): void {
+    const t = this.raceClock;
+    for (const j of this.jets) {
+      if (!jetActive(j, t)) continue;
+      this.hitTimedPoint(j, JET_RADIUS, jetCycle(j, t), this.jetHitCycle, 'jet', (c) => {
+        const s = c.state;
+        const away = s.lateral - j.lateral;
+        const side = Math.abs(away) > 0.05 ? Math.sign(away) : Math.sign(j.lane - j.lateral) || 1;
+        // Round the tube at the hull: forward × the surface normal is the direction of increasing lateral.
+        this.track.surfacePoint(s.trackU, s.lateral, this.jetPoint, this.jetDir);
+        this.jetDir.crossVectors(this.track.sampleAt(s.trackU).forward, this.jetDir).normalize().multiplyScalar(side);
+        c.applyJet(this.jetDir, this.hazards);
+        this.bus.emit('hazard:jet', { shipId: s.def.id, jet: j.index, point: s.position.clone() });
       });
     }
   }
@@ -459,6 +489,7 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.checkMines();
     if (this.strikes.length > 0) this.checkLightning();
     if (this.geysers.length > 0) this.checkGeysers();
+    if (this.jets.length > 0) this.checkJets();
 
     // 4. Projection, zones, energy, safety respawn.
     for (let i = 0; i < list.length; i++) list[i].finishStep(dt);

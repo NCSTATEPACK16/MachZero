@@ -110,11 +110,11 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await page.keyboard.press('Enter');
   await expect(screen(page)).toHaveAttribute('data-screen', 'settings');
 
-  // Settings apply live and persist: Comfort → Large text.
+  // Settings apply live and persist: Comfort → HUD size LARGE.
   await page.getByRole('tab', { name: 'COMFORT' }).click();
-  await page.getByRole('switch', { name: /LARGE TEXT/ }).click();
-  await expect(page.locator('html')).toHaveClass(/mz-large-text/);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('machzero.save')!).settings.largeText)).toBe(true);
+  await page.getByRole('radiogroup', { name: 'HUD SIZE' }).getByRole('radio', { name: 'LARGE', exact: true }).click();
+  await expect(page.locator('html')).toHaveClass(/mz-hud-large/);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('machzero.save')!).settings.hudSize)).toBe('large');
   await page.keyboard.press('Escape');
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
 
@@ -155,7 +155,7 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await page.reload();
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
-  await expect(page.locator('html')).toHaveClass(/mz-large-text/);
+  await expect(page.locator('html')).toHaveClass(/mz-hud-large/);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

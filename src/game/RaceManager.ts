@@ -232,6 +232,11 @@ export class RaceManager implements IRaceManager {
     }
   }
 
+  /** Seconds since GO (0 before it); unlike the snapshot's `raceTime` it runs on after the player finishes. */
+  get time(): number {
+    return this.raceTime;
+  }
+
   snapshot(): RaceSnapshot {
     const p = this.playerRacer;
     const s = this.snap;
@@ -297,7 +302,9 @@ export class RaceManager implements IRaceManager {
   private resetShipFields(): void {
     for (const r of this.racers) {
       r.ship.status = 'grid';
-      r.ship.boostUnlocked = false;
+      // Boost from lap 1 (IMPLEMENTATION §M7a): unlocked from the grid (it can only fire once racing); everyone else
+      // unlocks it on lap 2.
+      r.ship.boostUnlocked = r.ship.earlyBoost === true;
       r.ship.thrustScale = 1;
       r.ship.empSlow = 0;
       r.ship.empLock = 0;
@@ -338,6 +345,7 @@ export class RaceManager implements IRaceManager {
     for (const r of this.racers) {
       r.lapStart = 0;
       r.ship.status = 'racing';
+      if (r.ship.earlyBoost) r.ship.boostUnlocked = true;
     }
     this.setState('racing');
   }

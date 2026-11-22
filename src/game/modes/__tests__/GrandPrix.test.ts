@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RacerStanding, ShipId } from '../../../core/contracts';
-import { CUPS, CUP_RACES, availableCups, cupAvailable, cupById } from '../../../content/cups';
+import { CUPS, CUP_RACES, availableCups, cupAvailable, cupById, cupUnlocked } from '../../../content/cups';
 import { WORLDS } from '../../../content/worlds';
-import { AI_TIERS } from '../../../save/schema';
+import { AI_TIERS, createProfile } from '../../../save/schema';
 import {
   addTrophy,
   cupAward,
@@ -188,5 +188,36 @@ describe('Cups are data (IMPLEMENTATION §X1)', () => {
     expect(cupRaces(ghost)).toBe(0);
     expect(cupFinished(ghost)).toBe(true);
     expect(cupWorld(ghost)).toBeNull();
+  });
+});
+
+describe('Cup unlocks (IMPLEMENTATION §M8a)', () => {
+  const neon = cupById('neon')!;
+  const storm = cupById('storm')!;
+  const fresh = createProfile('cup', 0, 'rookie');
+
+  it('the Neon Cup needs Orbital Ring cleared, the Storm Cup Abyss Line', () => {
+    expect(neon.requires).toBe('orbital-ring');
+    expect(storm.requires).toBe('abyss-line');
+    expect(cupUnlocked(neon, fresh)).toBe(false);
+    expect(cupUnlocked(storm, fresh)).toBe(false);
+    const cleared = { ...fresh, tour: { granted: [], trophies: { 'orbital-ring': ['rookie' as const] } } };
+    expect(cupUnlocked(neon, cleared)).toBe(true);
+    expect(cupUnlocked(storm, cleared)).toBe(false);
+  });
+
+  it('a granted world is not a cleared one', () => {
+    const granted = { ...fresh, tour: { granted: WORLDS.map((w) => w.id), trophies: {} } };
+    expect(cupUnlocked(neon, granted)).toBe(false);
+  });
+
+  it('a profile that holds any trophy of a cup keeps that cup open', () => {
+    const old = { ...fresh, trophies: { storm: ['ace' as const] } };
+    expect(cupUnlocked(storm, old)).toBe(true);
+    expect(cupUnlocked(neon, old)).toBe(false);
+  });
+
+  it('with modes off every cup is open, as before', () => {
+    for (const c of CUPS) expect(cupUnlocked(c, fresh, false)).toBe(true);
   });
 });

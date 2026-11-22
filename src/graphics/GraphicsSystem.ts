@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG, PALETTE, readUrlFlags } from '../core/config';
-import type { FrameContext, IGraphicsSystem, ShipId, ShipState, TrackData } from '../core/contracts';
+import type { FrameContext, GhostFrame, IGraphicsSystem, ShipId, ShipState, TrackData } from '../core/contracts';
 import type { GameBus } from '../core/events';
 import { clamp } from '../core/math';
 import { ChaseCamera } from './ChaseCamera';
@@ -12,6 +12,7 @@ import { createTheme, type WorldTheme } from './themes';
 import { PostFX } from './PostFX';
 import { ShipModel } from './ShipModel';
 import { SpeedLines } from './SpeedLines';
+import { GhostShips } from './GhostShips';
 import { createFogUniforms, type FogUniforms } from './shaders/fog';
 import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
 import type { ShipAssets } from '../assets/AssetLoader';
@@ -129,6 +130,8 @@ export class GraphicsSystem implements IGraphicsSystem {
   private quality: QualityProfile = QUALITY_PROFILES.high;
   private fogUniforms!: FogUniforms;
   private hasRace = false;
+  /** Time Trial ghosts (IMPLEMENTATION §M8b). */
+  private ghostShips: GhostShips | null = null;
   private shipAssets: ShipAssets | null = null;
   private preview: ShipPreview | null = null;
   /** The garage element the turntable is drawn into (null = no preview). */
@@ -295,7 +298,7 @@ export class GraphicsSystem implements IGraphicsSystem {
       }),
       bus.on('item:shield', (e) => {
         const model = this.models.get(e.shipId);
-        if (e.blocked === 'mine' || e.blocked === 'geyser') this.fx.mineBlast(e.point, null);
+        if (e.blocked === 'mine' || e.blocked === 'geyser' || e.blocked === 'jet') this.fx.mineBlast(e.point, null);
         else if (model) this.fx.empHit(model);
         model?.shieldBlocked();
         if (e.shipId === this.playerId) {
@@ -310,6 +313,16 @@ export class GraphicsSystem implements IGraphicsSystem {
         if (e.shipId === this.playerId) {
           this.chase.addImpact(0.45);
           this.post.kickAberration(1);
+        }
+      }),
+      bus.on('hazard:jet', (e) => {
+        // A burst at the hull: the jet's column is drawn with the track (features/jetVisual.ts). A sideways shove, so a
+        // smaller kick than a geyser's.
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.3);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.35);
+          this.post.kickAberration(0.8);
         }
       }),
       bus.on('hazard:lightning', (e) => {
@@ -373,6 +386,7 @@ export class GraphicsSystem implements IGraphicsSystem {
    * map and sky stay alive for the next race.
    */
   clearRace(): void {
+    this.ghostShips?.clear();
     for (const off of this.unsubs) off();
     this.unsubs.length = 0;
     for (const m of this.modelList) {
@@ -476,6 +490,31 @@ export class GraphicsSystem implements IGraphicsSystem {
   }
 
   /** Comfort settings (SPEC §2). Applied on top of any quality preset. */
+  /** This race's Time Trial ghosts (cleared with the race). */
+  setGhosts(frames: readonly GhostFrame[]): void {
+    this.ghostShips ??= new GhostShips(this.scene);
+    this.ghostShips.setColorBlind(this.colorBlind);
+    this.ghostShips.set(frames, this.shipAssets);
+  }
+
+  /** Where the HUD draws the dev ghost's tag (fractions of the canvas), or hidden. */
+  get ghostTag(): { readonly x: number; readonly y: number; readonly visible: boolean } | null {
+    return this.ghostShips?.devTag ?? null;
+  }
+
+  /** Ghost meshes drawn in the last frame (one draw call each). */
+  get ghostsDrawn(): number {
+    return this.ghostShips?.drawn ?? 0;
+  }
+
+  private colorBlind = false;
+
+  /** Colour-blind mode (IMPLEMENTATION §M7c): the ghosts' colours. */
+  setColorBlind(on: boolean): void {
+    this.colorBlind = on;
+    this.ghostShips?.setColorBlind(on);
+  }
+
   setComfort(opts: { reducedMotion: boolean }): void {
     this.reducedMotion = opts.reducedMotion;
     this.theme.setReducedMotion?.(opts.reducedMotion);
@@ -567,6 +606,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.camera.updateMatrixWorld();
 
     for (const m of this.modelList) m.updateVisuals(dt, time);
+    if (ctx.ghosts) this.ghostShips?.update(this.camera);
     ctx.track.animateHazards?.(ctx.hazardTime);
     this.mineVisual.update(ctx.mines, player.position, time, dt);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);

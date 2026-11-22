@@ -41,6 +41,7 @@ export interface WorldRaceResult {
   lightningHits: Map<ShipId, number>;
   /** Geyser hits taken, per ship (Cinder Forge). */
   geyserHits: Map<ShipId, number>;
+  jetHits: Map<ShipId, number>;
   /** Times each ship drove onto a split path. */
   shortcuts: Map<ShipId, number>;
   /** Finishing order with total times (null = did not finish). */
@@ -82,6 +83,12 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
   const playerPace = opts.player?.pace ?? TIERS[tier].paceScale;
   const assists = opts.player?.assisted ? new PlayerAssists(track) : null;
   const ships = field.map((d) => physics.addShip(d, track.startGrid[d.gridIndex]));
+  // The assisted stand-in gets the whole Rookie preset (IMPLEMENTATION §M7a): No-KO and boost from lap 1 as well as
+  // auto-accelerate and strong steering help. (The race's hazard rules are the caller's choice, as for the App.)
+  if (assists) {
+    ships[0].noKO = ROOKIE_ASSISTS.noKO;
+    ships[0].earlyBoost = ROOKIE_ASSISTS.earlyBoost;
+  }
   const drivers = ships.map((s) => new AIDriver(s, track, s.def.personality ?? 'steady', track.seed * 31 + s.def.id * 7919, ships, { hazardClock: () => physics.hazardTime, liveMines: () => physics.mines }));
   const race = new RaceManager(track, ships, bus, undefined, opts.untilAllFinish ? Infinity : undefined);
   const items = opts.items === false ? null : new ItemSystem({ ships, player: ships[0], race, bus, physics, track }, track.seed);
@@ -111,6 +118,8 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
   bus.on('hazard:lightning', ({ shipId }) => lightningHits.set(shipId, (lightningHits.get(shipId) ?? 0) + 1));
   const geyserHits = new Map<ShipId, number>();
   bus.on('hazard:geyser', ({ shipId }) => geyserHits.set(shipId, (geyserHits.get(shipId) ?? 0) + 1));
+  const jetHits = new Map<ShipId, number>();
+  bus.on('hazard:jet', ({ shipId }) => jetHits.set(shipId, (jetHits.get(shipId) ?? 0) + 1));
   let playerLaps = 0;
   bus.on('ship:respawn', ({ shipId }) => respawns.set(shipId, (respawns.get(shipId) ?? 0) + 1));
   bus.on('ship:jump', ({ shipId }) => jumps.set(shipId, (jumps.get(shipId) ?? 0) + 1));
@@ -151,7 +160,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
   const table = snap.standings
     .map((r) => {
       const ship = ships.find((s) => s.def.id === r.id)!;
-      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} gates=${gateHits.get(r.id) ?? 0} mines=${mineHits.get(r.id) ?? 0}+${droppedMineHits.get(r.id) ?? 0} debris=${debrisHits.get(r.id) ?? 0} lightning=${lightningHits.get(r.id) ?? 0} geysers=${geyserHits.get(r.id) ?? 0} shortcuts=${shortcuts.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
+      return `${r.position}. ${r.name.padEnd(14)} ${(ship.def.personality ?? '-').padEnd(10)} ${r.status} laps=${r.lap} t=${r.totalTime?.toFixed(2)} jumps=${jumps.get(r.id) ?? 0} ice=${ice.get(r.id) ?? 0} gates=${gateHits.get(r.id) ?? 0} mines=${mineHits.get(r.id) ?? 0}+${droppedMineHits.get(r.id) ?? 0} debris=${debrisHits.get(r.id) ?? 0} lightning=${lightningHits.get(r.id) ?? 0} geysers=${geyserHits.get(r.id) ?? 0} jets=${jetHits.get(r.id) ?? 0} shortcuts=${shortcuts.get(r.id) ?? 0} respawns=${respawns.get(r.id) ?? 0}`;
     })
     .join('\n') + `\nitems: emp=${itemUses.emp} (hit ${itemUses.empHits}) shield=${itemUses.shield} mine=${itemUses.mine} blocked=${itemUses.blocked}`;
   physics.dispose();
@@ -171,6 +180,7 @@ export async function runWorldRace(trackId: string, tier: AITier, opts: WorldRac
     debrisHits,
     lightningHits,
     geyserHits,
+    jetHits,
     shortcuts,
     standings: snap.standings.map((r) => ({ id: r.id, totalTime: r.totalTime ?? null })),
     results: snap.standings.map((r) => ({ ...r })),

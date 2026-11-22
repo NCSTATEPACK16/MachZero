@@ -554,6 +554,17 @@ html.mz-pad .mzu-card-del:focus {
 .mzu-row:hover {
   border-color: rgba(25, 240, 255, 0.5);
 }
+.mzu-row-icon {
+  flex: none;
+  width: 1.7em;
+  height: 1.7em;
+  color: var(--cyan);
+  filter: drop-shadow(0 0 0.3em rgba(25, 240, 255, 0.6));
+}
+.mzu-row-icon svg {
+  width: 100%;
+  height: 100%;
+}
 .mzu-row-text {
   flex: 1;
   display: flex;
@@ -1549,6 +1560,23 @@ html.mz-pad .mzu-world:focus {
   flex-direction: column;
   gap: 0.8em;
 }
+/* A locked cup (IMPLEMENTATION §M8a): greyed track list, padlock line in place of START. */
+.mzu-padlock {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.12em;
+  margin-right: 0.35em;
+}
+.mzu-gp.locked .mzu-gp-tracks {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.mzu-gp-locked {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--mz-warn, #ffc23a);
+}
 /* Cup picker (shown once a second cup can be played). */
 .mzu-gp-cups {
   display: flex;
@@ -1687,4 +1715,679 @@ html.mz-pad .mzu-world:focus {
   .mzu-cup {
     grid-template-columns: 1fr;
   }
+}
+
+/* M7b: the web's rotate overlay (the iOS app is locked to landscape). App adds html.mz-rotate-ok on the web with the
+   `touch` feature; it shows in portrait on a touch screen, over everything. */
+.mz-rotate {
+  display: none;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  html.mz-rotate-ok .mz-rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: #05030f;
+    color: #19f0ff;
+    font: italic 900 18px/1.2 'Avenir Next Condensed', 'Arial Narrow', Helvetica, Arial, sans-serif;
+    letter-spacing: 0.2em;
+    text-shadow: 0 0 12px #19f0ff;
+  }
+  html.mz-rotate-ok .mz-rotate svg {
+    width: 72px;
+    height: 72px;
+    animation: mz-rotate-hint 1.6s ease-in-out infinite;
+  }
+}
+@keyframes mz-rotate-hint {
+  0%,
+  30% {
+    transform: rotate(0deg);
+  }
+  60%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.mz-rotate-ok .mz-rotate svg {
+    animation: none;
+  }
+}
+
+/* M7c: the pad's steering row (the left stick is fixed). */
+.mzu-key.fixed {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* ---------- M7c: menus by touch (html.mz-touch after a touch; html.mz-coarse on a touch-first screen) ---------- */
+/* Every target at least 44 × 44 points. */
+html:is(.mz-touch, .mz-coarse) #ui :is(button, [role='tab'], [role='radio'], input:not([type='file']):not([type='hidden'])),
+html:is(.mz-touch, .mz-coarse) .mz-hud :is(.mz-btn, .mz-chip) {
+  min-width: 44px;
+  min-height: 44px;
+}
+/* Lists scroll with a drag, with momentum; the page itself never rubber-bands. */
+html:is(.mz-touch, .mz-coarse),
+html:is(.mz-touch, .mz-coarse) body {
+  overscroll-behavior: none;
+}
+html:is(.mz-touch, .mz-coarse) :is(.mzu-body, .mzu-garage-body) {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+/* Keyboard and pad hint rows and focus rings mean nothing to a finger (focus still moves for a later pad). */
+html.mz-touch .mzu-hints {
+  display: none;
+}
+html.mz-touch #ui :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* Tab rows wrap rather than squeeze: a tab keeps at least its label's width (and that is over 44 points). */
+html:is(.mz-touch, .mz-coarse) #ui .mzu-tabs button[role='tab'][type='button'] {
+  min-width: auto;
+}
+
+/* ---------- M8a: the World Tour map (DOM + SVG; no draw calls) ---------- */
+.mzu-tour {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.mzu-tour-map {
+  position: relative;
+  /* As wide as fits, keeping the map's 1000 × 480 shape so the planet buttons stay on their planets. */
+  width: min(100%, calc((100dvh - 10em) * 2.0833));
+  margin: 0 auto;
+}
+.mzu-tour-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.mzu-tour-path {
+  fill: none;
+  stroke: rgba(244, 247, 255, 0.22);
+  stroke-width: 4;
+  stroke-dasharray: 10 12;
+  stroke-linecap: round;
+}
+.mzu-tour-path.lit {
+  stroke: var(--cyan);
+  filter: drop-shadow(0 0 6px rgba(25, 240, 255, 0.7));
+}
+.mzu-planet-disc {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 2;
+}
+.mzu-planet.locked .mzu-planet-disc {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+.mzu-planet.cleared .mzu-planet-disc {
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+.mzu-planet-ring {
+  fill: none;
+  stroke: var(--white);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.7));
+}
+.mzu-planet-num {
+  font-family: var(--font);
+  font-size: 32px;
+  font-weight: 900;
+  font-style: italic;
+  fill: #ffffff;
+  paint-order: stroke;
+  stroke: rgba(5, 3, 15, 0.6);
+  stroke-width: 4px;
+}
+.mzu-planet-lock {
+  color: rgba(244, 247, 255, 0.6);
+}
+.mzu-planet-slot {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+/* A transparent hit target over the planet (at least 44 points by touch). */
+.mzu-planet-btn {
+  position: absolute;
+  left: -2.6em;
+  top: -2.6em;
+  width: 5.2em;
+  height: 5.2em;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.mzu-planet-btn:focus-visible,
+html.mz-pad .mzu-planet-btn:focus {
+  outline: 2px dashed var(--cyan);
+  outline-offset: 3px;
+}
+.mzu-planet-label {
+  position: absolute;
+  top: 2.9em;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.mzu-planet-name {
+  font-size: 0.72em;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.mzu-planet-best {
+  font-size: 0.62em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: rgba(244, 247, 255, 0.7);
+}
+.mzu-pips {
+  display: inline-flex;
+  gap: 0.2em;
+}
+.mzu-pip {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25em;
+  height: 1.25em;
+  border-radius: 50%;
+  border: 1px solid rgba(244, 247, 255, 0.3);
+  font-size: 0.62em;
+  font-weight: 900;
+  color: rgba(244, 247, 255, 0.35);
+}
+.mzu-pip.won {
+  color: #05030f;
+  border-color: transparent;
+}
+.mzu-pip.won[data-tier='rookie'] {
+  background: #d58b52;
+}
+.mzu-pip.won[data-tier='pilot'] {
+  background: #d9e2f2;
+}
+.mzu-pip.won[data-tier='ace'] {
+  background: var(--amber);
+}
+.mzu-pip.won[data-tier='legend'] {
+  background: var(--cyan);
+}
+.mzu-tour-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(244, 247, 255, 0.55);
+}
+/* The world card: a side panel over the map's right side; a bottom sheet on a short screen. */
+.mzu-tour-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(22em, 46%);
+  z-index: 2;
+}
+.mzu-tour-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+  padding: 0.9em 1em 1em;
+  border: 1px solid color-mix(in srgb, var(--w-from) 60%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--w-from) 18%, transparent), color-mix(in srgb, var(--w-to) 12%, transparent)),
+    rgba(8, 6, 26, 0.92);
+  box-shadow: var(--panel-glow);
+}
+.mzu-tour-card.locked {
+  border-color: rgba(244, 247, 255, 0.25);
+}
+.mzu-tour-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+}
+.mzu-tour-card-titles {
+  flex: 1;
+  min-width: 0;
+}
+.mzu-tour-card-map {
+  width: 6em;
+  height: 3.6em;
+  color: var(--w-from);
+  filter: drop-shadow(0 0 0.35em color-mix(in srgb, var(--w-from) 70%, transparent));
+}
+.mzu-tour-card .mzu-tier {
+  margin: 0;
+}
+.mzu-tour-locked {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--mz-warn, #ffc23a);
+}
+@media (max-height: 500px) {
+  /* A bottom sheet over the lower part of the map (the map is inert while it shows). */
+  .mzu-tour-sheet {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .mzu-tour-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4em 1em;
+    padding: 0.6em 0.8em 0.7em;
+  }
+  .mzu-tour-card > :is(.mzu-tour-card-head, .mzu-tour-locked) {
+    grid-column: 1 / -1;
+  }
+  .mzu-tour-card-map {
+    height: 2.6em;
+  }
+  .mzu-tour-card .mzu-tier .mzu-note {
+    display: none;
+  }
+  .mzu-tour-map {
+    width: min(100%, calc((100dvh - 7em) * 2.0833));
+  }
+}
+/* The card is narrow: the difficulty label sits above its four options, which share the width. */
+.mzu-tour-card .mzu-seg {
+  flex-wrap: wrap;
+  padding: 0.4em 0;
+  border: 0;
+  background: none;
+}
+.mzu-tour-card .mzu-seg .mzu-row-text {
+  flex-basis: 100%;
+}
+.mzu-tour-card .mzu-seg-opts {
+  flex: 1;
+}
+.mzu-tour-card .mzu-seg-opts button {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.3em;
+  font-size: 0.82em;
+}
+.mzu-tour-card .mzu-tier .mzu-note {
+  font-size: 0.75em;
+  margin: 0.2em 0 0;
+}
+
+/* ---------- M8a: the results screen ---------- */
+.mzu-res {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1.2em;
+  align-items: start;
+}
+.mzu-res-table {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+.mzu-res-table li {
+  display: grid;
+  grid-template-columns: 1.6em 1.8em 1fr auto;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.25em 0.5em;
+  background: rgba(8, 6, 26, 0.55);
+  border-left: 3px solid transparent;
+  font-size: 0.9em;
+}
+.mzu-res-table li.me {
+  border-left-color: var(--mz-player, var(--cyan));
+  background: rgba(25, 240, 255, 0.12);
+}
+.mzu-res-table .pos {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.15em;
+  text-align: center;
+}
+.mzu-res-table .face,
+.mzu-res-table .face svg {
+  display: block;
+  width: 1.8em;
+  height: 1.8em;
+}
+.mzu-res-table .name {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mzu-res-table .tm {
+  font-variant-numeric: tabular-nums;
+  color: rgba(244, 247, 255, 0.75);
+}
+.mzu-res-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+}
+.mzu-res-tally {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  min-height: 1em;
+}
+.mzu-res-tally li {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  animation: mzu-tally-in 0.25s ease-out both;
+}
+.mzu-res-tally .amt,
+.mzu-res-total .amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--mz-good, var(--lime));
+}
+@keyframes mzu-tally-in {
+  from {
+    opacity: 0;
+    transform: translateX(0.8em);
+  }
+}
+.mzu-res-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 0.4em;
+  border-top: 1px solid rgba(244, 247, 255, 0.25);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+.mzu-res-total .amt {
+  font-size: 1.6em;
+  font-style: italic;
+  color: var(--white);
+}
+.mzu-res-unlock {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--w-from);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--w-from) 22%, transparent), transparent);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  animation: mzu-tally-in 0.3s ease-out both;
+}
+.mzu-res-unlock .planet {
+  display: grid;
+  place-items: center;
+  width: 2.2em;
+  height: 2.2em;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--w-from), var(--w-to));
+  color: #ffffff;
+  font-size: 1.1em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.mzu-res-trophies {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.mzu-res-trophies .mzu-pip {
+  width: 1.8em;
+  height: 1.8em;
+  font-size: 0.8em;
+}
+.mzu-res-quote {
+  margin: 0;
+  font-style: italic;
+  color: rgba(244, 247, 255, 0.8);
+}
+.mzu-res .mzu-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 720px), (max-height: 500px) {
+  .mzu-res {
+    gap: 0.8em;
+  }
+  .mzu-res-table li {
+    padding: 0.1em 0.4em;
+    font-size: 0.8em;
+  }
+}
+.mz-reduced-motion :is(.mzu-res-tally li, .mzu-res-unlock) {
+  animation: none;
+}
+
+/* ---------- M8b: Time Trial ---------- */
+.mzu-medal {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  font-size: 0.8em;
+  font-weight: 900;
+  color: #05030f;
+  background: #ffc23a;
+  box-shadow: inset 0 -0.15em 0 rgba(0, 0, 0, 0.25);
+  flex: none;
+}
+.mzu-medal[data-medal='silver'] {
+  background: #d8dde8;
+}
+.mzu-medal[data-medal='bronze'] {
+  background: #d98a4e;
+}
+.mzu-medal.none {
+  background: transparent;
+  color: rgba(244, 247, 255, 0.35);
+  border: 1px dashed rgba(244, 247, 255, 0.3);
+  box-shadow: none;
+}
+.mzu-medal.small {
+  width: 1.3em;
+  height: 1.3em;
+  font-size: 0.7em;
+}
+.mzu-trial {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+}
+.mzu-trial-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+.mzu-trial-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.2em minmax(7em, 1.1fr) 4.5em auto auto minmax(0, 1.6fr);
+  align-items: center;
+  gap: 0.8em;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.35em 0.8em;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: rgba(8, 6, 26, 0.62);
+  border: 1px solid rgba(244, 247, 255, 0.12);
+  border-left: 3px solid var(--w-from);
+  cursor: pointer;
+}
+.mzu-trial-row:hover,
+.mzu-trial-row:focus-visible,
+html.mz-pad .mzu-trial-row:focus {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--w-from) 30%, transparent), color-mix(in srgb, var(--w-to) 24%, transparent)),
+    rgba(8, 6, 26, 0.72);
+  border-color: var(--w-from);
+  outline: none;
+}
+.mzu-trial-row .mzu-world-num {
+  font-size: 1.6em;
+}
+.mzu-trial-row.locked {
+  opacity: 0.6;
+  border-left-color: rgba(244, 247, 255, 0.25);
+}
+.mzu-trial-name {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+.mzu-trial-map {
+  width: 4.5em;
+  height: 2.7em;
+  color: var(--w-from);
+}
+.mzu-trial-best {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.mzu-trial-best .mzu-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+.mzu-trial-times {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8em;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  color: rgba(244, 247, 255, 0.78);
+}
+.mzu-trial-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.mzu-trial-locked {
+  grid-column: 4 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.85em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.mzu-trial-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+}
+@media (max-width: 860px), (max-height: 500px) {
+  .mzu-trial-row {
+    grid-template-columns: 1.8em minmax(6em, 1fr) auto auto;
+    gap: 0.5em;
+    padding: 0.25em 0.6em;
+  }
+  .mzu-trial-map {
+    display: none;
+  }
+  .mzu-trial-times {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+  .mzu-trial-locked {
+    grid-column: 3 / -1;
+  }
+}
+/* The trial results: laps and total, the gap to the best, the medal times. */
+.mzu-res-trial {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.mzu-res-trial .mzu-res-table li {
+  grid-template-columns: 1.6em 1fr auto;
+}
+.mzu-res-gap {
+  margin: 0;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.05em;
+}
+.mzu-res-gap.ahead {
+  color: var(--mz-good);
+}
+.mzu-res-gap.behind {
+  color: var(--mz-bad);
+}
+.mzu-res-medals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+.mzu-res-medals li {
+  display: grid;
+  grid-template-columns: 1.8em 1fr auto 1.2em;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.2em 0.5em;
+  background: rgba(8, 6, 26, 0.45);
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+.mzu-res-medals li.got {
+  opacity: 1;
+  background: rgba(255, 194, 58, 0.14);
+}
+.mzu-res-medals .tm {
+  font-variant-numeric: tabular-nums;
+}
+.mzu-res-medals .mark {
+  font-weight: 900;
+  color: var(--mz-good);
+}
+.mzu-planet-label .mzu-medal {
+  width: 1.3em;
+  height: 1.3em;
+  font-size: 0.62em;
 }

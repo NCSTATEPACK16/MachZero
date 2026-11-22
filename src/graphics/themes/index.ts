@@ -21,6 +21,8 @@ const THEMES: Record<string, ThemeFactory> = {
   'tempest-spire': (fog) => new PlaceholderTheme('tempest-spire', fog),
   // Placeholder until assets/reference/worlds/cinder-forge/chosen.jpg arrives (IMPLEMENTATION §X5 step 8).
   'cinder-forge': (fog) => new PlaceholderTheme('cinder-forge', fog),
+  // Placeholder until assets/reference/worlds/abyss-line/chosen.jpg arrives (IMPLEMENTATION §X6 step 8).
+  'abyss-line': (fog) => new PlaceholderTheme('abyss-line', fog),
 };
 
 export function createTheme(worldId: string, fog: FogUniforms): WorldTheme {
