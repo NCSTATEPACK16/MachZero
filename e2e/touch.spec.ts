@@ -51,7 +51,12 @@ test('a race by touch: steer, boost, pause and resume; a key hands over to the k
     m.app.buyItem('shield');
     m.app.buyItem('mine');
   });
-  await page.getByRole('button', { name: /^RACE/ }).tap();
+  // The tutorial has its own touch test (below): this race is about the controls.
+  await page.evaluate(() => (window as unknown as { __machzero: { app: { updateProfile(f: (p: { tutorialDone: boolean }) => void): void } } }).__machzero.app.updateProfile((p) => (p.tutorialDone = true)));
+  // World Tour is the single race: the map, Neon Bay's card, RACE.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).tap();
+  await page.locator('[data-planet="neon-bay"]').tap();
+  await page.locator('[data-tour-race]').tap();
 
   // The grid intro card: a tap skips it.
   const intro = page.locator('.mz-hud.intro .mz-intro');
