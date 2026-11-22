@@ -58,7 +58,7 @@ export interface ShipStats {
   ramMass: number;
 }
 
-/** Player assists (per profile). Stored from M1; physics applies them from M7. */
+/** Player assists (per profile). Stored from M1; applied in real races from M7a (physics/Assists.ts, RaceSession). */
 export interface Assists {
   autoAccelerate: boolean;
   /** 0 off, 1 light, 2 strong. */
@@ -242,7 +242,43 @@ export type TrackFeature =
    */
   | { type: 'mines'; dStart: number; dEnd: number; count: number; drift: number; lane?: number }
   /** Solid wreckage drifting slowly across the road (Orbital Ring), clear of a lane centred at lateral `lane` (m). */
-  | { type: 'debris'; dStart: number; dEnd: number; count: number; lane?: number };
+  | { type: 'debris'; dStart: number; dEnd: number; count: number; lane?: number }
+  /**
+   * A crosswind zone (Tempest Spire). While its gust is on, every grounded ship between dStart and dEnd is pushed
+   * across the road at `accel` m/s² (× the ship's pushScale), toward the right rail for `dir` 1 and the left for −1.
+   * The gust runs on the hazard clock: on for `duty` of each `period` seconds, offset by `phase`.
+   */
+  | { type: 'wind'; dStart: number; dEnd: number; dir: 1 | -1; accel: number; period: number; phase: number; duty: number }
+  /**
+   * A lightning field (Tempest Spire): `count` strike points between dStart and dEnd, either side of a clear lane
+   * centred at lateral `lane` (m). Each point strikes once per `period` seconds on the hazard clock; `phase` shifts
+   * the whole field.
+   */
+  | { type: 'lightning'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number }
+  /**
+   * The Plunge (Cinder Forge): a steep dive, a floor section and a climb out, from dStart to dEnd. The magnetic lock
+   * holds ships on the road as everywhere else; here gravity also acts along the road (track/features/plunge.ts), so
+   * ships gain speed on the dive and lose it on the climb, and the top-speed cap is higher.
+   */
+  | { type: 'plunge'; dStart: number; dEnd: number }
+  /**
+   * A field of lava geysers (Cinder Forge): `count` vents between dStart and dEnd, either side of a clear lane centred
+   * at lateral `lane` (m). Each vent erupts once per `period` seconds on the hazard clock; `phase` shifts the field.
+   */
+  | { type: 'geysers'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number }
+  /**
+   * The Spine (Abyss Line): the pipe turned inside out. The road's cross-section curls **down** around a tube of the
+   * same circumference (2·halfWidth) below the centreline, and ships ride its outside, all the way round: `lateral`
+   * is the arc position round the tube (0 = the crown, ±halfWidth = the bottom seam). It closes over `transition`
+   * metres after dStart and opens over the last `transition` metres before dEnd; rails end where it closes.
+   */
+  | { type: 'spine'; dStart: number; dEnd: number; transition: number }
+  /**
+   * A field of pressure jets on a Spine (Abyss Line): `count` vents on the tube between dStart and dEnd, either side of
+   * a clear lane centred at lateral `lane` (m, round the tube). Each vent fires once per `period` seconds on the hazard
+   * clock; `phase` shifts the field.
+   */
+  | { type: 'jets'; dStart: number; dEnd: number; count: number; period: number; phase: number; lane?: number };
 
 /** content/tracks/<id>.json */
 export interface TrackDefinition {
@@ -263,7 +299,7 @@ export interface TrackDefinition {
   devTime?: number;
 }
 
-export type SurfaceKind = 'road' | 'air' | 'pipe' | 'ice';
+export type SurfaceKind = 'road' | 'air' | 'pipe' | 'spine' | 'ice';
 
 /** A jump gap resolved onto the built track. */
 export interface TrackJump {
@@ -321,6 +357,8 @@ export interface TrackData {
    * fully closed (uClosedStart..uClosedEnd).
    */
   pipes: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
+  /** Spine extents in u (Abyss Line), as for pipes: the deck curls down round a tube and ships ride its outside. */
+  spines: { uStart: number; uEnd: number; uClosedStart: number; uClosedEnd: number }[];
   /** Loop-the-loops in u (empty on most tracks). */
   loops: { uStart: number; uEnd: number }[];
   /** Gravity multiplier while airborne. */
@@ -445,10 +483,14 @@ export interface ShipState {
   thrustScale: number;
   /** EMP hit: seconds of reduced top speed and acceleration left (set by GAME, counted down by physics). */
   empSlow: number;
-  /** EMP hit: seconds left before the ship can boost again (set by GAME, counted down by physics). */
+  /** Seconds left before the ship can boost again: an EMP hit (set by GAME) or a lightning strike (set by PHYSICS); counted down by physics. */
   empLock: number;
-  /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine. */
+  /** Shield item: seconds left (0 = down). Raised and counted down by GAME; PHYSICS drops it to 0 when it blocks a mine or a lightning strike. */
   shield: number;
+  /** No-KO assist (IMPLEMENTATION §M7a): damage is halved and never takes energy below 1. Absent = off. Set by the App's RaceSession. */
+  noKO?: boolean;
+  /** Boost-from-lap-1 assist: the boost unlocks at GO instead of on lap 2. Absent = off. Set by the App's RaceSession. */
+  earlyBoost?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +553,16 @@ export interface MineView {
   armed: boolean;
 }
 
+/** A Time Trial ghost as the render side sees it this frame (IMPLEMENTATION §M8b): a reused object per ghost. */
+export interface GhostFrame {
+  readonly kind: 'best' | 'dev';
+  readonly chassisId: string;
+  readonly position: THREE.Vector3;
+  readonly quaternion: THREE.Quaternion;
+  /** False when the ghost is switched off or past its end. */
+  visible: boolean;
+}
+
 export interface FrameContext {
   /** Real frame delta in seconds (clamped). */
   dt: number;
@@ -526,6 +578,8 @@ export interface FrameContext {
   player: ShipState;
   track: TrackData;
   race: RaceSnapshot;
+  /** Time Trial ghosts (absent outside a trial). */
+  ghosts?: readonly GhostFrame[];
 }
 
 // ---------------------------------------------------------------------------
@@ -601,4 +655,11 @@ export interface HudActions {
    * results' RACE AGAIN becomes STANDINGS.
    */
   cup?: { onStandings(): void; onRetire(): void };
+  /** Ends the grid intro card early (a tap on it; keys and buttons go through the App's input). */
+  onSkipIntro?(): void;
+  /**
+   * Tilt steering (M7c): `needed` is true when tilt is chosen but no motion data arrives (iOS asks for permission again
+   * after each launch); the intro card then shows ENABLE TILT, which calls `enable` from the tap. Skipped: the slider.
+   */
+  tilt?: { needed(): boolean; enable(): void };
 }

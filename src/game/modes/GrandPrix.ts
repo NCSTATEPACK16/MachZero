@@ -185,9 +185,10 @@ export function cupAward(cup: CupState, playerId: ShipId = 0): CupAward | null {
 
 /**
  * A saved cup from an untrusted save: well formed, or null. A cup that is unknown or can't be played (one of
- * its worlds is not built) is dropped: the cup ends and nothing else in the profile is touched.
+ * its worlds is not built) is dropped: the cup ends and nothing else in the profile is touched. With `finished`
+ * the cup must have every race recorded (a championship season's finished cups, IMPLEMENTATION §M8c).
  */
-export function sanitizeCup(v: unknown, tiers: readonly AITier[]): CupState | null {
+export function sanitizeCup(v: unknown, tiers: readonly AITier[], finished = false): CupState | null {
   if (typeof v !== 'object' || v === null) return null;
   const o = v as Record<string, unknown>;
   const def = typeof o.cupId === 'string' ? cupById(o.cupId) : undefined;
@@ -201,6 +202,6 @@ export function sanitizeCup(v: unknown, tiers: readonly AITier[]): CupState | nu
     results.push(row);
   }
   // A finished cup is settled at its last race; one left over is dropped.
-  if (results.length >= races) return null;
+  if (finished ? results.length !== races : results.length >= races) return null;
   return { cupId: def.id, tier: o.tier as AITier, results };
 }

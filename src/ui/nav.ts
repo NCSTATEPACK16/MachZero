@@ -1,8 +1,9 @@
 /**
  * Menu focus navigation shared by keyboard, gamepad and touch. Directions are spatial: focus moves to the
  * nearest element on screen in that direction (so side-by-side buttons and card grids work); when nothing lies
- * that way it falls back to DOM order (up/left = previous, down/right = next, wrapping). Range sliders take
- * left/right as value steps. `confirm` clicks the focused element; `back` clicks the screen's [data-back] button.
+ * that way it falls back to DOM order (up/left = previous, down/right = next, wrapping). An element can name its
+ * neighbour in a direction with `data-nav-<dir>="<selector>"` (the world map's chain), which wins over both. Range
+ * sliders take left/right as value steps. `confirm` clicks the focused element; `back` clicks the screen's [data-back] button.
  */
 import type { MenuAction } from '../core/contracts';
 
@@ -73,6 +74,13 @@ function nearest(els: HTMLElement[], from: HTMLElement, dir: Dir): HTMLElement |
 function move(screen: ParentNode, dir: Dir): void {
   const els = focusables(screen);
   if (els.length === 0) return;
+  const sel = document.activeElement instanceof HTMLElement ? document.activeElement.getAttribute(`data-nav-${dir}`) : null;
+  const named = sel ? screen.querySelector<HTMLElement>(sel) : null;
+  if (named && els.includes(named)) {
+    named.focus();
+    named.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    return;
+  }
   const step = dir === 'down' || dir === 'right' ? 1 : -1;
   const i = els.indexOf(document.activeElement as HTMLElement);
   const next =

@@ -23,6 +23,11 @@ import { type BuiltDebris, buildDebris, debrisLateral, debrisPose } from '../tra
 import { MineField, type MineState } from './MineField';
 import { Drafting } from './Drafting';
 import { MINE_LIFT } from '../track/features/mine';
+import { type BuiltWind, buildWinds, windAt } from '../track/features/wind';
+import { type BuiltStrike, buildStrikes, STRIKE_RADIUS, strikeActive, strikeCycle } from '../track/features/lightning';
+import { type BuiltGeyser, buildGeysers, GEYSER_RADIUS, geyserActive, geyserCycle } from '../track/features/geyser';
+import { type BuiltJet, buildJets, JET_RADIUS, jetActive, jetCycle } from '../track/features/jet';
+import type { TimedPoint } from '../track/features/timedField';
 
 /** Contact accumulation for one collider pair (all manifolds of a trimesh contact are merged). */
 interface ContactAccumulator {
@@ -99,6 +104,21 @@ export class PhysicsSystem implements IPhysicsSystem {
   /** Mines (Orbital Ring): trigger spheres on the hazard clock. */
   private readonly mineField: MineField;
   private readonly drafting: Drafting;
+  /** Crosswind zones and lightning strike points (Tempest Spire), both on the hazard clock. */
+  readonly winds: readonly BuiltWind[];
+  readonly strikes: readonly BuiltStrike[];
+  /** Lava geyser vents (Cinder Forge), on the hazard clock. */
+  readonly geysers: readonly BuiltGeyser[];
+  /** Pressure-jet vents on the Spine (Abyss Line), on the hazard clock. */
+  readonly jets: readonly BuiltJet[];
+  /** The cycle in which each ship was last hit by each strike point or vent (key ship·1024 + index): one hit per cycle. */
+  private readonly strikeHitCycle = new Map<number, number>();
+  private readonly geyserHitCycle = new Map<number, number>();
+  private readonly jetHitCycle = new Map<number, number>();
+  private readonly jetDir = new THREE.Vector3();
+  private readonly jetPoint = new THREE.Vector3();
+  private readonly strikeLocal = new THREE.Vector3();
+  private readonly strikeInv = new THREE.Quaternion();
 
   // Scratch for contact resolution (no per-step allocation).
   private readonly acc: ContactAccumulator = { nx: 0, ny: 0, nz: 0, count: 0, px: 0, py: 0, pz: 0, depth: Infinity };
@@ -147,6 +167,10 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.poseObstacles(true);
     this.mineField = new MineField(track);
     this.drafting = new Drafting(bus);
+    this.winds = buildWinds(track);
+    this.strikes = buildStrikes(track);
+    this.geysers = buildGeysers(track);
+    this.jets = buildJets(track);
 
     // Colliders added to the world only become visible to scene queries after a step.
     world.timestep = CONFIG.FIXED_DT;
@@ -280,6 +304,103 @@ export class PhysicsSystem implements IPhysicsSystem {
     this.raceClock = 0;
     this.poseObstacles(true);
     this.mineField.reset(0);
+    this.strikeHitCycle.clear();
+    this.geyserHitCycle.clear();
+    this.jetHitCycle.clear();
+  }
+
+  /** The crosswind (m/s² along the road's right) at main-loop u now. */
+  windAt(u: number): number {
+    return windAt(this.winds, u * this.track.length, this.track.length, this.raceClock);
+  }
+
+  /** Hand each ship the crosswind where it is: grounded ships on the main loop that are racing or have finished. */
+  private applyWind(): void {
+    for (const c of this.controllerList) {
+      const s = c.state;
+      const active = (s.status === 'racing' || s.status === 'finished') && s.path === null;
+      c.setWind(active ? this.windAt(s.trackU) : 0);
+    }
+  }
+
+  /**
+   * A timed hazard point that is active this step (a lightning bolt, an erupting geyser): `hit` runs for every racing
+   * hull that touches it (a sphere of `radius` at hull height against the hull box, like a mine), once per `cycle`.
+   * A raised shield takes the hit instead, and drops.
+   */
+  private hitTimedPoint(
+    k: TimedPoint,
+    radius: number,
+    cycle: number,
+    hitCycle: Map<number, number>,
+    blocked: 'lightning' | 'geyser' | 'jet',
+    hit: (c: ShipController) => void,
+  ): void {
+    for (const c of this.controllerList) {
+      const s = c.state;
+      if ((s.status !== 'racing' && s.status !== 'finished') || !c.isColliderEnabled) continue;
+      const key = s.def.id * 1024 + k.index;
+      if (hitCycle.get(key) === cycle) continue;
+      const half = c.hullHalf;
+      const p = this.strikeLocal.copy(k.center).sub(s.position).applyQuaternion(this.strikeInv.copy(s.quaternion).invert());
+      const dx = Math.max(Math.abs(p.x) - half.x, 0);
+      const dy = Math.max(Math.abs(p.y) - half.y, 0);
+      const dz = Math.max(Math.abs(p.z) - half.z, 0);
+      if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+      hitCycle.set(key, cycle);
+      if (s.shield > 0) {
+        s.shield = 0;
+        this.bus.emit('item:shield', { shipId: s.def.id, blocked, point: s.position.clone() });
+        continue;
+      }
+      hit(c);
+    }
+  }
+
+  /** Lightning: while a point strikes, every racing hull inside its circle is hit once. */
+  private checkLightning(): void {
+    const t = this.raceClock;
+    for (const k of this.strikes) {
+      if (!strikeActive(k, t)) continue;
+      this.hitTimedPoint(k, STRIKE_RADIUS, strikeCycle(k, t), this.strikeHitCycle, 'lightning', (c) => {
+        c.applyStrike(this.hazards);
+        this.bus.emit('hazard:lightning', { shipId: c.state.def.id, strike: k.index, point: c.state.position.clone() });
+      });
+    }
+  }
+
+  /** Geysers: while a vent erupts, every racing hull that touches its column is hit, once per eruption. */
+  private checkGeysers(): void {
+    const t = this.raceClock;
+    for (const g of this.geysers) {
+      if (!geyserActive(g, t)) continue;
+      this.hitTimedPoint(g, GEYSER_RADIUS, geyserCycle(g, t), this.geyserHitCycle, 'geyser', (c) => {
+        c.applyGeyser(g.up, this.hazards);
+        this.bus.emit('hazard:geyser', { shipId: c.state.def.id, geyser: g.index, point: c.state.position.clone() });
+      });
+    }
+  }
+
+  /**
+   * Pressure jets: while a vent fires, every racing hull that touches its jet is hit, once per jet. The knock is round
+   * the tube (along the curled surface, across the road), away from the vent: toward the side of it the hull is on, or
+   * toward the field's clear lane for a hull right over it.
+   */
+  private checkJets(): void {
+    const t = this.raceClock;
+    for (const j of this.jets) {
+      if (!jetActive(j, t)) continue;
+      this.hitTimedPoint(j, JET_RADIUS, jetCycle(j, t), this.jetHitCycle, 'jet', (c) => {
+        const s = c.state;
+        const away = s.lateral - j.lateral;
+        const side = Math.abs(away) > 0.05 ? Math.sign(away) : Math.sign(j.lane - j.lateral) || 1;
+        // Round the tube at the hull: forward × the surface normal is the direction of increasing lateral.
+        this.track.surfacePoint(s.trackU, s.lateral, this.jetPoint, this.jetDir);
+        this.jetDir.crossVectors(this.track.sampleAt(s.trackU).forward, this.jetDir).normalize().multiplyScalar(side);
+        c.applyJet(this.jetDir, this.hazards);
+        this.bus.emit('hazard:jet', { shipId: s.def.id, jet: j.index, point: s.position.clone() });
+      });
+    }
   }
 
   private addObstacle(kind: Obstacle['kind'], index: number, width: number, height: number, length: number): void {
@@ -343,6 +464,7 @@ export class PhysicsSystem implements IPhysicsSystem {
 
     const list = this.controllerList;
     this.drafting.update(this.ships, dt);
+    if (this.winds.length > 0) this.applyWind();
 
     // 1. Render-interpolation history first, then per-ship simulation.
     for (let i = 0; i < list.length; i++) list[i].beginStep();
@@ -365,6 +487,9 @@ export class PhysicsSystem implements IPhysicsSystem {
     }
     for (const pair of this.activePairs.values()) this.resolveShipContact(pair[0], pair[1]);
     this.checkMines();
+    if (this.strikes.length > 0) this.checkLightning();
+    if (this.geysers.length > 0) this.checkGeysers();
+    if (this.jets.length > 0) this.checkJets();
 
     // 4. Projection, zones, energy, safety respawn.
     for (let i = 0; i < list.length; i++) list[i].finishStep(dt);

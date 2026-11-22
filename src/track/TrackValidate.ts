@@ -7,16 +7,38 @@
  *   - lap length in the band that gives a 30–45 s lap at Pilot pace;
  *   - split paths: fork and merge overlaps on main straights, branch radius and elevation, and the branch clear
  *     of the main road once the two have separated;
- *   - loops: side offset that keeps the entry and exit decks apart, level and unbanked at both ends.
+ *   - loops: side offset that keeps the entry and exit decks apart, level and unbanked at both ends;
+ *   - crosswind zones: not on a jump, a pipe, a loop or the start and pit area, not within 60 m of a corkscrew,
+ *     clear of each other, long enough to fade in and out, and a gust that can be steered against;
+ *   - lightning fields: the same places as wind, never inside a crosswind zone, a period long enough for the
+ *     Rookie warning, and room for the strike circles beside the clear lane;
+ *   - the Plunge: straight in plan and unbanked wherever it slopes, no steeper than PLUNGE_MAX_PITCH, a vertical
+ *     radius of at least PLUNGE_MIN_RADIUS, level at both ends, and nothing else on it (no other feature, dash
+ *     plate, wind zone or hazard field); outside a Plunge the road is never steeper than MAX_GRADE;
+ *   - geyser fields: the same places as lightning, never on a Plunge, a period long enough for the Rookie warning,
+ *     and room for the vents beside the clear lane;
+ *   - spines: the pipe's rules (a gentle bend, long enough transitions, a closed stretch), the tube's bottom
+ *     within the world's elevation band, and both transitions on a straight with SPINE_STRAIGHT_CLOSED metres of
+ *     straight closed tube beside them (a ship holding a line round the side must be out of a bend before the seam
+ *     opens: there the rails come back);
+ *   - jet fields: only on a spine's closed stretch, a period long enough for the Rookie warning, and room for the
+ *     vents beside the clear lane and off the bottom seam.
  */
 import { CONFIG } from '../core/config';
 import type { TrackData, TrackFeature } from '../core/contracts';
 import { RAMP_LENGTH, LANDING_BLEND } from './features/jump';
 import { branchSeparation } from './features/branch';
 import { LOOP_MIN_SIDE } from './features/loop';
+import { WIND_EDGE } from './features/wind';
+import { STRIKE_MIN_PERIOD, STRIKE_RADIUS, strikeLaneGap } from './features/lightning';
+import { laneIntervals } from './features/mine';
+import { PLUNGE_MAX_PITCH, PLUNGE_MIN_RADIUS } from './features/plunge';
+import { GEYSER_MIN_PERIOD, GEYSER_RADIUS, geyserLaneGap } from './features/geyser';
+import { JET_MIN_PERIOD, jetLaneGap, jetSeamGap } from './features/jet';
+import { PIPE_RADIUS } from './features/pipe';
 
 export interface TrackIssue {
-  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop';
+  code: 'radius' | 'clearance' | 'elevation' | 'feature-overlap' | 'feature-straight' | 'start' | 'length' | 'pipe' | 'branch' | 'loop' | 'wind' | 'lightning' | 'plunge' | 'geyser' | 'spine' | 'jets';
   message: string;
 }
 
@@ -55,8 +77,20 @@ export const VALIDATION = {
   PIPE_MIN_TRANSITION: 60,
   /** A pipe's closed stretch must be at least this long. */
   PIPE_MIN_CLOSED: 150,
+  /** Straight closed tube (m) a spine keeps next to each transition, which is on a straight too. */
+  SPINE_STRAIGHT_CLOSED: 50,
   /** Tolerance (m) on the rail-to-rail separation a branch keeps from the main road once separated. */
   BRANCH_SEPARATION_SLACK: 0.5,
+  /** A crosswind zone keeps this far (m) from a corkscrew: the deck rolls there and a push would fight the magnetism. */
+  WIND_CORKSCREW_GAP: 60,
+  /** The strongest gust a zone may have (m/s²): beyond it the lateral thrusters cannot hold a line. */
+  WIND_MAX_ACCEL: 12,
+  /** The shortest gust, on and off (s): the ramps at both ends must fit. */
+  WIND_MIN_GUST: 1.5,
+  /** Steepest slope (world-up part of the road's direction) outside a Plunge: about 12°. Gravity along the road exists only there. */
+  MAX_GRADE: 0.21,
+  /** Slope above which a stretch of a Plunge counts as its dive or climb (it must be straight and unbanked there). */
+  PLUNGE_SLOPE: 0.05,
 } as const;
 
 /** [start, end] metres a feature occupies, including its approach/exit (jump ramp and landing blend). */
@@ -64,7 +98,9 @@ function featureSpan(f: TrackFeature): [number, number] | null {
   switch (f.type) {
     case 'corkscrew':
     case 'pipe':
+    case 'spine':
     case 'loop':
+    case 'plunge':
       return [f.dStart, f.dEnd];
     case 'jump':
       return [f.dTakeoff - RAMP_LENGTH, f.dLanding + LANDING_BLEND];
@@ -175,14 +211,27 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
       }
     }
   }
+  // Pipes and spines (the pipe turned inside out) bend gently, close and open slowly, and stay closed a while.
   for (const f of track.features) {
-    if (f.type !== 'pipe') continue;
-    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
-    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
+    if (f.type !== 'pipe' && f.type !== 'spine') continue;
+    const code = f.type;
+    if (f.transition < VALIDATION.PIPE_MIN_TRANSITION) issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m closes over ${f.transition} m < ${VALIDATION.PIPE_MIN_TRANSITION} m` });
+    if (f.dEnd - f.dStart - 2 * f.transition < VALIDATION.PIPE_MIN_CLOSED) issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m is closed for less than ${VALIDATION.PIPE_MIN_CLOSED} m` });
     for (let d = f.dStart; d <= f.dEnd; d += 5) {
-      const k = Math.abs(track.sampleAt((((d % L) + L) % L) / L).curvature);
-      if (k > 1 / VALIDATION.PIPE_MIN_RADIUS) {
-        issues.push({ code: 'pipe', message: `pipe at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+      const s = track.sampleAt((((d % L) + L) % L) / L);
+      if (Math.abs(s.curvature) > 1 / VALIDATION.PIPE_MIN_RADIUS) {
+        issues.push({ code, message: `${code} at ${f.dStart.toFixed(0)} m bends tighter than ${VALIDATION.PIPE_MIN_RADIUS} m at ${d.toFixed(0)} m` });
+        break;
+      }
+      // A spine closes and opens on a straight, with straight closed tube beside it.
+      const tr = f.transition + VALIDATION.SPINE_STRAIGHT_CLOSED;
+      if (f.type === 'spine' && (d - f.dStart < tr || f.dEnd - d < tr) && Math.abs(s.curvature) > VALIDATION.STRAIGHT_K) {
+        issues.push({ code, message: `spine at ${f.dStart.toFixed(0)} m bends at ${d.toFixed(0)} m, within ${tr} m of an end (it must close and open on a straight)` });
+        break;
+      }
+      // A spine's tube hangs 2·R below the crown: its bottom, with a hull under it, stays in the world's band.
+      if (f.type === 'spine' && s.position.y - 2 * PIPE_RADIUS - CONFIG.HOVER_HEIGHT < elevation[0]) {
+        issues.push({ code, message: `spine at ${f.dStart.toFixed(0)} m: the tube's bottom is below ${elevation[0]} m at ${d.toFixed(0)} m` });
         break;
       }
     }
@@ -192,6 +241,108 @@ export function validateTrack(track: TrackData, elevation: [number, number] = [C
     for (const s of spans) {
       if (circularOverlap([f.dStart, f.dEnd], s.span, L)) issues.push({ code: 'feature-overlap', message: `dash plate at ${f.dStart.toFixed(0)} m sits on the ${s.f.type}` });
     }
+  }
+
+  // ---- crosswind zones and lightning fields ----
+  const windZones = track.features.filter((f): f is Extract<TrackFeature, { type: 'wind' }> => f.type === 'wind');
+  const fields = track.features.filter((f): f is Extract<TrackFeature, { type: 'lightning' }> => f.type === 'lightning');
+  const placed = (what: string, code: 'wind' | 'lightning' | 'geyser', span: [number, number]): void => {
+    if (circularOverlap(span, startZone, L)) issues.push({ code, message: `${what} overlaps the start / pit area` });
+    for (const s of spans) {
+      const gap = code === 'wind' && s.f.type === 'corkscrew' ? VALIDATION.WIND_CORKSCREW_GAP : 0;
+      if (circularOverlap(span, [s.span[0] - gap, s.span[1] + gap], L)) {
+        issues.push({ code, message: gap ? `${what} is within ${gap} m of the corkscrew at ${s.span[0].toFixed(0)} m` : `${what} overlaps the ${s.f.type} at ${s.span[0].toFixed(0)} m` });
+      }
+    }
+  };
+  windZones.forEach((w, i) => {
+    const what = `wind zone at ${w.dStart.toFixed(0)} m`;
+    placed(what, 'wind', [w.dStart, w.dEnd]);
+    if (w.dEnd - w.dStart < 4 * WIND_EDGE) issues.push({ code: 'wind', message: `${what} is shorter than ${4 * WIND_EDGE} m` });
+    if (!(w.accel > 0) || w.accel > VALIDATION.WIND_MAX_ACCEL) issues.push({ code: 'wind', message: `${what}: gust ${w.accel} m/s² outside 0–${VALIDATION.WIND_MAX_ACCEL} m/s²` });
+    if (!(w.duty > 0) || w.duty > 1) issues.push({ code: 'wind', message: `${what}: duty ${w.duty} outside 0–1` });
+    else if (w.duty < 1 && (w.duty * w.period < VALIDATION.WIND_MIN_GUST || (1 - w.duty) * w.period < VALIDATION.WIND_MIN_GUST)) {
+      issues.push({ code: 'wind', message: `${what}: the gust is on or off for less than ${VALIDATION.WIND_MIN_GUST} s` });
+    }
+    for (const o of windZones.slice(i + 1)) {
+      if (circularOverlap([w.dStart, w.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'wind', message: `${what} overlaps the wind zone at ${o.dStart.toFixed(0)} m` });
+    }
+  });
+  for (const f of fields) {
+    const what = `lightning field at ${f.dStart.toFixed(0)} m`;
+    placed(what, 'lightning', [f.dStart, f.dEnd]);
+    if (f.period < STRIKE_MIN_PERIOD) issues.push({ code: 'lightning', message: `${what}: period ${f.period} s < ${STRIKE_MIN_PERIOD} s (the Rookie warning would not fit)` });
+    if (!(f.count >= 1)) issues.push({ code: 'lightning', message: `${what} has no strike points` });
+    if (laneIntervals(track.halfWidth, f.lane ?? 0, strikeLaneGap(), STRIKE_RADIUS + 0.5).length === 0) issues.push({ code: 'lightning', message: `${what} leaves no room beside its clear lane` });
+    for (const w of windZones) {
+      if (circularOverlap([f.dStart, f.dEnd], [w.dStart, w.dEnd], L)) issues.push({ code: 'lightning', message: `${what} is inside the wind zone at ${w.dStart.toFixed(0)} m` });
+    }
+  }
+
+  // ---- geyser fields ----
+  for (const f of track.features) {
+    if (f.type !== 'geysers') continue;
+    const what = `geyser field at ${f.dStart.toFixed(0)} m`;
+    placed(what, 'geyser', [f.dStart, f.dEnd]);
+    if (f.period < GEYSER_MIN_PERIOD) issues.push({ code: 'geyser', message: `${what}: period ${f.period} s < ${GEYSER_MIN_PERIOD} s (the Rookie warning would not fit)` });
+    if (!(f.count >= 1)) issues.push({ code: 'geyser', message: `${what} has no vents` });
+    if (laneIntervals(track.halfWidth, f.lane ?? 0, geyserLaneGap(), GEYSER_RADIUS + 0.5).length === 0) issues.push({ code: 'geyser', message: `${what} leaves no room beside its clear lane` });
+    for (const o of [...windZones, ...fields]) {
+      if (circularOverlap([f.dStart, f.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'geyser', message: `${what} overlaps the ${o.type === 'wind' ? 'wind zone' : 'lightning field'} at ${o.dStart.toFixed(0)} m` });
+    }
+  }
+
+  // ---- jet fields: only on the closed stretch of a spine ----
+  const spines = track.features.filter((f): f is Extract<TrackFeature, { type: 'spine' }> => f.type === 'spine');
+  for (const f of track.features) {
+    if (f.type !== 'jets') continue;
+    const what = `jet field at ${f.dStart.toFixed(0)} m`;
+    const host = spines.find((p) => circularOverlap([f.dStart, f.dStart], [p.dStart + p.transition, p.dEnd - p.transition], L) && circularOverlap([f.dEnd, f.dEnd], [p.dStart + p.transition, p.dEnd - p.transition], L));
+    if (!host) issues.push({ code: 'jets', message: `${what} is not on the closed stretch of a spine` });
+    if (f.period < JET_MIN_PERIOD) issues.push({ code: 'jets', message: `${what}: period ${f.period} s < ${JET_MIN_PERIOD} s (the Rookie warning would not fit)` });
+    if (!(f.count >= 1)) issues.push({ code: 'jets', message: `${what} has no vents` });
+    if (laneIntervals(track.halfWidth, f.lane ?? 0, jetLaneGap(), jetSeamGap()).length === 0) issues.push({ code: 'jets', message: `${what} leaves no room beside its clear lane and off the seam` });
+    for (const o of track.features) {
+      if (o === f || (o.type !== 'jets' && o.type !== 'wind' && o.type !== 'lightning' && o.type !== 'geysers' && o.type !== 'mines' && o.type !== 'debris')) continue;
+      if (circularOverlap([f.dStart, f.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'jets', message: `${what} overlaps the ${o.type} at ${o.dStart.toFixed(0)} m` });
+    }
+  }
+
+  // ---- the Plunge ----
+  const plunges = track.features.filter((f): f is Extract<TrackFeature, { type: 'plunge' }> => f.type === 'plunge');
+  const sampleAtD = (d: number) => track.sampleAt((((d % L) + L) % L) / L);
+  for (const f of plunges) {
+    const what = `plunge at ${f.dStart.toFixed(0)} m`;
+    let steepest = 0;
+    let tightest = Infinity;
+    let bent = false;
+    for (let d = f.dStart; d <= f.dEnd; d += 2) {
+      const s = sampleAtD(d);
+      steepest = Math.max(steepest, Math.abs(s.forward.y));
+      if (Math.abs(s.forward.y) < VALIDATION.PLUNGE_SLOPE) continue;
+      if (!bent && (Math.abs(s.curvature) > VALIDATION.STRAIGHT_K || Math.abs(s.right.y) > 0.02)) {
+        issues.push({ code: 'plunge', message: `${what} bends or banks on its slope at ${d.toFixed(0)} m` });
+        bent = true;
+      }
+      tightest = Math.min(tightest, 4 / Math.max(sampleAtD(d + 2).forward.distanceTo(sampleAtD(d - 2).forward), 1e-9));
+    }
+    const pitch = (Math.asin(Math.min(1, steepest)) * 180) / Math.PI;
+    if (pitch > PLUNGE_MAX_PITCH) issues.push({ code: 'plunge', message: `${what} is ${pitch.toFixed(1)}° steep > ${PLUNGE_MAX_PITCH}°` });
+    if (steepest < VALIDATION.MAX_GRADE) issues.push({ code: 'plunge', message: `${what} has no dive (steepest ${pitch.toFixed(1)}°)` });
+    if (tightest < PLUNGE_MIN_RADIUS) issues.push({ code: 'plunge', message: `${what}: vertical radius ${tightest.toFixed(0)} m < ${PLUNGE_MIN_RADIUS} m` });
+    if (sampleAtD(f.dStart).up.y < 0.999 || sampleAtD(f.dEnd).up.y < 0.999) issues.push({ code: 'plunge', message: `${what} must start and end on the level, unbanked` });
+    for (const o of track.features) {
+      if (o.type !== 'wind' && o.type !== 'lightning' && o.type !== 'geysers' && o.type !== 'mines' && o.type !== 'debris' && o.type !== 'ice') continue;
+      if (circularOverlap([f.dStart, f.dEnd], [o.dStart, o.dEnd], L)) issues.push({ code: 'plunge', message: `${what}: the ${o.type} at ${o.dStart.toFixed(0)} m is on it` });
+    }
+  }
+  // Gravity acts along the road only on a Plunge, so no other stretch may be steep.
+  for (let i = 0; i < n; i++) {
+    const d = i * ds;
+    // A jump's ramp and a loop are steep by design (their spans include the Plunges').
+    if (Math.abs(track.samples[i].forward.y) <= VALIDATION.MAX_GRADE || spans.some((x) => circularOverlap([d, d], x.span, L))) continue;
+    issues.push({ code: 'plunge', message: `the road is steeper than ${(Math.asin(VALIDATION.MAX_GRADE) * 180 / Math.PI).toFixed(0)}° at ${d.toFixed(0)} m, outside a Plunge` });
+    break;
   }
 
   // ---- loops ----

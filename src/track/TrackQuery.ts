@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import type { TrackProjection, TrackSample } from '../core/contracts';
 import { wrapAngle } from '../core/math';
 import type { FrameSet } from './TrackFrames';
-import { CURL_EPS, curlPoint, uncurlPoint, type CurledPoint } from './features/pipe';
+import { curlPoint, isFlatCurl, uncurlPoint, type CurledPoint } from './features/pipe';
 
 const HINT_WINDOW = 64;
 const SUSPICIOUS_DISTANCE = 40;
@@ -63,7 +63,7 @@ export class TrackQuery {
     this.curl = frames.curl;
   }
 
-  /** Pipe curl at u (0 = flat deck, 1 = closed tube). */
+  /** Signed curl at u (0 = flat deck, 1 = closed pipe, −1 = closed spine). */
   curlAt(u: number): number {
     this.evaluate(u);
     return this.curlV;
@@ -211,7 +211,7 @@ export class TrackQuery {
     const x = dx * this.rx + dy * this.ry + dz * this.rz;
     const y = dx * this.ux + dy * this.uy + dz * this.uz;
     const sample = this.makeSample();
-    if (this.curlV < CURL_EPS) return { u: this.u, distance: this.u * this.length, lateral: x, height: y, sample, path: null };
+    if (isFlatCurl(this.curlV)) return { u: this.u, distance: this.u * this.length, lateral: x, height: y, sample, path: null };
     // Inside a pipe: lateral is the arc position around the curled deck, height is measured along its normal.
     const loc = this.local;
     uncurlPoint(x, y, this.curlV, loc);
@@ -258,7 +258,7 @@ export class TrackQuery {
       this.pz + this.rz * b.x + this.uz * b.y,
     );
     if (outUp) {
-      if (this.curlV < CURL_EPS) outUp.set(this.ux, this.uy, this.uz);
+      if (isFlatCurl(this.curlV)) outUp.set(this.ux, this.uy, this.uz);
       else {
         const px = out.x;
         const py = out.y;

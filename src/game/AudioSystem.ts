@@ -94,6 +94,9 @@ export class AudioSystem implements IAudioSystem {
       bus.on('ship:dash', (e) => this.onDash(e.shipId)),
       bus.on('item:emp', (e) => this.onEmp(e.from, e.target)),
       bus.on('hazard:mine', (e) => this.onMine(e.shipId)),
+      // A geyser or jet hit sounds like a mine blast until M6 gives each its own sound.
+      bus.on('hazard:geyser', (e) => this.onMine(e.shipId)),
+      bus.on('hazard:jet', (e) => this.onMine(e.shipId)),
       bus.on('item:use', (e) => this.onItemUse(e.shipId, e.kind)),
       bus.on('item:shield', (e) => this.onShieldBlock(e.shipId)),
       bus.on('item:warn', (e) => {

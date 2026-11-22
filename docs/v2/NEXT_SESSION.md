@@ -1,14 +1,115 @@
-# Next-session brief: MachZero 2.1 expansion (design agreed 2026-11-10; build in progress)
+# Next-session brief: MachZero (M7 built as #41–#43, rolled up in #44; M8a built 2026-11-20 as #45; M8b built 2026-11-21; next build: M8c)
 
-Paste the prompt at the bottom into a fresh Claude Code session opened on
-`/Users/johnbradner/Documents/ClaudeWork/MachZero`. Everything above it is the context that prompt relies on.
+Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
 
-## Where things stand (2026-11-10, the 2.1 design session)
+## M8b built (2026-11-21)
 
-- **Resume here:** X0 docs are PR **#32**, X1 cups **#33**, X2 environment effects **#34**, **X3 upgrades #35** (all built; each waits on the user's checks, listed in its PR body). **Next: X4 Tempest Spire** (IMPLEMENTATION §X4), branch `v2/x4-tempest-spire` from `v2/x3-upgrades`: the wind track feature with its hold sim first, then the track, hazard, AI and sims on a placeholder theme. Its look waits for `assets/reference/worlds/tempest-spire/chosen.jpg`. **Read §X4's "Build notes from X1–X3 as built" and its commit points before step 1**: they list what the code already offers, what X4 must add (a way to hide a built world, a placeholder theme, a `--world` argument for the perf script) and where to open the draft PR.
-- **`expansion` is still off.** Turn it on when the user approves the look of X3's parts.
-- **Merge order now (2026-11-10):** **#36** (one PR into `main` that combines #21–#34; #34 was merged into `v2/x1-cups`), then **#35** (X3, base `main`). After #36 merges, close #24, #28, #31, #32 and #33 by hand: their content is in `main`. New work branches from `v2/x3-upgrades`.
+- **M8b is built** as **NCSTATEPACK16/MachZero#46** on `v2/m8b-time-trial` (base `v2/x6-abyss-line`, which holds M7 and M8a): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
+- **Waiting on the owner in M8b:** the device gate: fps with two ghosts on Neon Bay and Abyss Line, on both devices, and the best ghost still there after a relaunch.
+- **Re-bake the dev ghosts** (`npm run ghosts:bake`) whenever a track or the physics changes. The guard test in `sim/ghostBake.sim.test.ts` fails until you do.
+- **#44 and #45 are merged** (2026-11-21): #45 into `v2/m7c-comfort`, then #44 carried M7 and M8a into `v2/x6-abyss-line` (#39's head). So M8b's PR is based on `v2/x6-abyss-line`, and its diff is M8b alone.
+- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → #46 (M8b) → M8c.
 
+## M8a built (2026-11-20)
+
+- **M7's stack was merged into the wrong bases:** #41–#43 were merged a few seconds apart, each into a branch already merged, so none of M7 reached `v2/x6-abyss-line` or main. **NCSTATEPACK16/MachZero#44** (head `v2/m7c-comfort`, base `v2/x6-abyss-line`, no new code) puts all of M7 back in the stack. Merge order to main: #37 → #38 → #39 → #44 → #45 (M8a).
+- **M8a is built** on `v2/m8a-world-tour` (base `v2/m7c-comfort`): save v9, World Tour rules, cup unlocks, the world map, booking at the results, the results screen, the sound hooks. Behind `modes`. Read IMPLEMENTATION §M8a "As built" before M8b: it records the decisions made while building (the chain rule, granting with `modes` off, the season sanitizer, `App.events`, `data-nav-<dir>`).
+- **Waiting on the owner in M8a:** the look of the map and the results screen; the device check (pad and touch on both devices, with `VITE_FEATURES=modes,expansion`).
+- **M8b stacks on `v2/m8a-world-tour`.**
+
+## M7 built (2026-11-19)
+
+- **M7 is built, as three stacked PRs:**
+  - **NCSTATEPACK16/MachZero#41 M7a** (`v2/m7a-assists`, base `claude/zen-knuth-uw6y2i` = the M7 + M8 design-docs PR #40);
+  - **#42 M7b** (`v2/m7b-touch`, base `v2/m7a-assists`);
+  - **#43 M7c** (`v2/m7c-comfort`, base `v2/m7b-touch`).
+
+  `touch` is on in #43. Read IMPLEMENTATION §M7a, §M7b and §M7c "As built" before M8.
+- **Waiting on the owner in M7:**
+  - the device check of #41;
+  - the device gates of #42 and #43;
+  - **the default air-brake style** (#42's gate);
+  - **tilt's direction and permission on iOS**: not verified on a device or against current WebKit docs (§M7c as built). If tilt steers the wrong way, flip `TiltInput`'s iOS sign.
+- **CI:**
+  - **The browser smoke job's time limit is now 20 min** (#41). At 10 it was cancelled after every spec had passed, on #39 and #40 as well.
+  - **Slow world smokes on a cloud build container:** the Cinder Forge and Abyss Line smokes (and Tempest Spire under load) hit the 2-minute per-test cap on a CPU-only cloud container, on the base branch too. CI and the owner's Mac run them in time.
+- **M8a stacked on `v2/m7c-comfort`** (built; see above).
+
+
+- **M7 (touch, tilt, assists, comfort) and M8 (World Tour, Time Trial and ghosts, the championship, the tutorial, the release) are designed and agreed** (45 decisions, two rounds with the owner). Read SPEC §11 and §12 (what and why) and IMPLEMENTATION §M7 and §M8 (decisions, build steps with tests first, budgets, "done when", device gates). They are written to be built with no further questions.
+- **Build order, one stacked PR each:**
+
+  | # | PR | Branch | Save | Flag |
+  |---|---|---|---|---|
+  | 1 | M7a ✅ #41: the four assists work, the assists screen | `v2/m7a-assists` | v7 → v8 | none |
+  | 2 | M7b ✅ #42: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
+  | 3 | M7c ✅ #43: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
+  | 4 | M8a ✅: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
+  | 5 | M8b ✅: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
+  | 6 | M8c: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
+  | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
+
+- **The world looks (X4–X6) and X7 fit in whenever their images or approvals arrive.** They block nothing, and M7 and M8 do not wait for them. `expansion` stays off until each world's look is approved (the owner's answer to the open question on #39).
+- **Found while designing (IMPLEMENTATION §M7 has the details):** the four assists do nothing in the live game today, although the Rookie preset promises them. M7a repairs that first, with no flag.
+- **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
+- **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
+
+### Paste this prompt: M8c
+
+```
+You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
+/Users/johnbradner/Documents/ClaudeWork/MachZero. It is live at https://machzero.netlify.app and on TestFlight
+as an iOS app (Capacitor 8). The owner tests on an iPhone 18 Pro Max and an iPad Air 11" with an 8BitDo pad.
+
+READ FIRST, in this order, before writing any code:
+  1. docs/v2/NEXT_SESSION.md: current state, the build order and the environment table. Trust the table.
+  2. docs/v2/SPEC.md §12 (and §4): what M8 is and why. Every decision is settled; do not re-open one.
+  3. docs/v2/IMPLEMENTATION.md §0 (operating rules), §M7's three "As built" notes (M8 builds on save v8, the
+     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's and M8b's "As built", then "M8c" closely).
+  4. The code M8c changes, as §M8c lists it.
+
+GOAL: build M8c exactly as IMPLEMENTATION §M8c says (the championship season and the tutorial), behind `modes`.
+Save v9 already carries its fields (M8a). One PR on branch v2/m8c-season-tutorial, stacked on v2/m8b-time-trial
+(PR #46). Follow the build steps in order, tests first. When M8c's PR is pushed and its checks are green,
+continue with M8d (v2/m8d-release), stacked on it. Stop at each PR's device gate only for what the gate needs
+from the owner (M8c: device check; a child or a new player tries the tutorial if one is at hand), and carry on meanwhile.
+
+HOW TO WORK (agreed with the owner; follow exactly):
+- You implement everything yourself, in order. Sub-agents only for read-only lookups.
+- Never merge a PR, push to main or enable auto-merge. The owner playtests each preview and merges.
+- main is live: everything new stays behind `modes` until M8d turns it on. Every existing test passes unchanged
+  unless a step says to update one.
+- Before every push: npm run typecheck && npm test && npm run build && npm run size && npm run smoke.
+  On this shared Mac use npm test -- --maxWorkers=3 and npm run smoke -- --workers=1. Fix red CI before
+  moving on. Never loosen an assertion to go green; find the root cause.
+- Confirm current library APIs with Context7 before relying on them. Use jCodemunch for code navigation.
+- Local dev server: npm run dev -- --port 5180.
+- Never commit ios/App/App.xcodeproj/project.pbxproj. Leave docs/v2/FABLE_PROMPT*.md alone.
+- No session IDs or attribution lines in commits or PR bodies. Run npm run codebase at the end of each PR.
+
+AT EACH PR: the body holds what shipped, the "done when" list from IMPLEMENTATION ticked or explained, test
+counts and sim summaries, sizes from npm run size, screenshots where visual, any change nobody asked for, and
+the device-gate steps. End the hand-off with the preview URL
+(https://deploy-preview-<PR#>--machzero.netlify.app, add ?features=modes) and the iOS build command for the
+PR's branch: git fetch && git checkout <branch> && npm ci && VITE_FEATURES=modes,expansion npm run ios:sync && npm run ios:open
+
+AT THE END OF THE SESSION: report the PRs opened (links and preview URLs), what each device gate needs from
+the owner, any deviation from the spec with its reason, and update IMPLEMENTATION.md (mark each built PR, add
+its "As built" notes) and this file so the next session can resume from the docs alone.
+
+Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then write the
+season rules tests.
+```
+
+## Where things stand (2026-11-15, after the X6 gameplay half)
+
+- **Resume here:** X0–X3 are merged into `main` (#36 and #35, 2026-11-11). **X4 Tempest Spire, X5 Cinder Forge and X6 Abyss Line each have their gameplay half built, as draft PRs: #37 (`v2/x4-tempest-spire`, base `main`), #38 (`v2/x5-cinder-forge`, stacked on #37) and #39 (`v2/x6-abyss-line`, stacked on #38).** All three worlds run on the placeholder theme. With Abyss Line built, the Storm Cup plays whenever `expansion` is on. Read IMPLEMENTATION §X4, §X5 and §X6 "As built: the gameplay half" first.
+  - **For each world whose `assets/reference/worlds/<id>/chosen.jpg` exists** (`tempest-spire`, `cinder-forge`, `abyss-line`): finish its look on its own branch: the theme in `graphics/themes/`, its builder in `blender/props/build_props.py`, the `envfx` set, the perf table on the real look, the shots; swap the placeholder line in `themes/index.ts`, delete `props: false` from the world entry, then mark the PR ready. Go in stack order (Tempest Spire, then Cinder Forge, then Abyss Line), merging each finished branch into the next one up.
+  - **If no image exists:** start X7 (effects on the five 2.0 worlds) on `v2/x7-old-world-fx`, stacked on `v2/x6-abyss-line`. X7 needs no concept image: its looks are approved on the preview.
+  - **Open decision for the owner (raised in #39):** turn `expansion` on by default in #39, or keep it off until the three looks are approved.
+- **`expansion` is still off.** Turn it on when the user approves the look of X3's parts. A world also needs its own look approved before its card shows on `main`.
+- **Device builds of flagged features:** `VITE_FEATURES=expansion npm run ios:sync` (docs/IOS_TESTFLIGHT.md). Without it the app hides Tempest Spire, Cinder Forge, Abyss Line and the Storm Cup.
+- **Close by hand:** #24, #28, #31, #32 and #33 are still open, and their content is in `main` through #36.
 - **The 2.1 expansion is designed and agreed** (25 decisions, grilling session with the user). Read SPEC §10 (what and why) and IMPLEMENTATION §X (milestones X1–X7, each with decisions, build steps, budgets, "done when" and its device gate).
 - **Stack, in merge order:** #21, #22, #23 → #24 (Grand Prix) → #28 (§V V2/V3 plan; holds #29 V2 parts) → **#31 (§V V3 catch-up)** → the X0 design-docs PR → X1 … X7. The user playtests and merges; never merge.
 - **#31 exists because #30 (V3, the five rebuilt chassis) was merged into `v2/v2-parts` after #29 had already gone into `v2/v23-ships-plan`.** #31 carries exactly #30's 20 files into the stack. Every 2.1 branch starts from its tip.
@@ -100,8 +201,8 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
   - V1 COMET ✅ (gate passed 2026-11-08). **V2 parts + V3 the other 5 chassis are next: one session, two stacked PRs, per §V.7.**
   - It needs the user's Gemini concepts first: `assets/reference/ships/<id>/chosen.jpg` (prompts in `docs/v2/VEHICLE_CONCEPTS.md`). Don't model a chassis without one.
 - **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
-- **M7, touch and comfort (#11):** touch and tilt controls, comfort settings, assist toggles, and the portrait HUD overlap seen on phones. Needs a design session first.
-- **M8, modes and polish (#12):** World Tour, Time Trial, ghosts, world map, onboarding, the balance pass, and turning every flag on. Needs a design session first.
+- **M7, touch and comfort (#11):** designed 2026-11-16 (SPEC §11, IMPLEMENTATION §M7). Ready to build: see the top of this file.
+- **M8, modes and polish (#12):** designed 2026-11-16 (SPEC §12, IMPLEMENTATION §M8). Ready to build after M7.
 - **Smaller ideas worth raising with the user:**
   - more scenery for the existing worlds;
   - the optional separate-WASM Rapier task (IMPLEMENTATION §M0), which would cut about 1.6 MB of base64 from the JS;
@@ -124,7 +225,7 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
 | Low preset | Washed out on every world (§H item 2); judge visuals at Med or High until it's fixed |
 | Assets | `npm run assets` (Blender + glTF Transform) rebuilds `public/game/`. Commit the GLBs; CI only validates them |
 
-## Paste this prompt
+## Paste this prompt: the 2.1 expansion (world looks and X7)
 
 ```
 You are the Principal Engineer building MachZero 2.0, a Three.js + Rapier + Vite anti-gravity racer (F-Zero-like)
@@ -188,8 +289,8 @@ what remains, and any spec deviations with the reasons. Update IMPLEMENTATION.md
 (mark ✅ DONE with the PR number) so the next session can resume from the docs alone.
 
 Start by confirming the open PRs' state (gh pr list). Branch from the newest open stack branch (the last X
-branch pushed). Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build number). No
+branch pushed; from main when no X branch is open). Never commit ios/App/App.xcodeproj/project.pbxproj (the user's local build number). No
 attribution lines in commits or PR bodies. End every PR hand-off with the preview URL, the iOS build command
-for that PR's branch (git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open) and
-the device-test steps.
+for that PR's branch (git fetch && git checkout <branch> && npm ci && npm run ios:sync && npm run ios:open; put
+VITE_FEATURES=expansion before npm run ios:sync when the PR's work is behind that flag) and the device-test steps.
 ```

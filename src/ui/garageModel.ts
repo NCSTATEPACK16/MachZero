@@ -81,3 +81,15 @@ export function statBars(loadout: StatLoadout): StatBar[] {
     return { key: m.key, label: m.label, value: FLOOR + (1 - FLOOR) * Math.min(1, Math.max(0, t)) };
   });
 }
+
+/** Zoom steps per unit of log pinch ratio: spreading two fingers to twice their distance zooms in by PINCH_ZOOM·ln 2. */
+export const PINCH_ZOOM = 1.5;
+
+/**
+ * Garage turntable pinch (IMPLEMENTATION §M7c): the zoom (log steps, + = closer, as the mouse wheel's) for two fingers
+ * moving from `prevDist` to `dist` apart (CSS points). 0 for a degenerate distance.
+ */
+export function pinchZoom(prevDist: number, dist: number): number {
+  if (!(prevDist > 1) || !(dist > 1)) return 0;
+  return Math.log(dist / prevDist) * PINCH_ZOOM;
+}

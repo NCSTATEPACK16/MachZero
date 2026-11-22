@@ -113,7 +113,7 @@
   transform: skewX(-12deg) scale(0.98);
 }
 .mz-btn.danger {
-  border-color: var(--red);
+  border-color: var(--mz-bad);
   background: linear-gradient(180deg, rgba(255, 51, 68, 0.24), rgba(138, 77, 255, 0.2));
   text-shadow: 0 0 0.6em rgba(255, 51, 68, 0.9);
 }
@@ -147,7 +147,7 @@
   box-shadow: 0 0 0 1px var(--cyan), 0 0 1em rgba(25, 240, 255, 0.5);
 }
 .mz-chip.off {
-  color: var(--red);
+  color: var(--mz-bad);
   border-color: rgba(255, 51, 68, 0.6);
 }
 
@@ -209,7 +209,7 @@
   font-size: 0.8em;
   letter-spacing: 0.3em;
   font-style: italic;
-  color: var(--amber);
+  color: var(--mz-warn);
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.6);
 }
 .mz-controls .row {
@@ -347,7 +347,7 @@
   letter-spacing: 0.04em;
 }
 .mz-laps .row.best {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.6em rgba(125, 255, 58, 0.6);
 }
 .mz-laps .row.rec {
@@ -414,10 +414,10 @@
   animation: mz-pit-glow 0.7s ease-in-out infinite alternate;
 }
 .mz-energy.pit .mz-bar {
-  border-color: var(--amber);
+  border-color: var(--mz-warn);
 }
 .mz-pit-tag {
-  color: var(--amber);
+  color: var(--mz-warn);
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.9);
   visibility: hidden;
 }
@@ -447,12 +447,12 @@
   font-size: 0.8em;
 }
 .mz-boost[data-s='ready'] {
-  border-color: var(--lime);
+  border-color: var(--mz-good);
   box-shadow: 0 0 1.4em rgba(125, 255, 58, 0.55), inset 0 0 1em rgba(125, 255, 58, 0.25);
   animation: mz-ready 0.9s ease-in-out infinite alternate;
 }
 .mz-boost[data-s='ready'] .mz-in {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.7em rgba(125, 255, 58, 0.9);
 }
 .mz-boost[data-s='active'] {
@@ -468,7 +468,7 @@
   border-color: rgba(255, 179, 25, 0.6);
 }
 .mz-boost[data-s='charging'] .mz-in {
-  color: var(--amber);
+  color: var(--mz-warn);
 }
 .mz-boost[data-s='jammed'] {
   border-color: #6fb8ff;
@@ -648,8 +648,8 @@
 }
 .mz-countdown.go span {
   font-size: 15em;
-  color: var(--lime);
-  text-shadow: 0 0 0.12em var(--lime), 0 0 0.4em var(--lime), 0 0 1em rgba(125, 255, 58, 0.7);
+  color: var(--mz-good);
+  text-shadow: 0 0 0.12em var(--mz-good), 0 0 0.4em var(--mz-good), 0 0 1em rgba(125, 255, 58, 0.7);
   animation: mz-go 1s cubic-bezier(0.15, 0.9, 0.25, 1) both;
 }
 
@@ -675,16 +675,16 @@
   white-space: nowrap;
 }
 .mz-toast.good {
-  color: var(--lime);
-  text-shadow: 0 0 0.25em var(--lime), 0 0 0.7em var(--lime);
+  color: var(--mz-good);
+  text-shadow: 0 0 0.25em var(--mz-good), 0 0 0.7em var(--mz-good);
 }
 .mz-toast.warn {
-  color: var(--amber);
-  text-shadow: 0 0 0.25em var(--amber), 0 0 0.7em var(--amber);
+  color: var(--mz-warn);
+  text-shadow: 0 0 0.25em var(--mz-warn), 0 0 0.7em var(--mz-warn);
 }
 .mz-toast.bad {
-  color: var(--red);
-  text-shadow: 0 0 0.25em var(--red), 0 0 0.7em var(--red);
+  color: var(--mz-bad);
+  text-shadow: 0 0 0.25em var(--mz-bad), 0 0 0.7em var(--mz-bad);
 }
 .mz-toast.record {
   color: var(--magenta);
@@ -709,7 +709,7 @@
   color: #fff;
   padding: 0.15em 1em;
   background: rgba(255, 51, 68, 0.72);
-  border: 2px solid var(--red);
+  border: 2px solid var(--mz-bad);
   box-shadow: 0 0 2em rgba(255, 51, 68, 0.85);
   text-shadow: 0 0 0.4em #fff;
   transform: skewX(-10deg);
@@ -787,7 +787,7 @@
 .mz-lapstable .head {
   font-size: 0.75em;
   letter-spacing: 0.3em;
-  color: var(--amber);
+  color: var(--mz-warn);
   font-weight: 800;
   font-style: italic;
   margin-bottom: 0.5em;
@@ -834,7 +834,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mz-lapstable .row.best {
-  color: var(--lime);
+  color: var(--mz-good);
   text-shadow: 0 0 0.6em rgba(125, 255, 58, 0.6);
 }
 .mz-record {
@@ -858,7 +858,7 @@
   letter-spacing: 0.12em;
 }
 .mz-credits .delta {
-  color: var(--amber);
+  color: var(--mz-warn);
   font-size: 1.5em;
   text-shadow: 0 0 0.6em rgba(255, 179, 25, 0.6);
 }
@@ -1061,7 +1061,7 @@
 }
 .mz-cb .mz-energy.low .mz-energy-val::before {
   content: '▲ ';
-  color: var(--amber);
+  color: var(--mz-warn);
 }
 
 /* ---------- M5: slipstream chip ---------- */
@@ -1099,6 +1099,52 @@
   .mz-draft-icon { animation: none; }
 }
 
+/* ---------- X4: crosswind chip (above the draft chip; the arrow points the way the gust pushes) ---------- */
+.mz-wind {
+  position: absolute;
+  right: 2.6em;
+  bottom: 22.2em;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.2em 0.8em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #fffbe0;
+  background: linear-gradient(90deg, rgba(255, 225, 77, 0.3), rgba(138, 92, 255, 0.18));
+  border: 1px solid rgba(255, 225, 77, 0.75);
+  box-shadow: 0 0 1em rgba(255, 225, 77, 0.4);
+  transform: skewX(-10deg);
+  pointer-events: none;
+}
+.mz-wind[hidden] {
+  display: none;
+}
+.mz-wind.left {
+  flex-direction: row-reverse;
+}
+.mz-wind-icon {
+  font-size: 1.3em;
+  line-height: 1;
+  animation: mz-wind-push 0.45s linear infinite;
+}
+.mz-wind.left .mz-wind-icon {
+  transform: scaleX(-1);
+  animation-name: mz-wind-push-left;
+}
+@keyframes mz-wind-push {
+  from { transform: translateX(-0.18em); opacity: 0.6; }
+  to { transform: translateX(0.18em); opacity: 1; }
+}
+@keyframes mz-wind-push-left {
+  from { transform: scaleX(-1) translateX(-0.18em); opacity: 0.6; }
+  to { transform: scaleX(-1) translateX(0.18em); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mz-wind-icon { animation: none; }
+}
+
 /* ---------- M5: pilot portraits, grid intro card ---------- */
 .mz-portrait {
   display: block;
@@ -1118,7 +1164,7 @@
   margin-top: 0.7em;
   font-style: italic;
   font-size: 0.9em;
-  color: var(--amber);
+  color: var(--mz-warn);
   letter-spacing: 0.04em;
 }
 .mz-intro {
@@ -1142,7 +1188,7 @@
 .mz-intro-kicker {
   font-size: 0.85em;
   letter-spacing: 0.32em;
-  color: var(--amber);
+  color: var(--mz-warn);
   font-weight: 800;
 }
 .mz-intro-head {
@@ -1213,7 +1259,7 @@
 .mz-intro-row .quote {
   font-size: 0.8em;
   font-style: italic;
-  color: var(--amber);
+  color: var(--mz-warn);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1233,4 +1279,453 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .mz-intro-row { animation: none; }
+}
+
+/* ---------- M7b: touch controls and the touch HUD (sizes in CSS points; not scaled with the screen) ---------- */
+.mz-strip,
+.mz-touch-layer {
+  display: none;
+}
+html.mz-touch .mz-energy,
+html.mz-touch .mz-boost,
+html.mz-touch .mz-speed,
+html.mz-touch .mz-items {
+  display: none !important;
+}
+html.mz-touch .mz-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 420px;
+  height: 60px;
+  margin-left: -210px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  font-size: 15px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-glow);
+  transform: skewX(-10deg);
+  pointer-events: none;
+}
+html.mz-touch .mz-strip > * {
+  transform: skewX(10deg);
+}
+.mz-strip-power {
+  flex: 1;
+  min-width: 0;
+}
+.mz-strip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+  font-size: 0.8em;
+}
+.mz-strip-val {
+  font-size: 1.3em;
+}
+.mz-strip .mz-bar {
+  height: 12px;
+}
+.mz-strip.low .mz-bar-fill,
+.mz-strip.low .mz-strip-val {
+  animation: mz-flash 0.4s steps(2, jump-none) infinite;
+}
+.mz-strip.pit .mz-bar {
+  border-color: var(--mz-warn);
+}
+.mz-strip.pit .mz-pit-tag {
+  visibility: visible;
+}
+.mz-strip-speed {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 5.2em;
+  justify-content: flex-end;
+}
+.mz-strip-speed .mz-num {
+  font-size: 1.8em;
+}
+.mz-strip-speed .mz-label {
+  font-size: 0.7em;
+}
+.mz-strip-boost {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  font-size: 0.85em;
+  color: rgba(244, 247, 255, 0.45);
+}
+.mz-strip-lock {
+  display: none;
+}
+.mz-strip-boost[data-s='locked'] .mz-strip-lock,
+.mz-strip-boost[data-s='jammed'] .mz-strip-lock {
+  display: inline;
+}
+.mz-strip-boost[data-s='ready'] {
+  color: var(--mz-good);
+}
+.mz-strip-boost[data-s='active'] {
+  color: #fff;
+  text-shadow: 0 0 0.5em var(--magenta), 0 0 1em var(--magenta);
+}
+@media (max-height: 499px) {
+  html.mz-touch .mz-strip {
+    width: 320px;
+    height: 48px;
+    margin-left: -160px;
+    font-size: 12px;
+    padding: 4px 12px;
+  }
+}
+/* Chips and the EMP warning sit just above the strip. */
+html.mz-touch .mz-draft,
+html.mz-touch .mz-wind {
+  right: auto;
+  left: 50%;
+  translate: -50% 0;
+}
+html.mz-touch .mz-draft {
+  bottom: calc(12px + 60px + 10px);
+}
+html.mz-touch .mz-wind {
+  bottom: calc(12px + 60px + 10px + 2.4em);
+}
+html.mz-touch .mz-emp-warn {
+  top: auto;
+  bottom: calc(12px + 60px + 10px + 4.8em);
+}
+@media (max-height: 499px) {
+  html.mz-touch .mz-draft {
+    bottom: calc(12px + 48px + 8px);
+  }
+  html.mz-touch .mz-wind {
+    bottom: calc(12px + 48px + 8px + 2.4em);
+  }
+  html.mz-touch .mz-emp-warn {
+    bottom: calc(12px + 48px + 8px + 4.8em);
+  }
+}
+
+/* The touch layer: only while counting down or racing with touch as the device. */
+html.mz-touch .mz-hud[data-state='countdown'] .mz-touch-layer,
+html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
+  display: block;
+}
+.mz-touch-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  font-size: 13px;
+}
+.mz-tz-steer {
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 0;
+  width: 45%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.mz-touch-layer.lh .mz-tz-steer {
+  left: auto;
+  right: 0;
+}
+.mz-tz-ring,
+.mz-tz-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  visibility: hidden;
+}
+.mz-touch-layer.steering .mz-tz-ring,
+.mz-touch-layer.steering .mz-tz-dot {
+  visibility: visible;
+}
+.mz-tz-ring {
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  border: 2px solid rgba(25, 240, 255, 0.55);
+  box-shadow: 0 0 14px rgba(25, 240, 255, 0.35);
+}
+.mz-tz-dot {
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  background: radial-gradient(circle, rgba(244, 247, 255, 0.55), rgba(25, 240, 255, 0.25));
+  border: 2px solid rgba(244, 247, 255, 0.7);
+}
+.mz-tb {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(25, 240, 255, 0.6);
+  background: rgba(8, 6, 26, 0.45);
+  color: var(--white);
+  font: italic 900 calc(var(--tb, 1) * 13px) / 1 var(--font);
+  letter-spacing: 0.06em;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 10px rgba(25, 240, 255, 0.25);
+}
+.mz-tb[hidden] {
+  display: none;
+}
+.mz-tb.on {
+  background: rgba(25, 240, 255, 0.35);
+  box-shadow: 0 0 18px rgba(25, 240, 255, 0.7);
+}
+.mz-tb-boost {
+  border-color: var(--magenta);
+  box-shadow: 0 0 12px rgba(255, 43, 214, 0.4);
+  font-size: calc(var(--tb, 1) * 15px);
+}
+.mz-tb-boost.on {
+  background: rgba(255, 43, 214, 0.4);
+}
+.mz-tb-brake {
+  border-color: var(--mz-warn);
+}
+.mz-tb-throttle {
+  border-color: var(--mz-good);
+}
+.mz-tb-item {
+  font-size: calc(var(--tb, 1) * 17px);
+}
+.mz-tb-item[data-s='empty'] {
+  opacity: 0.45;
+}
+.mz-tb-pause {
+  top: calc(1.6 * var(--u));
+  left: calc(50% + 11 * var(--u) + 8px);
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  font-size: 15px;
+}
+@media (max-width: 1100px) {
+  .mz-tb-pause {
+    left: calc(50% + 9 * var(--u) + 8px);
+  }
+}
+.mz-touch-hint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font: italic 900 14px / 1.1 var(--font);
+  letter-spacing: 0.1em;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(25, 240, 255, 0.9);
+}
+.mz-touch-hint[hidden] {
+  display: none;
+}
+.mz-touch-hint span {
+  position: absolute;
+  padding: 4px 8px;
+  background: rgba(8, 6, 26, 0.7);
+  border: 1px solid rgba(25, 240, 255, 0.6);
+}
+.mz-th-steer {
+  left: 12%;
+  top: 55%;
+}
+/* Labels sit across their own buttons (BOOST, BRAKE) or just above (ITEM), scaled with the controls. */
+.mz-th-boost {
+  right: calc(var(--tb, 1) * 30px);
+  bottom: calc(var(--tb, 1) * 54px);
+}
+.mz-th-brake {
+  right: calc(var(--tb, 1) * 130px);
+  bottom: calc(var(--tb, 1) * 36px);
+}
+.mz-th-item {
+  right: calc(var(--tb, 1) * 40px);
+  bottom: calc(var(--tb, 1) * 186px);
+}
+.mz-touch-layer.lh .mz-th-steer {
+  left: auto;
+  right: 12%;
+}
+.mz-touch-layer.lh .mz-th-boost {
+  right: auto;
+  left: calc(var(--tb, 1) * 30px);
+}
+.mz-touch-layer.lh .mz-th-brake {
+  right: auto;
+  left: calc(var(--tb, 1) * 130px);
+}
+.mz-touch-layer.lh .mz-th-item {
+  right: auto;
+  left: calc(var(--tb, 1) * 40px);
+}
+.mz-hud.intro .mz-intro {
+  pointer-events: auto;
+}
+/* On a short touch screen the minimap is a little smaller, so the best times sit clear of the ITEM button at size L. */
+@media (max-height: 499px) {
+  html.mz-touch .mz-mapbox {
+    width: 10.5em;
+    height: 10.5em;
+  }
+  html.mz-touch .mz-laps {
+    top: 14.2em;
+    width: 11.7em;
+  }
+}
+
+/* ---------- M7c: tilt mode (no steering zone) and the flat-screen chip ---------- */
+.mz-touch-layer.tilt .mz-tz-steer {
+  display: none;
+}
+.mz-tilt-flat {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  translate: -50% 0;
+  padding: 6px 14px;
+  font: italic 900 15px / 1 var(--font);
+  letter-spacing: 0.12em;
+  color: #fff3c4;
+  background: rgba(8, 6, 26, 0.75);
+  border: 2px solid var(--mz-warn);
+  pointer-events: none;
+}
+.mz-tilt-flat[hidden] {
+  display: none;
+}
+
+/* ---------- M7c: hazard cue (colour-blind mode): the nearest hazard ahead and the way to the clear side ---------- */
+.mz-hazard {
+  /* Under the position number, clear of the toasts (centre) and the lap box. */
+  position: absolute;
+  top: 10.6em;
+  left: 2.4em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.25em 0.9em;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  font-size: 1.2em;
+  color: #fff;
+  background: rgba(8, 6, 26, 0.78);
+  border: 2px solid var(--mz-warn);
+  box-shadow: 0 0 1em rgba(255, 176, 0, 0.45);
+  pointer-events: none;
+}
+.mz-hazard[hidden] {
+  display: none;
+}
+.mz-hazard-icon {
+  font-size: 1.3em;
+  color: var(--mz-warn);
+}
+.mz-intro-tilt[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------ Time Trial (IMPLEMENTATION §M8b step 7) */
+/* No position and no items in a trial. */
+.mz-hud[data-mode='trial'] .mz-pos,
+.mz-hud[data-mode='trial'] .mz-items,
+.mz-hud[data-mode='trial'] .mz-emp-warn {
+  display: none !important;
+}
+.mz-target {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.45em;
+  margin-top: 0.25em;
+  font-size: 0.95em;
+}
+.mz-medal {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 0.3em;
+  font-weight: 900;
+  font-size: 0.8em;
+  letter-spacing: 0.1em;
+  color: #111;
+  background: #ffc23a;
+}
+.mz-medal[data-medal='silver'] {
+  background: #d8dde8;
+}
+.mz-medal[data-medal='bronze'] {
+  background: #d98a4e;
+}
+.mz-medal[data-medal='best'] {
+  background: #19f0ff;
+}
+/* The split: ▲ / ▼ carry the meaning; green and red (blue and orange in colour-blind mode) only add to it. */
+/* A child of the lap box (so it shares its slant), on its right. */
+.mz-split {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 0.4em);
+  transform: translateY(-50%);
+  white-space: nowrap;
+  padding: 0.15em 0.9em;
+  font-size: 1.5em;
+  font-weight: 900;
+  background: rgba(8, 10, 24, 0.72);
+  border: 1px solid currentColor;
+  pointer-events: none;
+}
+.mz-split[hidden] {
+  display: none;
+}
+.mz-split[data-s='ahead'] {
+  color: var(--mz-good);
+}
+.mz-split[data-s='behind'] {
+  color: var(--mz-bad);
+}
+/* The dev ghost's tag, placed over it by the graphics' projection (DOM, no draw call). */
+.mz-ghost-tag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  padding: 0.05em 0.4em;
+  font-size: 0.8em;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #111;
+  background: #ffc23a;
+  border-radius: 0.25em;
+  opacity: 0.85;
+  pointer-events: none;
+  will-change: transform;
+}
+.mz-ghost-tag[hidden] {
+  display: none;
+}
+.mz-cb .mz-ghost-tag {
+  background: #ff8a1f;
+}
+/* The lap box is a row taller in a trial (TARGET): keep the toasts below it on a short screen. */
+.mz-hud[data-mode='trial'] .mz-toasts {
+  top: max(24%, calc(var(--u) * 11.2));
 }

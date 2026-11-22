@@ -9,6 +9,9 @@ import sunsetMesa from './sunset-mesa.json';
 import cryoStation from './cryo-station.json';
 import jadeRuins from './jade-ruins.json';
 import orbitalRing from './orbital-ring.json';
+import tempestSpire from './tempest-spire.json';
+import cinderForge from './cinder-forge.json';
+import abyssLine from './abyss-line.json';
 
 export const TRACK_DEFS: Readonly<Record<string, TrackDefinition>> = {
   'neon-bay': neonBay as TrackDefinition,
@@ -16,6 +19,9 @@ export const TRACK_DEFS: Readonly<Record<string, TrackDefinition>> = {
   'cryo-station': cryoStation as TrackDefinition,
   'jade-ruins': jadeRuins as TrackDefinition,
   'orbital-ring': orbitalRing as TrackDefinition,
+  'tempest-spire': tempestSpire as TrackDefinition,
+  'cinder-forge': cinderForge as TrackDefinition,
+  'abyss-line': abyssLine as TrackDefinition,
 };
 
 export function trackDefById(id: string): TrackDefinition | undefined {

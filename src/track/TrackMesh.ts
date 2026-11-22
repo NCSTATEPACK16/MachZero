@@ -37,7 +37,7 @@ import {
   FROST_TILE_METRES,
 } from './TrackTextures';
 import type { TrackQuery } from './TrackQuery';
-import { CURL_EPS, PIPE_RADIUS, RAIL_END_CURL, type PipeSpan } from './features/pipe';
+import { isFlatCurl, PIPE_RADIUS, RAIL_END_CURL, type PipeSpan } from './features/pipe';
 import type { BuiltBranch } from './features/branch';
 
 const W = CONFIG.TRACK_HALF_WIDTH;
@@ -90,6 +90,8 @@ export interface VisualInput {
   gaps: GapRange[];
   /** Full-pipe sections (the deck curls into a frosted-glass tube). */
   pipes?: PipeSpan[];
+  /** Spines (the deck curls down round a glass tube; ships ride outside it). No pylons under them. */
+  spines?: PipeSpan[];
   /** Ice patches (glossy decals). */
   ice?: { dStart: number; dEnd: number; lateralMin: number; lateralMax: number }[];
   /** Hazard telegraphing strength (1 normal, 2 Rookie): how hard ice patches pulse. */
@@ -289,30 +291,38 @@ function ribbonProfile(xMin: number, xMax: number, y: number): ProfilePoint[] {
   return pts;
 }
 
-/** Light rings around the closed stretch of each pipe (just outside the glass). */
-function buildPipeRings(query: TrackQuery, length: number, pipes: readonly PipeSpan[], accent: number): THREE.InstancedMesh {
-  const centres: number[] = [];
-  for (const p of pipes) {
-    const from = p.dStart + p.transition;
-    const to = p.dEnd - p.transition;
-    for (let d = from; d <= to; d += PIPE_RING_SPACING) centres.push(d);
+/**
+ * Light rings round the closed stretch of each pipe (just outside the glass) and each spine (just inside it, below the
+ * crown: ships drive on the outside of a spine). One instanced mesh for both.
+ */
+function buildPipeRings(query: TrackQuery, length: number, pipes: readonly PipeSpan[], spines: readonly PipeSpan[], accent: number): THREE.InstancedMesh {
+  const centres: { d: number; sign: number }[] = [];
+  for (const [list, sign] of [[pipes, 1], [spines, -1]] as const) {
+    for (const p of list) {
+      const from = p.dStart + p.transition;
+      const to = p.dEnd - p.transition;
+      for (let d = from; d <= to; d += PIPE_RING_SPACING) centres.push({ d, sign });
+    }
   }
-  const geo = new THREE.TorusGeometry(PIPE_RADIUS + 0.12, 0.09, 6, 48);
+  // Unit torus scaled per instance: a pipe's ring sits outside the glass, a spine's inside it.
+  const geo = new THREE.TorusGeometry(1, 0.09 / PIPE_RADIUS, 6, 48);
   const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(accent).multiplyScalar(2.6) });
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, centres.length));
   mesh.count = centres.length;
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
-  const one = new THREE.Vector3(1, 1, 1);
+  const scale = new THREE.Vector3();
   const back = new THREE.Vector3();
   const centre = new THREE.Vector3();
-  centres.forEach((d, i) => {
+  centres.forEach(({ d, sign }, i) => {
     const s = query.sampleAt((((d % length) + length) % length) / length);
     back.copy(s.forward).negate();
     m.makeBasis(s.right, s.up, back);
     q.setFromRotationMatrix(m);
-    centre.copy(s.position).addScaledVector(s.up, PIPE_RADIUS);
-    m.compose(centre, q, one);
+    centre.copy(s.position).addScaledVector(s.up, sign * PIPE_RADIUS);
+    const r = PIPE_RADIUS + sign * 0.12;
+    scale.set(r, r, r);
+    m.compose(centre, q, scale);
     mesh.setMatrixAt(i, m);
   });
   mesh.instanceMatrix.needsUpdate = true;
@@ -468,13 +478,14 @@ export function branchNose(b: BuiltBranch): { center: THREE.Vector3; right: THRE
 export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stats: VisualStats } {
   const { frames, query, corkscrews, pit, dashPlates, gaps, palette } = input;
   const pipes = input.pipes ?? [];
+  const spines = input.spines ?? [];
   const length = frames.length;
   const sections = roadSections(frames, gaps);
   // Pipes: the flat deck (asphalt + slab) stops where the deck starts to curl; the curled stretch is frosted
   // glass; rails run until the tube has nearly closed.
-  const flatSections = sections.flatMap((sec) => splitByCurl(sec, (c) => c < CURL_EPS));
-  const curledSections = sections.flatMap((sec) => splitByCurl(sec, (c) => c >= CURL_EPS, true));
-  const railSections = sections.flatMap((sec) => splitByCurl(sec, (c) => c < RAIL_END_CURL));
+  const flatSections = sections.flatMap((sec) => splitByCurl(sec, isFlatCurl));
+  const curledSections = sections.flatMap((sec) => splitByCurl(sec, (c) => !isFlatCurl(c), true));
+  const railSections = sections.flatMap((sec) => splitByCurl(sec, (c) => Math.abs(c) < RAIL_END_CURL));
   type Uv = { uTile: number; vScale?: number };
   const sweepOn = (list: SweepFrames[], acc: GeometryAccumulator, points: ProfilePoint[], closedProfile: boolean, uv: Uv, colors?: Float32Array, bend?: BendOptions): GeometryAccumulator => {
     for (const sec of list) acc.add(sweepProfile(sec, points, closedProfile, uv, colors ? sectionColors(colors, sec) : undefined, bend));
@@ -513,7 +524,7 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
     const glass = meshOf(glassAcc, glassMat, 'TrackPipeGlass');
     glass.renderOrder = 1;
     group.add(glass);
-    group.add(buildPipeRings(query, length, pipes, palette.left));
+    group.add(buildPipeRings(query, length, pipes, spines, palette.left));
   }
 
   // ---- Slab body: sides and underside ----
@@ -754,7 +765,8 @@ export function buildTrackVisual(input: VisualInput): { group: THREE.Group; stat
 
   // ---- Pylons (instanced) and corkscrew light rings (instanced) ----
   const loopSkips = (input.loops ?? []).map((l) => ({ dStart: l.dStart - 30, dEnd: l.dEnd + 30 }));
-  group.add(buildPylons(frames, [...corkscrews, ...pipes, ...loopSkips, ...gaps.map((g) => ({ dStart: g.dStart - 10, dEnd: g.dEnd + 10 }))]));
+  const spineSkips = spines.map((p) => ({ dStart: p.dStart - 20, dEnd: p.dEnd + 20 }));
+  group.add(buildPylons(frames, [...corkscrews, ...pipes, ...spineSkips, ...loopSkips, ...gaps.map((g) => ({ dStart: g.dStart - 10, dEnd: g.dEnd + 10 }))]));
   for (const cork of corkscrews) group.add(buildCorkscrewRings(query, length, cork, palette.accent));
 
   let drawCalls = 0;
@@ -809,8 +821,8 @@ export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] 
   // Inside a pipe the surface is 40 pieces across (≈ 0.73 m, so the curled tube is accurate to ~1.5 cm).
   const curledPts: { x: number; y: number }[] = [];
   for (let k = 0; k <= 40; k++) curledPts.push({ x: half - (2 * half * k) / 40, y: 0 });
-  const flat = sections.flatMap((sec) => splitByCurl(sec, (c) => c < CURL_EPS));
-  const curled = sections.flatMap((sec) => splitByCurl(sec, (c) => c >= CURL_EPS, true));
+  const flat = sections.flatMap((sec) => splitByCurl(sec, isFlatCurl));
+  const curled = sections.flatMap((sec) => splitByCurl(sec, (c) => !isFlatCurl(c), true));
   const branchSurfaces = branches.flatMap((b) => {
     const fr = branchSweep(b, 0, b.length);
     if (!fr) return [];
@@ -822,7 +834,7 @@ export function buildTrackCollision(frames: FrameSet, gaps: readonly GapRange[] 
   const surface = [...flat.map((sec) => sweepWelded(sec, surfacePts, false)), ...curled.map((sec) => sweepWelded(sec, curledPts, false)), ...branchSurfaces].reduce(
     (a, b) => mergeTriMeshes(a, b),
   );
-  const railSecs = sections.flatMap((sec) => splitByCurl(sec, (c) => c < RAIL_END_CURL));
+  const railSecs = sections.flatMap((sec) => splitByCurl(sec, (c) => Math.abs(c) < RAIL_END_CURL));
 
   // Rails: solid boxes, inner face exactly at +-W, 0.5 m taller than the visual rail and 0.5 m below the deck.
   const rightRail: ProfilePoint[] = [

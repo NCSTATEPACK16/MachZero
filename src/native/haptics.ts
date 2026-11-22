@@ -25,6 +25,31 @@ function loadFire(): Promise<Fire | null> {
 
 export const MIN_GAP_MS = 60;
 
+/** Settings → HAPTICS (save v8): off stops every impact (race events and touch-button ticks). */
+let enabled = true;
+export function setHapticsEnabled(on: boolean): void {
+  enabled = on;
+}
+
+let uiLast = -Infinity;
+let uiImpl: Fire | null = null;
+/**
+ * A light tick for a touch-button press (IMPLEMENTATION §M7b), in the iOS app only, under the same 60 ms gap rule.
+ * `fire` and `now` are injectable for tests.
+ */
+export function tapUi(fire?: Fire, now: () => number = () => performance.now()): void {
+  if (!enabled) return;
+  const t = now();
+  if (t - uiLast < MIN_GAP_MS) return;
+  const f = fire ?? uiImpl;
+  if (!f) {
+    if (!fire) void loadFire().then((x) => (uiImpl = x));
+    return;
+  }
+  uiLast = t;
+  f('light');
+}
+
 /** Map one race's events for `playerId` to impacts; `fire` is injectable for tests. Returns an unsubscribe. */
 export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: () => number = () => performance.now()): () => void {
   let impl: Fire | null = fire ?? null;
@@ -32,7 +57,7 @@ export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: ()
   let last = -Infinity;
   const tap = (style: Impact, force = false) => {
     const t = now();
-    if (!impl || (!force && t - last < MIN_GAP_MS)) return;
+    if (!enabled || !impl || (!force && t - last < MIN_GAP_MS)) return;
     last = t;
     impl(style);
   };
@@ -44,6 +69,9 @@ export function bindHaptics(bus: GameBus, playerId: ShipId, fire?: Fire, now: ()
     bus.on('hazard:gate', ({ shipId }) => shipId === playerId && tap('heavy')),
     bus.on('hazard:debris', ({ shipId }) => shipId === playerId && tap('heavy')),
     bus.on('hazard:mine', ({ shipId }) => shipId === playerId && tap('heavy', true)),
+    bus.on('hazard:lightning', ({ shipId }) => shipId === playerId && tap('heavy', true)),
+    bus.on('hazard:geyser', ({ shipId }) => shipId === playerId && tap('heavy', true)),
+    bus.on('hazard:jet', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('ship:destroyed', ({ shipId }) => shipId === playerId && tap('heavy', true)),
     bus.on('item:emp', ({ from, target }) => (from === playerId || target === playerId) && tap('medium', true)),
     bus.on('item:shield', ({ shipId }) => shipId === playerId && tap('medium', true)),

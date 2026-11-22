@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG, PALETTE, readUrlFlags } from '../core/config';
-import type { FrameContext, IGraphicsSystem, ShipId, ShipState, TrackData } from '../core/contracts';
+import type { FrameContext, GhostFrame, IGraphicsSystem, ShipId, ShipState, TrackData } from '../core/contracts';
 import type { GameBus } from '../core/events';
 import { clamp } from '../core/math';
 import { ChaseCamera } from './ChaseCamera';
@@ -12,6 +12,7 @@ import { createTheme, type WorldTheme } from './themes';
 import { PostFX } from './PostFX';
 import { ShipModel } from './ShipModel';
 import { SpeedLines } from './SpeedLines';
+import { GhostShips } from './GhostShips';
 import { createFogUniforms, type FogUniforms } from './shaders/fog';
 import { QUALITY_PROFILES, type QualityProfile } from '../settings/QualityManager';
 import type { ShipAssets } from '../assets/AssetLoader';
@@ -21,6 +22,10 @@ import type { Loadout } from '../core/contracts';
 import { worldById } from '../content/worlds';
 import { EnvFx } from './envfx/EnvFx';
 import { NO_ENVFX } from './envfx/EnvFxSpec';
+
+/** Sky flash colour of a lightning strike on a ship, and the sideways weather drift (m/s) of a gust on the player. */
+const LIGHTNING_FLASH = 0xfff3b0;
+const WIND_WEATHER_SPEED = 18;
 
 
 /** Procedural neon "studio": gradient dome + emissive light strips, prefiltered with PMREM. */
@@ -125,6 +130,8 @@ export class GraphicsSystem implements IGraphicsSystem {
   private quality: QualityProfile = QUALITY_PROFILES.high;
   private fogUniforms!: FogUniforms;
   private hasRace = false;
+  /** Time Trial ghosts (IMPLEMENTATION §M8b). */
+  private ghostShips: GhostShips | null = null;
   private shipAssets: ShipAssets | null = null;
   private preview: ShipPreview | null = null;
   /** The garage element the turntable is drawn into (null = no preview). */
@@ -141,6 +148,7 @@ export class GraphicsSystem implements IGraphicsSystem {
 
   // scratch
   private readonly tmpV = new THREE.Vector3();
+  private readonly windScratch = new THREE.Vector3();
   private readonly tmpDir = new THREE.Vector3();
 
   /** A bus given here is attached at once (v1 style); the App attaches one per race via attachBus(). */
@@ -290,12 +298,52 @@ export class GraphicsSystem implements IGraphicsSystem {
       }),
       bus.on('item:shield', (e) => {
         const model = this.models.get(e.shipId);
-        if (e.blocked === 'mine') this.fx.mineBlast(e.point, null);
+        if (e.blocked === 'mine' || e.blocked === 'geyser' || e.blocked === 'jet') this.fx.mineBlast(e.point, null);
         else if (model) this.fx.empHit(model);
         model?.shieldBlocked();
         if (e.shipId === this.playerId) {
           this.chase.addImpact(0.15);
           this.post.kickAberration(0.5);
+        }
+      }),
+      bus.on('hazard:geyser', (e) => {
+        // A burst at the hull, like a mine: the column itself is drawn with the track (features/geyserVisual.ts).
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.4);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.45);
+          this.post.kickAberration(1);
+        }
+      }),
+      bus.on('hazard:jet', (e) => {
+        // A burst at the hull: the jet's column is drawn with the track (features/jetVisual.ts). A sideways shove, so a
+        // smaller kick than a geyser's.
+        this.fx.mineBlast(e.point, null);
+        this.models.get(e.shipId)?.flicker(0.3);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.35);
+          this.post.kickAberration(0.8);
+        }
+      }),
+      bus.on('hazard:lightning', (e) => {
+        const model = this.models.get(e.shipId);
+        if (model) this.fx.empHit(model);
+        model?.flicker(0.5);
+        // The sky flashes for a strike on any ship near enough to see; the player's own also shakes the camera.
+        this.envfx.flashNow(e.shipId === this.playerId ? 0.7 : 0.25, LIGHTNING_FLASH);
+        if (e.shipId === this.playerId) {
+          this.chase.addImpact(0.35);
+          this.post.kickAberration(1);
+        }
+      }),
+      bus.on('ship:wind', (e) => {
+        // The weather slants with the gust on the player's ship (worlds with weather particles).
+        if (e.shipId !== this.playerId) return;
+        const ship = this.models.get(e.shipId)?.ship;
+        if (!e.active || !ship) this.envfx.setWeatherWind(0, 0);
+        else {
+          const right = this.windScratch.set(1, 0, 0).applyQuaternion(ship.quaternion);
+          this.envfx.setWeatherWind(right.x * e.dir * WIND_WEATHER_SPEED, right.z * e.dir * WIND_WEATHER_SPEED);
         }
       }),
       bus.on('hazard:debris', (e) => {
@@ -338,6 +386,7 @@ export class GraphicsSystem implements IGraphicsSystem {
    * map and sky stay alive for the next race.
    */
   clearRace(): void {
+    this.ghostShips?.clear();
     for (const off of this.unsubs) off();
     this.unsubs.length = 0;
     for (const m of this.modelList) {
@@ -441,6 +490,31 @@ export class GraphicsSystem implements IGraphicsSystem {
   }
 
   /** Comfort settings (SPEC §2). Applied on top of any quality preset. */
+  /** This race's Time Trial ghosts (cleared with the race). */
+  setGhosts(frames: readonly GhostFrame[]): void {
+    this.ghostShips ??= new GhostShips(this.scene);
+    this.ghostShips.setColorBlind(this.colorBlind);
+    this.ghostShips.set(frames, this.shipAssets);
+  }
+
+  /** Where the HUD draws the dev ghost's tag (fractions of the canvas), or hidden. */
+  get ghostTag(): { readonly x: number; readonly y: number; readonly visible: boolean } | null {
+    return this.ghostShips?.devTag ?? null;
+  }
+
+  /** Ghost meshes drawn in the last frame (one draw call each). */
+  get ghostsDrawn(): number {
+    return this.ghostShips?.drawn ?? 0;
+  }
+
+  private colorBlind = false;
+
+  /** Colour-blind mode (IMPLEMENTATION §M7c): the ghosts' colours. */
+  setColorBlind(on: boolean): void {
+    this.colorBlind = on;
+    this.ghostShips?.setColorBlind(on);
+  }
+
   setComfort(opts: { reducedMotion: boolean }): void {
     this.reducedMotion = opts.reducedMotion;
     this.theme.setReducedMotion?.(opts.reducedMotion);
@@ -532,6 +606,7 @@ export class GraphicsSystem implements IGraphicsSystem {
     this.camera.updateMatrixWorld();
 
     for (const m of this.modelList) m.updateVisuals(dt, time);
+    if (ctx.ghosts) this.ghostShips?.update(this.camera);
     ctx.track.animateHazards?.(ctx.hazardTime);
     this.mineVisual.update(ctx.mines, player.position, time, dt);
     this.fx.update(dt, this.height * this.renderer.getPixelRatio(), this.modelList);

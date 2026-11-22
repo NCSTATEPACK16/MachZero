@@ -17,6 +17,15 @@ import { buildGates } from './features/gate';
 import { buildGateVisual } from './features/gateVisual';
 import { buildDebris } from './features/debris';
 import { buildDebrisVisual } from './features/debrisVisual';
+import { buildWinds } from './features/wind';
+import { buildWindVisual } from './features/windVisual';
+import { buildStrikes } from './features/lightning';
+import { buildLightningVisual } from './features/lightningVisual';
+import { buildGeysers } from './features/geyser';
+import { buildGeyserVisual } from './features/geyserVisual';
+import { buildJets } from './features/jet';
+import { buildJetVisual } from './features/jetVisual';
+import { PLUNGE_RESPAWN_AFTER, buildPlunges, plungeDiveFoot } from './features/plunge';
 import type { TrackProjection } from '../core/contracts';
 
 const PIT_START = 30;
@@ -188,7 +197,8 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
   const corkscrewFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'corkscrew' }> => f.type === 'corkscrew');
   const rolls: CorkscrewRange[] = corkscrewFeatures.map((f) => ({ uStart: f.dStart / length, uEnd: f.dEnd / length, turns: f.turns }));
   const pipeSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'pipe' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
-  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans);
+  const spineSpans: PipeSpan[] = layout.features.flatMap((f) => (f.type === 'spine' ? [{ dStart: f.dStart, dEnd: f.dEnd, transition: f.transition }] : []));
+  const curl = curlSamples(resampled.count, resampled.ds, pipeSpans, spineSpans);
   const loopFeatures = layout.features.filter((f): f is Extract<TrackFeature, { type: 'loop' }> => f.type === 'loop');
   const loops = loopFeatures.map((f) => ({ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length) }));
   const frames = buildFrames(resampled, differentials, rolls, layout.bank, curl, loops);
@@ -261,6 +271,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     corkscrews: corkDists,
     loops: loopFeatures.map((f) => ({ dStart: f.dStart, dEnd: f.dEnd })),
     pipes: pipeSpans,
+    spines: spineSpans,
     ice: features.flatMap((f) => (f.type === 'ice' ? [f] : [])),
     telegraphScale: build.telegraphScale ?? 1,
     branches,
@@ -283,17 +294,46 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     : [];
   const debrisVisual = debrisDefs.length > 0 ? buildDebrisVisual(debrisDefs) : null;
   if (debrisVisual) group.add(debrisVisual.group);
-  const hazardAnimators = [gateVisual?.update, debrisVisual?.update].filter((f): f is (t: number) => void => !!f);
+  // Crosswind zones and lightning fields (Tempest Spire) follow the same clock. Both glow in the palette's accent.
+  const windDefs = buildWinds({ features });
+  const windVisual = windDefs.length > 0 ? buildWindVisual(windDefs, { length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) }, palette.accent) : null;
+  if (windVisual) group.add(windVisual.group);
+  const strikeDefs = features.some((f) => f.type === 'lightning')
+    ? buildStrikes({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const lightningVisual = strikeDefs.length > 0 ? buildLightningVisual(strikeDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (lightningVisual) group.add(lightningVisual.group);
+  // Lava geysers (Cinder Forge), on the same clock, in the palette's accent.
+  const geyserDefs = features.some((f) => f.type === 'geysers')
+    ? buildGeysers({ features, length, halfWidth: CONFIG.TRACK_HALF_WIDTH, sampleAt: (u, out) => query.sampleAt(u, out) })
+    : [];
+  const geyserVisual = geyserDefs.length > 0 ? buildGeyserVisual(geyserDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (geyserVisual) group.add(geyserVisual.group);
+  // Pressure jets (Abyss Line): vents on the curled Spine, so they are placed with the curled surface.
+  const jetDefs = features.some((f) => f.type === 'jets')
+    ? buildJets({
+        features,
+        length,
+        halfWidth: CONFIG.TRACK_HALF_WIDTH,
+        sampleAt: (u, out) => query.sampleAt(u, out),
+        surfacePoint: (u, lateral, out, outUp) => query.surfacePoint(u, lateral, out, outUp),
+      })
+    : [];
+  const jetVisual = jetDefs.length > 0 ? buildJetVisual(jetDefs, palette.accent, build.telegraphScale ?? 1) : null;
+  if (jetVisual) group.add(jetVisual.group);
+  const hazardAnimators = [gateVisual?.update, debrisVisual?.update, windVisual?.update, lightningVisual?.update, geyserVisual?.update, jetVisual?.update].filter((f): f is (t: number) => void => !!f);
   const animateHazards = hazardAnimators.length === 0 ? null : (t: number): void => {
     for (const f of hazardAnimators) f(t);
   };
 
-  const pipes = pipeSpans.map((p) => ({
+  const curledExtent = (p: PipeSpan) => ({
     uStart: wrap01(p.dStart / length),
     uEnd: wrap01(p.dEnd / length),
     uClosedStart: wrap01((p.dStart + p.transition) / length),
     uClosedEnd: wrap01((p.dEnd - p.transition) / length),
-  }));
+  });
+  const pipes = pipeSpans.map(curledExtent);
+  const spines = spineSpans.map(curledExtent);
   const ice = features.flatMap((f) =>
     f.type === 'ice' ? [{ uStart: wrap01(f.dStart / length), uEnd: wrap01(f.dEnd / length), lateralMin: f.lateralMin, lateralMax: f.lateralMax, grip: f.grip }] : [],
   );
@@ -309,10 +349,17 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     for (const j of jumps) if (inLoopRange(uw, j.uTakeoff, j.uLanding) && u !== j.uTakeoff && u !== j.uLanding) return 'air';
     for (const z of ice) if (inLoopRange(uw, z.uStart, z.uEnd) && lateral >= z.lateralMin && lateral <= z.lateralMax) return 'ice';
     for (const p of pipes) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'pipe';
+    for (const p of spines) if (inLoopRange(uw, p.uStart, p.uEnd)) return 'spine';
     return 'road';
   };
+  // A ship lost on a Plunge's dive comes back on the floor: a slow restart on a 55° slope would be no help.
+  const dives = buildPlunges({ features, length }).map((p) => {
+    const foot = plungeDiveFoot(p, (d) => query.sampleAt(wrap01(d / length)).forward.y);
+    return { uStart: p.uStart, uFoot: wrap01(foot / length), uBack: wrap01((foot + PLUNGE_RESPAWN_AFTER) / length) };
+  });
   const safeRespawnU = (u: number): number => {
     const d = wrap01(u) * length;
+    for (const dive of dives) if (inLoopRange(wrap01(u), dive.uStart, dive.uFoot)) return dive.uBack;
     for (const j of jumps) {
       const from = j.dTakeoff - JUMP_RESPAWN_BEFORE;
       const rel = (((d - from) % length) + length) % length;
@@ -349,6 +396,7 @@ export function buildTrack(layout: BuiltLayout, build: BuildOptions = {}): Track
     jumps,
     branches,
     pipes,
+    spines,
     loops,
     airGravityScale: layout.airGravityScale,
     surfaceKindAt,

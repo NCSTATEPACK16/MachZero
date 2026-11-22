@@ -23,7 +23,7 @@ for (const quality of ['high', 'med', 'low'] as const) {
     // Autopilot starts the race by itself. SwiftShader is slow and the loop clamps frame time, so simulated
     // time can run far below real time: wait on simulated progress, never on a wall-clock budget.
     await page.waitForFunction(
-      () => (window as unknown as { __machzero?: MachZeroDebug }).__machzero?.race.state === 'racing',
+      () => (window as unknown as { __machzero?: Partial<MachZeroDebug> }).__machzero?.race?.state === 'racing',
       undefined,
       { timeout: 60_000 },
     );
@@ -55,3 +55,115 @@ for (const quality of ['high', 'med', 'low'] as const) {
     expect(errors, errors.join('\n')).toEqual([]);
   });
 }
+
+// Tempest Spire (IMPLEMENTATION §X4) is behind the `expansion` flag, and `?world=` races it whatever the flag says.
+// Its wind streamers, deck chevrons, strike circles and bolts are built with the track, so the warm-up must cover
+// them: the race runs past the first crosswind zone and the first lightning field with no shader compiled on the way.
+/** The three world-race smokes run a race to 2,400–2,500 m on CI's software renderer. */
+const WORLD_RACE_TIMEOUT = 270_000;
+
+test('races Tempest Spire through a wind zone and a lightning field without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  await page.goto('/?autopilot=1&debug=1&quality=high&world=tempest-spire');
+  await expect(page.locator('#app canvas')).toBeVisible();
+  type Debug = MachZeroDebug & { app: { session: { track: { id: string; length: number } } }; ships: { trackU: number }[] };
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race.state === 'racing', undefined, { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session.track.id)).toBe('tempest-spire');
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
+
+  // 1,900 m: past the first wind zone (about 850–1,140 m) and the first lightning field (about 1,660–1,860 m).
+  // The upper bound matters: the grid is just behind the line, so on the grid the distance reads about 4,300 m.
+  await page.waitForFunction(
+    () => {
+      const m = (window as unknown as { __machzero: Debug }).__machzero;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 1900 && d < 3000;
+    },
+    undefined,
+    { timeout: 240_000 },
+  );
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+// Cinder Forge (IMPLEMENTATION §X5) is behind the `expansion` flag too. Its geyser vents and lava columns are built
+// with the track, so the warm-up must cover them: the race runs past both geyser fields, down the Plunge's dive and
+// onto the crater floor with no shader compiled on the way.
+test('races Cinder Forge past the geysers and down the Plunge without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  await page.goto('/?autopilot=1&debug=1&quality=high&world=cinder-forge');
+  await expect(page.locator('#app canvas')).toBeVisible();
+  type Debug = MachZeroDebug & { app: { session: { track: { id: string; length: number } } }; ships: { trackU: number; position: { y: number } }[] };
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race.state === 'racing', undefined, { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session.track.id)).toBe('cinder-forge');
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
+  const rimY = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.ships[0].position.y);
+
+  // 2,500 m: past the geyser fields (about 800–990 m and 1,520–1,720 m) and the dive (about 2,020–2,280 m).
+  // (An upper bound too: on the grid, just behind the line, the distance reads about 4,500 m.)
+  await page.waitForFunction(
+    () => {
+      const m = (window as unknown as { __machzero: Debug }).__machzero;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 2500 && d < 3000;
+    },
+    undefined,
+    { timeout: 240_000 },
+  );
+  // The ship is on the crater floor, about 110 m below the rim.
+  const floorY = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.ships[0].position.y);
+  expect(rimY - floorY).toBeGreaterThan(100);
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+// Abyss Line (IMPLEMENTATION §X6) is behind the `expansion` flag too. Its jet vents, bubble streams and water columns
+// are built with the track, so the warm-up must cover them: the race runs round the Spine and past both jet fields
+// with no shader compiled on the way.
+test('races Abyss Line round the Spine and past the jets without console errors or mid-race shader compiles', async ({ page }) => {
+  // Its own wait below allows 240 s to reach the mark; at the config's 2-minute cap this race on CI's CPU renderer
+  // passed or failed on the runner's speed (about 2.0 min). Same assertions, a test budget that matches the wait.
+  test.setTimeout(WORLD_RACE_TIMEOUT);
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  await page.goto('/?autopilot=1&debug=1&quality=high&world=abyss-line');
+  await expect(page.locator('#app canvas')).toBeVisible();
+  type Debug = MachZeroDebug & { app: { session: { track: { id: string; length: number } } }; ships: { trackU: number }[] };
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race.state === 'racing', undefined, { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session.track.id)).toBe('abyss-line');
+  const programsAtGo = await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs());
+
+  // 2,400 m: past the Spine (about 1,590–2,280 m) and its two jet fields. (An upper bound too: on the grid, just
+  // behind the line, the distance reads about 4,800 m.)
+  await page.waitForFunction(
+    () => {
+      const m = (window as unknown as { __machzero: Debug }).__machzero;
+      const d = m.ships[0].trackU * m.app.session.track.length;
+      return d > 2400 && d < 2900;
+    },
+    undefined,
+    { timeout: 240_000 },
+  );
+  expect(await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.programs()), 'shader programs compiled mid-race').toBe(programsAtGo);
+  expect(errors, errors.join('\n')).toEqual([]);
+});

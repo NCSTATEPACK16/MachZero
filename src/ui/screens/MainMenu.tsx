@@ -8,6 +8,8 @@ import { focusFirst, onUiKeyDown } from '../nav';
 import { CUPS, cupById } from '../../content/cups';
 import { cupRaces, cupWorld, racesDone, trophiesOf, trophyCount } from '../../game/modes/GrandPrix';
 import { worldById } from '../../content/worlds';
+import { clearedCount, tourWorlds } from '../../game/modes/WorldTour';
+import { emptyTour } from '../../save/schema';
 import { TIER_NAMES, Trophies } from './GrandPrix';
 import { useRef, useLayoutEffect } from 'preact/hooks';
 
@@ -57,6 +59,7 @@ export function MainMenu({ app }: { app: App }) {
   }, []);
   const p = app.activeProfile.value;
   const cup = p?.cup ?? null;
+  const tour = app.features.modes && app.features.worlds && p ? tourWorlds(app.features) : null;
   return (
     <section ref={ref} class="mzu-screen mzu-main" data-screen="menu" aria-label="Main menu" onKeyDown={(e) => ref.current && onUiKeyDown(ref.current, e)}>
       <div class="mzu-brand">
@@ -74,9 +77,17 @@ export function MainMenu({ app }: { app: App }) {
             onClick={() => app.openCupStandings()}
           />
         ) : null}
-        <MenuButton big={!cup} autofocus={!cup} icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
-        {app.features.worlds ? <MenuButton icon={Icon.worlds} label="WORLDS" sub="Neon Bay, Sunset Mesa and more to come" onClick={() => app.openWorlds()} /> : null}
+        {tour ? (
+          // With `modes` (IMPLEMENTATION §M8a) World Tour replaces RACE and WORLDS: there is no separate single race.
+          <MenuButton big={!cup} autofocus={!cup} icon={Icon.worlds} label="WORLD TOUR" sub={`${clearedCount(p?.tour ?? emptyTour(), tour)} OF ${tour.length} WORLDS CLEARED`} onClick={() => app.openWorlds()} />
+        ) : (
+          <>
+            <MenuButton big={!cup} autofocus={!cup} icon={Icon.race} label="RACE" sub={`${app.raceLabel} · 3 LAPS · 7 RIVALS`} onClick={() => void app.startRace()} />
+            {app.features.worlds ? <MenuButton icon={Icon.worlds} label="WORLDS" sub="Neon Bay, Sunset Mesa and more to come" onClick={() => app.openWorlds()} /> : null}
+          </>
+        )}
         {app.features.worlds && p && !cup ? <MenuButton icon={Icon.cup} label="GRAND PRIX" sub="Five races, every world, one cup" onClick={() => app.openGrandPrix()} /> : null}
+        {tour && !cup ? <MenuButton icon={Icon.modes} label="TIME TRIAL" sub="Solo against your ghost and the dev ghost, for medals" onClick={() => app.openTimeTrial()} /> : null}
         {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
           <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
         ))}

@@ -2,9 +2,9 @@
 /**
  * Desktop perf baseline (IMPLEMENTATION §V.7 step 0) and draw-call audit (step 1).
  *
- *   npm run build && node scripts/perf-desktop.mjs [--quality high,med,low] [--seconds 25] [--port 4183] [--audit]
+ *   npm run build && node scripts/perf-desktop.mjs [--quality high,med,low] [--world neon-bay] [--seconds 25] [--port 4183] [--audit]
  *
- * Serves dist/ with `vite preview`, opens an 8-ship Neon Bay autopilot race in headed-off Chrome on the real GPU
+ * Serves dist/ with `vite preview`, opens an 8-ship autopilot race on the world (Neon Bay by default) in headed-off Chrome on the real GPU
  * (ANGLE Metal on macOS), lets it run, then prints fps, p95, draw calls and triangles per preset (the race's
  * FrameStats summary and renderer.info of one frame). With --audit (adds ?debug=1, which only exposes the scene) it
  * also counts the draw calls of one frame by category: each ship's chassis, parts and effects, the track,
@@ -21,6 +21,8 @@ const presets = arg('--quality', 'high,med').split(',');
 const seconds = Number(arg('--seconds', '25'));
 const port = Number(arg('--port', '4183'));
 const audit = process.argv.includes('--audit');
+// The world to race (a world id from src/content/worlds.ts). `?world=` works whatever the feature flags say.
+const world = arg('--world', 'neon-bay');
 
 const server = spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { stdio: 'pipe' });
 await new Promise((resolve, reject) => {
@@ -41,7 +43,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
     const logs = [];
     page.on('console', (m) => logs.push(m.text()));
-    const url = `http://127.0.0.1:${port}/?autopilot=1&perf=1&dynres=0&quality=${q}&world=neon-bay${audit ? '&debug=1' : ''}`;
+    const url = `http://127.0.0.1:${port}/?autopilot=1&perf=1&dynres=0&quality=${q}&world=${world}${audit ? '&debug=1' : ''}`;
     await page.goto(url);
     // The grid (all 8 ships in front of the camera) is the worst case for ship draw calls.
     await page.waitForFunction(() => window.__machzero?.app?.session && window.__machzero.app.graphics.renderStats.calls > 0, null, { timeout: 60_000 });
@@ -70,6 +72,7 @@ try {
   server.kill();
 }
 
+console.log(`world ${world}`);
 for (const r of rows) {
   console.log(
     `${r.q.padEnd(5)} fps ${r.fps?.toFixed?.(1) ?? r.fps}  p50 ${r.p50?.toFixed(1)}  p95 ${r.p95?.toFixed(1)}  p99 ${r.p99?.toFixed(1)} ms  draw calls ${r.calls}  triangles ${(r.triangles / 1000).toFixed(0)}k  ships ${r.ships}`,

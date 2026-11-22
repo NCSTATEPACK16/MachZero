@@ -6,9 +6,9 @@
 import { useState } from 'preact/hooks';
 import type { App } from '../../app/App';
 import type { AITier } from '../../core/contracts';
-import { availableCups, cupById, type CupDef } from '../../content/cups';
+import { availableCups, cupById, cupUnlocked, type CupDef } from '../../content/cups';
 import { GP_POINTS, cupBonus, racesDone, trophiesOf } from '../../game/modes/GrandPrix';
-import { worldById } from '../../content/worlds';
+import { worldById, worldsFor } from '../../content/worlds';
 import { AI_TIERS } from '../../save/schema';
 import { Screen } from '../components';
 
@@ -27,6 +27,16 @@ export function Trophies({ won, small, cup = 'CUP' }: { won: readonly AITier[]; 
         </span>
       ))}
     </span>
+  );
+}
+
+/** A small padlock (locked cups and worlds). */
+export function Padlock({ class: cls = 'mzu-padlock' }: { class?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" class={cls} aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="1.5" fill="currentColor" />
+      <path d="M8 11 V8 a4 4 0 0 1 8 0 V11" fill="none" stroke="currentColor" stroke-width="2.2" />
+    </svg>
   );
 }
 
@@ -56,12 +66,15 @@ export function QuitCup({ app }: { app: App }) {
 export function GrandPrix({ app }: { app: App }) {
   const p = app.activeProfile.value;
   const cup = p?.cup ?? null;
-  const cups = availableCups();
+  // A cup with a world behind the `expansion` flag stays hidden while that flag is off.
+  const cups = availableCups(worldsFor(app.features));
   // The cup in progress is always the one shown; otherwise the last one picked here.
   const [picked, setPicked] = useState(cups[0]?.id ?? '');
   const def: CupDef | undefined = (cup ? cupById(cup.cupId) : cupById(picked)) ?? cups[0];
   const tier = cup?.tier ?? p?.aiTier ?? 'rookie';
   const done = cup ? racesDone(cup) : 0;
+  // With `modes` on a cup opens once its World Tour world is cleared (IMPLEMENTATION §M8a).
+  const locked = !cup && !!def && !!p && !cupUnlocked(def, p, app.features.modes);
   if (!def) {
     return (
       <Screen id="gp" title="GRAND PRIX" kicker="NO CUPS YET" onBack={() => (app.route.value = { name: 'menu' })} backLabel="MENU">
@@ -75,12 +88,13 @@ export function GrandPrix({ app }: { app: App }) {
         <div class="mzu-gp-cups" role="tablist" aria-label="Cups">
           {cups.map((c) => (
             <button key={c.id} type="button" role="tab" class="mzu-chip" aria-selected={c.id === def.id} disabled={!!cup && c.id !== def.id} data-cup={c.id} onClick={() => setPicked(c.id)}>
+              {p && !cupUnlocked(c, p, app.features.modes) ? <Padlock /> : null}
               {c.name}
             </button>
           ))}
         </div>
       ) : null}
-      <div class="mzu-gp" data-cup-shown={def.id}>
+      <div class={`mzu-gp${locked ? ' locked' : ''}`} data-cup-shown={def.id}>
         <ol class="mzu-gp-tracks">
           {def.worlds.map((id, i) => {
             const w = worldById(id);
@@ -114,6 +128,11 @@ export function GrandPrix({ app }: { app: App }) {
                 </button>
                 <QuitCup app={app} />
               </>
+            ) : locked ? (
+              <p class="mzu-gp-locked" data-cup-locked role="note">
+                <Padlock />
+                CLEAR {worldById(def.requires)?.name ?? def.requires} TO UNLOCK
+              </p>
             ) : (
               <button type="button" class="mzu-chip go" data-autofocus data-gp-start onClick={() => app.startCup(def.id)}>
                 START {def.name} · {TIER_NAMES[tier]}
