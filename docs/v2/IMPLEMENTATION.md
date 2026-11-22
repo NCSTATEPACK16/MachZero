@@ -2407,11 +2407,11 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 7. **The release PR**, titled **"MachZero 2.0"**: a feature summary, a screenshot of each visible world, the map, the results screen, a Time Trial with ghosts, the touch layout on iPhone and iPad sizes; the sim tables; the sizes from `npm run size`; and the QA checklist below.
 
 **Done when (SPEC §9 and §12):**
-- [ ] Every visible world is playable in World Tour, Grand Prix and Time Trial with keyboard, pad and touch.
-- [ ] All sims are green: the 8 × 4 matrix, the balance targets, economy, medals, World Tour, season, touch scheme.
-- [ ] `FEATURE_NAMES` is `music` and `expansion` only, and no dead flag branch remains (`grep -rn "features\.\(profiles\|garage\|worlds\|tiers\|touch\|modes\)" src` finds nothing).
-- [ ] Saves from v1 to v8 load as v9 with nothing lost (the migration tests).
-- [ ] Sizes: app JS ≤ 600 KB gzip, Rapier ≤ 1.7 MB gzip, `public/game` ≤ 15 MB. No console errors in the smoke test.
+- [x] Every visible world is playable in World Tour, Grand Prix and Time Trial with keyboard, pad and touch. The e2e drive each mode by keyboard, pad and touch on Neon Bay (and the Storm Cup's five worlds by pad); the scripted play pass raced all five visible worlds by touch on the Rookie preset and with no assists on Legend, with no console error. The owner's QA checklist is the check on the devices.
+- [x] All sims are green: the 8 × 4 matrix, the balance targets, economy, medals, World Tour, season, touch scheme.
+- [x] `FEATURE_NAMES` is `music` and `expansion` only, and no dead flag branch remains (`grep -rn "features\.\(profiles\|garage\|worlds\|tiers\|touch\|modes\)" src` finds nothing).
+- [x] Saves from v1 to v8 load as v9 with nothing lost (the migration tests), and a save the live site wrote with `modes` off keeps its worlds, cups and garage under the World Tour (`game/modes/__tests__/release.test.ts`).
+- [x] Sizes: app JS ≤ 600 KB gzip, Rapier ≤ 1.7 MB gzip, `public/game` ≤ 15 MB. No console errors in the smoke test.
 
 **Device gate (the owner; the full QA checklist), iPhone 18 Pro Max and iPad Air:**
 1. A new Rookie profile by touch: tutorial, clear Neon Bay, the unlock, buy a Mk II part, clear world 2.
@@ -2422,6 +2422,30 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 6. An 8-ship race on each visible world at the device's own preset: 60 fps.
 
 **What needs the owner in M8:** the look of the map and the results screen (M8a), the device gates above, and the merge of the release PR. Everything else is built without questions.
+
+**As built (branch `v2/m8d-release`)**:
+- **The economy table in §M8 was one part tier too low.** Its "Mk II kit" column was measured with `PartTier` 2 (Mk III) and its "Mk III kit" column with `PartTier` 3 (Prototype). The design commit and today's code give the same numbers:
+
+  | Ace | Stock | Mk II kit | Mk III kit | Prototype kit |
+  |---|---|---|---|---|
+  | credits a race (mean of 8 tracks) | 286 | 359 | 706 | 970 |
+
+  So step 1's bands guard the kits they were measured on: **Ace on a Mk III kit 550–900, on a Prototype kit 750–1,150**. A guard was added for a true Mk II kit (250–600, measured 359): on Ace it is not yet enough against rivals on Mk III engines and boosters. Prices and payouts are unchanged; the design's progression holds with the right labels (Mk III kit after about 10 Pilot races, then Ace on Mk III at 706 a race toward the 16,000 Prototype kit).
+- **Economy sims:** `sim/economy.cases.ts` with three files (`economy.a`: the Rookie first race, Pilot and Legend stock; `economy.b`: Ace stock and Mk II; `economy.c`: Ace Mk III and Prototype), so each stays under a minute (about 40 s for the three, in parallel). The stand-in is an autopilot at the tier's skill and full thrust (pace 1, as the balance tests), from its usual grid slot. `runWorldRace` takes `player.loadout`.
+- **Measured (this branch):**
+  - Rookie first race on Neon Bay: P1, 1,000.
+  - Pilot stock: mean 800 (P2–P4).
+  - Legend stock: 271 (P7–P8).
+  - Ace stock: 286. Mk II: 359. Mk III: 706. Prototype: 970.
+- **The tier matrix (8 tracks × 4 tiers) and every guard are green with no change to a tier or a track.** The balance stand-ins: Rookie-assisted from P8 finished P1 on six tracks and P2 on Cryo Station and Cinder Forge; Pilot unassisted finished P2–P4, within 1.5% of the median everywhere.
+- **Flags:** `modes` turned on in its own commit; the next commit removed the six flags. Deleted: `ui/screens/WorldSelect.tsx` (its `TierPicker` moved to `ui/screens/TierPicker.tsx`), the `worlds` and `soon` routes, `ComingSoon`, `MENU_PLACEHOLDERS`, `App.openSoon`, the modes-off grant path in `App.bindStats`, `cupUnlocked`'s `modes` argument, the CSS of the world-select cards. The touch rig and tilt are always built. The menu with no profile (not reachable from the normal flow) still offers RACE.
+- **The HUD's v1 title screen stays:** `?autopilot=1` (the smoke test) still starts its race from it. `?seed=N` goes straight into a race as before.
+- **Found and fixed:** a Classic profile's "Tutorial: Settings → Race" note was shown when the world was picked, so on a slow build it could run out over the loading screen. It now shows once the race is on screen (the tutorial e2e caught it under load).
+- **e2e:** every URL that named a removed flag is updated. The specs that raced from RACE now go WORLD TOUR → Neon Bay → RACE; the world-select pad test is now the map's (`controller.spec.ts`); the Grand Prix specs and the touch cup test open their cups with a World Tour fixture and leave the results screen with STANDINGS. No assertion was loosened. Added `game/modes/__tests__/release.test.ts` (a live-site save under the World Tour).
+- **Play pass (scripted in the browser):** a new Rookie profile on an iPhone-sized touch screen raced the five visible worlds from the map on the player's AI: the tutorial ran on the first race only, each race was P1 with its first clear (2,000 credits) and opened the next world. A Classic profile on Legend with every assist off finished P8 on all five (260 credits each), as SPEC §4.4 wants for a stock ship there. No console error. Nothing was tuned. The hands-on pass is the owner's QA checklist.
+- **Sizes:** app JS 373.5 KB gzip (M8c: 374.4), Rapier 1,605.7 KB, `public/game` 1.6 MB.
+- **Docs:** README (2.0, the modes, controls for keyboard, pad and touch), `docs/TDD.md` §8 (the 2.0 architecture), M7 and M8 marked done, NEXT_SESSION.
+- **Shots:** `docs/v2/shots/m8d/`.
 
 ---
 
