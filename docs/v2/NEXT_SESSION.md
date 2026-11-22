@@ -4,10 +4,11 @@ Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the b
 
 ## M8b built (2026-11-21)
 
-- **M8b is built** on `v2/m8b-time-trial` (base `v2/m8a-world-tour`, PR #45): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
+- **M8b is built** on `v2/m8b-time-trial` (base `v2/x6-abyss-line`, which holds M7 and M8a): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
 - **Waiting on the owner in M8b:** the device gate: fps with two ghosts on Neon Bay and Abyss Line, on both devices, and the best ghost still there after a relaunch.
 - **Re-bake the dev ghosts** (`npm run ghosts:bake`) whenever a track or the physics changes. The guard test in `sim/ghostBake.sim.test.ts` fails until you do.
-- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → #44 → #45 → M8b.
+- **#44 and #45 are merged** (2026-11-21): #45 into `v2/m7c-comfort`, then #44 carried M7 and M8a into `v2/x6-abyss-line` (#39's head). So M8b's PR is based on `v2/x6-abyss-line`, and its diff is M8b alone.
+- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → M8b → M8c.
 
 ## M8a built (2026-11-20)
 
