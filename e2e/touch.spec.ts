@@ -262,3 +262,29 @@ test('World Tour by touch (IMPLEMENTATION §M8a): the map, a world card, a locke
   await expect(page.locator('[data-world-card="sunset-mesa"] [data-tour-race]')).toBeVisible();
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('Time Trial by touch (IMPLEMENTATION §M8b): the screen, its toggles and the trial results are 44-point targets', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?debug=1&quality=low&features=modes');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.locator('input[type=text]').fill('CLOCK');
+  await page.getByRole('radio', { name: /I'VE RACED BEFORE/ }).tap();
+  await page.getByRole('button', { name: "LET'S RACE" }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
+  await page.getByRole('button', { name: /^TIME TRIAL/ }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'trial');
+  expect(await tooSmall(page), 'time trial').toEqual([]);
+  await page.getByRole('switch', { name: /MY BEST GHOST/ }).tap();
+  await expect(page.getByRole('switch', { name: /MY BEST GHOST/ })).toHaveAttribute('aria-checked', 'false');
+  await page.getByRole('switch', { name: /MY BEST GHOST/ }).tap();
+  await page.locator('[data-trial-world="neon-bay"]').tap();
+  await expect.poll(() => raceState(page), { timeout: 90_000 }).toMatch(/countdown|racing/);
+  await page.evaluate(() => (window as unknown as { __machzero: { simulate(s: number): Promise<void> } }).__machzero.simulate(600));
+  await expect(screen(page)).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 10_000 });
+  expect(await tooSmall(page), 'trial results').toEqual([]);
+  await page.locator('[data-res-trial]').tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'trial');
+  await expect(page.locator('[data-trial-world="neon-bay"] .mzu-trial-best')).not.toContainText('—');
+  expect(errors, errors.join('\n')).toEqual([]);
+});

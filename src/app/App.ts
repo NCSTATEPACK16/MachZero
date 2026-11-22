@@ -25,11 +25,17 @@ import { TRACK_DEFS } from '../content/tracks';
 import { WORLDS, worldById, type WorldDef, type WorldId } from '../content/worlds';
 import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
 import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
+import { bookTrial, medalTally, medalTimes } from '../game/modes/TimeTrial';
+import type { GhostData } from '../game/ghost/ghostCodec';
+import { loadDevGhost } from '../game/ghost/devGhosts';
+import type { TrialHud } from '../game/HUD';
+import { DEV_TIMES } from '../content/devTimes';
+import { GhostStore } from '../save/GhostStore';
 import { rosterOf } from '../game/pilotPortrait';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Medal, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
@@ -113,6 +119,12 @@ export class App {
   readonly lastResult = signal<RaceResult | null>(null);
   /** The menus' sound hooks (IMPLEMENTATION §M8a step 8): results, locked worlds and cups. The race has its own bus. */
   readonly events = new EventBus<MenuEvents>();
+  /** Best ghosts, one per track per profile (IMPLEMENTATION §M8b; IndexedDB, never in the save file). */
+  private readonly ghostStore = new GhostStore();
+  /** The last best-ghost write; the next trial waits for it, so RACE AGAIN races the ghost just set. */
+  private ghostSaving: Promise<unknown> = Promise.resolve();
+  /** The Time Trial being raced, or null (set by `startTrial`, cleared when it is left for a menu). */
+  private trial: { worldId: WorldId; trackId: string; ghosts: { kind: 'best' | 'dev'; data: GhostData }[]; hud: TrialHud } | null = null;
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -268,6 +280,10 @@ export class App {
             if (app.session?.state === 'results') return;
           }
         },
+        /** The ghosts the current Time Trial shows (e2e). */
+        ghosts: () => app.session?.shownGhosts.map((g) => ({ ...g })) ?? [],
+        /** Ghost meshes drawn in the last frame (one draw call each). */
+        ghostsDrawn: () => app.graphics.ghostsDrawn,
         /** Add credits to the active profile (tests). */
         grantCredits: (n: number) => app.updateProfile((p) => (p.credits += n)),
         /** Dispose the current race and build a fresh one (leak checks). */
@@ -303,8 +319,8 @@ export class App {
     await nextPaint();
     await this.loadWorldAssets();
     const s = await this.ensureSession();
-    if (this.menus) {
-      // The grid intro card first; the countdown starts when it ends (App.fixed).
+    if (this.menus && !this.trial) {
+      // The grid intro card first; the countdown starts when it ends (App.fixed). A Time Trial skips it.
       s.setIntro(true);
       this.introUntil = performance.now() + INTRO_SECONDS * 1000;
     } else s.start();
@@ -327,7 +343,39 @@ export class App {
       return;
     }
     this.session?.toTitle();
-    this.route.value = { name: 'menu' };
+    const trial = this.trial !== null;
+    this.trial = null;
+    this.route.value = trial ? { name: 'trial' } : { name: 'menu' };
+  }
+
+  // ------------------------------------------------------------ Time Trial (IMPLEMENTATION §M8b)
+
+  openTimeTrial(): void {
+    this.route.value = { name: 'trial' };
+  }
+
+  /** Solo against the clock and the ghosts on `worldId`'s track (an unlocked world). */
+  async startTrial(worldId: string): Promise<void> {
+    const w = worldById(worldId);
+    const p = this.activeProfile.value;
+    if (!w?.built || !p || !this.features.modes) return;
+    if (!worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
+    const devTime = DEV_TIMES[w.trackId];
+    if (!devTime) return;
+    this.route.value = { name: 'loading' };
+    const want = this.settings.ghosts.value;
+    await this.ghostSaving;
+    // The best ghost is read even when it is hidden: the splits are measured against it.
+    const [best, dev] = await Promise.all([this.ghostStore.get(p.id, w.trackId), want.dev ? loadDevGhost(w.trackId) : Promise.resolve(null)]);
+    const ghosts: { kind: 'best' | 'dev'; data: GhostData }[] = [];
+    if (best && want.best) ghosts.push({ kind: 'best', data: best });
+    if (dev) ghosts.push({ kind: 'dev', data: dev });
+    const held = p.records[w.trackId]?.medal ?? null;
+    this.trial = { worldId: w.id, trackId: w.trackId, ghosts, hud: { medalTimes: medalTimes(devTime), held, bestLaps: best?.lapTimes ?? null } };
+    await this.startRace();
   }
 
   // ------------------------------------------------------------ Grand Prix
@@ -463,6 +511,7 @@ export class App {
 
   /** The world the next race is in, or null for the v1 classic / Bonus Track. */
   get currentWorld(): WorldDef | null {
+    if (this.trial) return worldById(this.trial.worldId) ?? null;
     const cup = this.cupRace.value ? this.cup : null;
     const cupWorldId = cup ? cupWorld(cup) : null;
     if (cupWorldId) return worldById(cupWorldId) ?? WORLDS[0];
@@ -566,6 +615,7 @@ export class App {
   }
 
   deleteProfile(id: string): void {
+    void this.ghostStore.deleteProfile(id);
     this.updateSave((d) => {
       d.profiles = d.profiles.filter((p) => p.id !== id);
       if (d.activeProfileId === id) d.activeProfileId = null;
@@ -842,6 +892,8 @@ export class App {
 
   private raceSetup(): RaceSetup {
     const p = this.menus ? this.activeProfile.value : null;
+    const trial = this.trial;
+    if (trial && p) return this.trialSetup(p, trial);
     const cup = this.cupRace.value ? (p?.cup ?? null) : null;
     const tier = cup ? cup.tier : this.raceTier(p);
     const field = buildRaceField({
@@ -871,6 +923,26 @@ export class App {
     return { ...base, source: { kind: 'seeded', seed }, worldId: 'neon-bay', trackKey, records: p ? this.profileRecords(p.id, trackKey) : localRecordStore };
   }
 
+  /** A Time Trial: the player alone on pole, no items; hazards as in a race (the Rookie rules with No-KO on). */
+  private trialSetup(p: Profile, trial: NonNullable<App['trial']>): RaceSetup {
+    const world = worldById(trial.worldId)!;
+    const def = TRACK_DEFS[trial.trackId];
+    const field = buildRaceField({ playerName: p.name, playerLoadout: p.loadout, tier: this.raceTier(p), rivals: 0, playerGridIndex: 0 });
+    const hazards = hazardPolicy(this.flags.hazards ?? (p.assists.noKO ? 'rookie' : 'normal'));
+    return {
+      field,
+      autopilot: this.flags.autopilot,
+      hazards,
+      assists: this.playerAssists(),
+      source: { kind: 'authored', def },
+      palette: world.palette,
+      worldId: world.id,
+      trackKey: def.id,
+      records: this.profileRecords(p.id, def.id),
+      trial: { ghosts: trial.ghosts, hud: trial.hud },
+    };
+  }
+
   private profileRecords(profileId: string, trackKey: string): RecordStore {
     return {
       load: () => this.save.value.profiles.find((p) => p.id === profileId)?.records[trackKey]?.bestLap ?? null,
@@ -885,7 +957,8 @@ export class App {
   /** The race the menu would start now; reuses the current session when nothing relevant changed. */
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
+    const trial = setup.trial ? [setup.trial.ghosts.map((g) => [g.kind, g.data.totalTime]), setup.trial.hud.held] : null;
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, trial, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;
@@ -951,6 +1024,10 @@ export class App {
     if (!profileId) return;
     s.bus.on('race:results', ({ standings }) => {
       const me = standings.find((r) => r.id === s.player.def.id);
+      if (s.isTrial) {
+        this.bookTrialRun(s, profileId, me, standings);
+        return;
+      }
       const tier = s.player.def.tier ?? 'rookie';
       // A race on a world counts on the World Tour (a cup race too); the classic and Bonus tracks do not.
       const world = this.flags.seed === null && s.setup.source.kind === 'authored' ? worldById(s.setup.worldId) : undefined;
@@ -997,16 +1074,63 @@ export class App {
     });
   }
 
+  /** A Time Trial run: book the time and medals, pay them, keep the ghost when it is the best, show the results. */
+  private bookTrialRun(s: RaceSession, profileId: string, me: RacerStanding | undefined, standings: readonly RacerStanding[]): void {
+    const trackId = s.setup.trackKey;
+    const devTime = DEV_TIMES[trackId];
+    const world = worldById(s.setup.worldId);
+    if (!devTime || !world) return;
+    const total = me?.status === 'finished' && me.totalTime !== null ? me.totalTime : null;
+    let outcome = { pay: 0, best: false, reached: null as Medal | null, previous: null as Medal | null, previousBest: null as number | null };
+    this.updateSave((d) => {
+      const p = d.profiles.find((x) => x.id === profileId);
+      if (!p) return;
+      const rec = p.records[trackId] ?? {};
+      outcome.previous = rec.medal ?? null;
+      outcome.previousBest = rec.trialTime ?? null;
+      if (total === null) return;
+      const r = bookTrial(rec, total, devTime);
+      p.records[trackId] = r.record;
+      p.credits += r.pay;
+      outcome = { ...outcome, pay: r.pay, best: r.best, reached: r.reached };
+    });
+    const o = outcome;
+    const ghost = s.trialGhost;
+    if (o.best && ghost) this.ghostSaving = this.ghostStore.put(profileId, trackId, ghost).catch(() => false);
+    const credits = this.save.value.profiles.find((x) => x.id === profileId)?.credits ?? 0;
+    if (o.pay > 0) s.bus.emit('economy:credits', { delta: o.pay, total: credits });
+    if (!this.resultsScreen || this.session !== s) return;
+    this.lastResult.value = {
+      mode: 'trial',
+      worldId: world.id,
+      tier: s.player.def.tier ?? 'rookie',
+      standings: standings.map((x) => ({ ...x })),
+      playerId: s.player.def.id,
+      roster: rosterOf(s.setup.field),
+      tally: medalTally(o.previous, o.reached),
+      credits,
+      unlocked: null,
+      newTrophies: [],
+      quote: null,
+      trial: { total, lapTimes: [...s.race.snapshot().lapTimes], devTime, medalTimes: medalTimes(devTime), previousBest: o.previousBest, best: o.best, reached: o.reached, previous: o.previous },
+    };
+    this.route.value = { name: 'results' };
+  }
+
   // ------------------------------------------------------------ Results screen (IMPLEMENTATION §M8a)
 
   /** RACE AGAIN: the same world and tier, through the grid intro. */
   raceAgain(): void {
-    void this.startRace();
+    const r = this.lastResult.value;
+    // A Time Trial runs again with the ghosts reloaded (a new best ghost replaces the old one).
+    if (r?.mode === 'trial' && this.trial) void this.startTrial(r.worldId);
+    else void this.startRace();
   }
 
   /** Leave the results for a menu screen; the race goes back to the grid behind it. */
   leaveResults(to: Route): void {
     this.session?.toTitle();
+    this.trial = null;
     this.route.value = to;
   }
 
@@ -1102,6 +1226,7 @@ export class App {
     this.audio.setVolumes(s.masterVolume, s.sfxVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
+    this.graphics.setColorBlind(s.colorBlind);
     setHapticsEnabled(s.haptics);
     this.rumble.enabled = s.haptics;
     this.input.setBindings(s.keyBindings);

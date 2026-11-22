@@ -1,4 +1,4 @@
-import type { ShipState, TrackData, TrackSample } from '../core/contracts';
+import type { GhostFrame, ShipState, TrackData, TrackSample } from '../core/contracts';
 
 const PAD = 14;
 
@@ -51,7 +51,7 @@ export class Minimap {
    * its heading, the race leader a diamond and the others circles, in every mode, so the minimap never relies on
    * colour. Colour-blind mode (`cb`) also paints the player blue and the rivals orange instead of their liveries.
    */
-  update(ships: readonly ShipState[], player: ShipState, leaderId = -1, cb = false): void {
+  update(ships: readonly ShipState[], player: ShipState, leaderId = -1, cb = false, ghosts?: readonly GhostFrame[]): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const s = this.dpr;
@@ -81,6 +81,19 @@ export class Minimap {
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255,255,255,0.75)';
       ctx.stroke();
+    }
+
+    // Time Trial ghosts: hollow rings (the best one cyan or blue, the dev one gold or orange), under the player.
+    if (ghosts) {
+      ctx.lineWidth = 2;
+      for (const g of ghosts) {
+        if (!g.visible) continue;
+        const [x, y] = this.map(g.position.x, g.position.z);
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.strokeStyle = g.kind === 'best' ? (cb ? '#3d7bff' : '#19f0ff') : cb ? '#ff8a1f' : '#ffc23a';
+        ctx.stroke();
+      }
     }
 
     const [px, py] = this.map(player.position.x, player.position.z);

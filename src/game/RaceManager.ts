@@ -232,6 +232,11 @@ export class RaceManager implements IRaceManager {
     }
   }
 
+  /** Seconds since GO (0 before it); unlike the snapshot's `raceTime` it runs on after the player finishes. */
+  get time(): number {
+    return this.raceTime;
+  }
+
   snapshot(): RaceSnapshot {
     const p = this.playerRacer;
     const s = this.snap;

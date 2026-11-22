@@ -87,6 +87,7 @@ export function MainMenu({ app }: { app: App }) {
           </>
         )}
         {app.features.worlds && p && !cup ? <MenuButton icon={Icon.cup} label="GRAND PRIX" sub="Five races, every world, one cup" onClick={() => app.openGrandPrix()} /> : null}
+        {tour && !cup ? <MenuButton icon={Icon.modes} label="TIME TRIAL" sub="Solo against your ghost and the dev ghost, for medals" onClick={() => app.openTimeTrial()} /> : null}
         {MENU_PLACEHOLDERS.filter((m) => app.features[m.feature]).map((m) => (
           <MenuButton icon={Icon[m.feature as keyof typeof Icon]} label={m.title} sub={m.blurb} onClick={() => app.openSoon(m.feature, m.title)} />
         ))}

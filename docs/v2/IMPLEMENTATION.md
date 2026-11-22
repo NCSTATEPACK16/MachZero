@@ -1936,7 +1936,7 @@ export interface SettingsData {
 
 ---
 
-## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20)
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20; M8b built 2026-11-21)
 
 SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
 
@@ -1945,7 +1945,7 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
 | M8a | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
-| M8b | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
+| M8b ✅ | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
 | M8c | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
 | M8d | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
 
@@ -2141,7 +2141,7 @@ export interface SettingsData {
 
 ---
 
-### M8b — Time Trial and ghosts
+### M8b — Time Trial and ghosts — ✅ BUILT (PR #46, `v2/m8b-time-trial`, base `v2/x6-abyss-line` (#39's head, which holds M7 and M8a since #44 and #45 merged); waiting on the owner's device gate)
 
 **Design decisions:**
 - **Time Trial:** solo, 3 laps, on any track whose world is unlocked, with the player's own ship and parts. No rivals, no items. RESTART at any time.
@@ -2219,15 +2219,59 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
    - e2e (`e2e/timetrial.spec.ts`, `?features=modes`): open TIME TRIAL, start Neon Bay on autopilot, finish, see a time and a medal state; start again and see `window.__machzero.ghosts()` report two ghosts with the best one present; reload and the best time is still there.
 
 **Done when:**
-- [ ] A Time Trial run records a ghost; the next run shows it and the dev ghost; each toggle hides its ghost.
-- [ ] A better time replaces the ghost; a worse one does not.
-- [ ] Medals are paid once each, and the results screen shows which were paid.
-- [ ] The 8 dev ghosts and `devTimes.ts` are committed, and the guard test passes.
-- [ ] The medal sims pass on all 8 tracks.
-- [ ] A ghost adds one draw call (the perf table in the PR body shows a trial with two ghosts).
-- [ ] Deleting a profile deletes its ghosts. An exported save imports on a clean browser with times and medals and no ghosts, without an error.
+- [x] A Time Trial run records a ghost; the next run shows it and the dev ghost; each toggle hides its ghost (`e2e/timetrial.spec.ts`; `RaceSession.test.ts`).
+- [x] A better time replaces the ghost; a worse one does not (`GhostStore.test.ts`; `bookTrial` in `TimeTrial.test.ts`).
+- [x] Medals are paid once each, and the results screen shows which were paid (the tally has one line per medal paid; `TimeTrial.test.ts`, the e2e).
+- [x] The 8 dev ghosts and `devTimes.ts` are committed, and the guard test passes (`sim/ghostBake.sim.test.ts`).
+- [x] The medal sims pass on all 8 tracks (`sim/medals.sim.test.ts`).
+- [x] A ghost adds one draw call: at most one each, none off screen (the perf table in the PR body; `GhostShips.test.ts`).
+- [x] Deleting a profile deletes its ghosts (`GhostStore.test.ts`; `App.deleteProfile`). An exported save imports on a clean browser with times and medals and no ghosts, without an error (`SaveStore.test.ts`).
 
 **Device gate (`VITE_FEATURES=modes,expansion`), iPhone and iPad:** a Time Trial on Neon Bay and on Abyss Line with both ghosts on and the performance panel on: 60 fps, p95 no more than 1 ms above an 8-ship race on the build before. Close the app, reopen it, and the best ghost is still there.
+
+
+**As built (branch `v2/m8b-time-trial`)** (read before M8c):
+- **Files:**
+  - `game/ghost/`: `ghostCodec.ts`, `GhostRecorder.ts`, `GhostPlayer.ts`, `GhostCapture.ts` (records one ship's run from the race bus; the Time Trial race and the bake both use it), `devGhosts.ts` (fetch and cache).
+  - `save/GhostStore.ts`; `game/modes/TimeTrial.ts` (adds `nextMedal`, `medalTally`, `MEDAL_NAMES`); `graphics/GhostShips.ts`; `ui/screens/TimeTrial.tsx`.
+  - Sims: `sim/soloRace.ts` (the harness, with `kit()` and `devLoadout()`), `sim/ghostBake.sim.test.ts`, `sim/medals.sim.test.ts`.
+  - Content: `content/devTimes.ts`, `public/game/ghosts/*.bin`.
+- **Plumbing:**
+  - `buildRaceField` takes `rivals`.
+  - `RaceManager` gains `time`: seconds since GO, still running after the player finishes, so the ghosts carry on.
+  - `RaceSetup.trial = { ghosts, hud }`; `FrameContext.ghosts` (`GhostFrame`); `GraphicsSystem.setGhosts`, `ghostTag` and `setColorBlind`.
+  - `HUD` takes `trial` (`TrialHud`); `Minimap.update` takes the ghosts.
+  - `App`: `startTrial`, `openTimeTrial`; route `trial`. `MENU_PLACEHOLDERS` is empty.
+- **Decisions made while building (none re-opens a design decision):**
+  - **A ghost stores the rotation the ship is drawn with** (the body rotation with its visual bank), so a ghost leans into turns as the ship did.
+  - **`GhostStore.put` keeps a ghost only when it is faster than the one held**, so the store itself guarantees "a worse run does not replace the ghost". The next trial waits for the last write, so RACE AGAIN always races the ghost just set.
+  - **The best ghost is read even when MY BEST GHOST is off**: the splits are measured against it. The toggles are read when a trial starts.
+  - **Trial hazards:** the Rookie rules with No-KO on, else normal, whatever the profile's tier (the design's parenthetical). The tier only sets the autopilot's skill.
+  - **A trial pays only medals.** It does not count as a race in `stats`, pays no race credits and books nothing on the World Tour. Its laps still set the track's best lap record.
+  - **TARGET** is the next medal above the one held; with gold held it shows the best total. The split is `▲ −0.42` (ahead) or `▼ +0.42` (behind), beside the lap box (the toasts use the space under it; in a trial they sit a row lower, under the taller lap box).
+  - **The ghosts show during the countdown at their start pose** and play by race time. Ghost opacity fades by distance to the camera (12 m to 4 m); `MeshBasicMaterial`, fog on, `depthWrite` off, `renderOrder` 2.
+  - **Ghost geometry:** the chassis' LOD1 hull with stock parts, merged into one position-only geometry, scaled by its class. Without ship assets it is a wedge.
+  - **The DEV tag** is projected by `GhostShips` and drawn by the HUD (DOM): no draw call.
+  - **Navigation:**
+    - Pause → MENU in a trial, and the results' Ⓑ, go back to the Time Trial screen.
+    - Trial results show the laps, the total, the gap to the best and the three medal times. The buttons are RACE AGAIN, TIME TRIAL and GARAGE.
+    - The world card gains a TIME TRIAL button, and the map's planets show the medal held.
+- **Existing tests changed:** `partsBalance.sim.test.ts` now uses `sim/soloRace.ts`; its assertions are unchanged. No assertion was loosened.
+- **Measured:**
+  - **Dev times:** 77.38 s (Cryo Station) to 109.06 s (Orbital Ring), the table at the top of §M8 to the hundredth.
+  - **Ghost files:** 20–28 KB each, 212 KB for all 8.
+  - **Medal sims:** stock ×1.032–1.060, Mk II ×1.027–1.051, Prototype ×0.993–1.007.
+  - **Draw calls** (SwiftShader, Neon Bay, 9 s in):
+
+    | Quality | 8-ship race | Trial with ghosts off | Trial with two ghosts |
+    |---|---|---|---|
+    | Low | 128 | 77 | 78 |
+    | High | 173 | 96 | 97 |
+
+    In both samples one ghost was off screen and culled.
+  - **App JS:** 369.3 KB gzip (+7.0 KB).
+- **Owner:** the device gate below.
+
 
 ---
 

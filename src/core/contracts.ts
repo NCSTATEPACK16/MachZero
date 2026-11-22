@@ -553,6 +553,16 @@ export interface MineView {
   armed: boolean;
 }
 
+/** A Time Trial ghost as the render side sees it this frame (IMPLEMENTATION §M8b): a reused object per ghost. */
+export interface GhostFrame {
+  readonly kind: 'best' | 'dev';
+  readonly chassisId: string;
+  readonly position: THREE.Vector3;
+  readonly quaternion: THREE.Quaternion;
+  /** False when the ghost is switched off or past its end. */
+  visible: boolean;
+}
+
 export interface FrameContext {
   /** Real frame delta in seconds (clamped). */
   dt: number;
@@ -568,6 +578,8 @@ export interface FrameContext {
   player: ShipState;
   track: TrackData;
   race: RaceSnapshot;
+  /** Time Trial ghosts (absent outside a trial). */
+  ghosts?: readonly GhostFrame[];
 }
 
 // ---------------------------------------------------------------------------

@@ -161,3 +161,40 @@ describe('RaceSession assists (IMPLEMENTATION §M7a)', () => {
     s.dispose();
   });
 });
+
+describe('Time Trial session (IMPLEMENTATION §M8b step 5)', () => {
+  it('the player alone on pole, no items; the run is recorded as a ghost; the given ghost is listed', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { decodeGhost, GHOST_HZ } = await import('../../game/ghost/ghostCodec');
+    const b = readFileSync(join(__dirname, '../../../public/game/ghosts/cryo-station.bin'));
+    const dev = decodeGhost(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer)!;
+    const field = buildRaceField({ playerName: 'T', playerLoadout: defaultLoadout(), tier: 'legend', rivals: 0, playerGridIndex: 0 });
+    expect(field).toHaveLength(1);
+    const s = await RaceSession.create(
+      setup({ source: { kind: 'authored', def: TRACK_DEFS['cryo-station'] }, worldId: 'cryo-station', trackKey: 'cryo-station', field, trial: { ghosts: [{ kind: 'dev', data: dev }], hud: { medalTimes: { gold: 1, silver: 2, bronze: 3 }, held: null, bestLaps: null } } }),
+    );
+    expect(s.isTrial).toBe(true);
+    expect(s.ships).toHaveLength(1);
+    expect(s.player.def.gridIndex).toBe(0);
+    expect(s.items.playerView()).toBeNull();
+    expect(s.shownGhosts).toEqual([{ kind: 'dev', totalTime: dev.totalTime, visible: false }]);
+    s.start();
+    let finished = 0;
+    s.bus.on('race:finish', (e) => (finished = e.totalTime));
+    for (let t = 0; t < 200 && s.state !== 'results'; t += CONFIG.FIXED_DT) s.fixed(CONFIG.FIXED_DT, null);
+    expect(s.state).toBe('results');
+    const g = s.trialGhost!;
+    expect(g).not.toBeNull();
+    expect(g.trackId).toBe('cryo-station');
+    expect(g.totalTime).toBe(finished);
+    expect(g.lapTimes).toHaveLength(3);
+    expect(Math.abs((g.count - 1) / GHOST_HZ - g.totalTime)).toBeLessThan(0.1);
+    // A restart throws the take away until the next finish.
+    s.restart();
+    expect(s.trialGhost).not.toBeNull(); // kept until the next GO
+    for (let t = 0; t < 5; t += CONFIG.FIXED_DT) s.fixed(CONFIG.FIXED_DT, null);
+    expect(s.trialGhost).toBeNull();
+    s.dispose();
+  });
+});

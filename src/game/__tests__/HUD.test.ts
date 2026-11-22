@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SHIP_ROSTER } from '../../core/config';
 import type { HudActions, ShipState } from '../../core/contracts';
 import { EventBus, type GameEvents } from '../../core/events';
-import { HUD } from '../HUD';
+import { HUD, SPLIT_SECONDS, formatSplit, trialSplit } from '../HUD';
 import { RaceManager } from '../RaceManager';
 import { rosterOf } from '../pilotPortrait';
 import { buildRaceField, defaultLoadout } from '../../content/pilots';
@@ -132,6 +132,55 @@ describe('HUD (fake DOM smoke test)', () => {
     bus.emit('ship:draft', { shipId: 0, active: false });
     expect(chip.hidden).toBe(true);
     hud.dispose();
+  });
+
+  it('Time Trial (IMPLEMENTATION §M8b step 7): no position or items, TARGET, the split at each lap line and the DEV tag', () => {
+    const track = makeCircleTrack(500);
+    const bus = new EventBus<GameEvents>();
+    const ship = makeShip(0, true, 'steady');
+    placeShip(ship, track, 0.99, 0);
+    const race = new RaceManager(track, [ship], bus);
+    const actions: HudActions = { onStart: () => undefined, onRestart: () => undefined, onResume: () => undefined, onToggleMute: () => undefined };
+    const root = new FakeEl('div');
+    const medalTimes = { gold: 93.6, silver: 97.3, bronze: 102.8 };
+    const hud = new HUD(root as unknown as HTMLElement, bus, track, actions, { showTitle: false, trial: { medalTimes, held: 'bronze', bestLaps: [33, 31, 31] } });
+    const c = root.children[0];
+    expect(c.dataset.mode).toBe('trial');
+    // TARGET: the medal after the one held, by name and time.
+    const target = c.find('mz-target')!;
+    expect(target.find('mz-medal')!.textContent).toBe('SILVER');
+    expect(target.textContent).toContain('1:37.300');
+    // The split: the player's elapsed time against the best ghost's at each lap line, for 3 s.
+    const split = c.find('mz-split')! as unknown as FakeEl & { hidden: boolean };
+    expect(split.hidden).toBe(true);
+    race.start();
+    bus.emit('race:state', { state: 'racing', prev: 'countdown' });
+    bus.emit('race:lap', { shipId: 3, lap: 1, lapTime: 30, isBest: true, isRecord: false });
+    expect(split.hidden).toBe(true); // not the player
+    bus.emit('race:lap', { shipId: 0, lap: 1, lapTime: 32.58, isBest: true, isRecord: false });
+    expect(split.hidden).toBe(false);
+    expect(split.textContent).toBe('▲ −0.42');
+    expect(split.dataset.s).toBe('ahead');
+    for (let t = 0; t < SPLIT_SECONDS + 0.1; t += 0.1) hud.update(race.snapshot(), 0.1, 0, [], { x: 0.5, y: 0.25, visible: true });
+    expect(split.hidden).toBe(true);
+    bus.emit('race:lap', { shipId: 0, lap: 2, lapTime: 31.6, isBest: false, isRecord: false });
+    expect(split.textContent).toBe('▼ +0.18');
+    expect(split.dataset.s).toBe('behind');
+    // The DEV tag follows the projected dev ghost while racing.
+    const tag = c.find('mz-ghost-tag')! as unknown as FakeEl & { hidden: boolean };
+    hud.update(race.snapshot(), 1 / 60, 0, [], { x: 0.5, y: 0.25, visible: true });
+    expect(tag.hidden).toBe(race.state !== 'racing' && race.state !== 'countdown');
+    hud.dispose();
+  });
+
+  it('splits: elapsed time against the best ghost, and their text', () => {
+    expect(trialSplit([32, 31], [33, 31, 31], 1)).toBeCloseTo(-1, 9);
+    expect(trialSplit([32, 31.5], [33, 31, 31], 2)).toBeCloseTo(-0.5, 9);
+    expect(trialSplit([32], null, 1)).toBeNull();
+    expect(trialSplit([32], [33], 2)).toBeNull();
+    expect(formatSplit(-0.4249)).toBe('▲ −0.42');
+    expect(formatSplit(0.4251)).toBe('▼ +0.43');
+    expect(formatSplit(0)).toBe('▲ −0.00');
   });
 
   it('builds all screens, follows race state and renders results', () => {

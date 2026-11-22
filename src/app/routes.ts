@@ -17,15 +17,14 @@ export type Route =
   | { name: 'worlds' }
   | { name: 'tour' }
   | { name: 'results' }
+  | { name: 'trial' }
   | { name: 'loading' }
   | { name: 'race' };
 
 export type RouteName = Route['name'];
 
 /** Menu entries gated by 2.0 feature flags (hidden on `main` until their milestone ships). */
-export const MENU_PLACEHOLDERS: ReadonlyArray<{ feature: FeatureName; title: string; blurb: string; milestone: string }> = [
-  { feature: 'modes', title: 'TIME TRIAL', blurb: 'Race your ghost and the dev ghost for medals.', milestone: 'M8' },
-];
+export const MENU_PLACEHOLDERS: ReadonlyArray<{ feature: FeatureName; title: string; blurb: string; milestone: string }> = [];
 
 /**
  * Where the app starts.
