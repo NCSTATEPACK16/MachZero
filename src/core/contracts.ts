@@ -662,4 +662,6 @@ export interface HudActions {
    * after each launch); the intro card then shows ENABLE TILT, which calls `enable` from the tap. Skipped: the slider.
    */
   tilt?: { needed(): boolean; enable(): void };
+  /** The first-race tutorial is running (M8c): its SKIP and the pause panel's SKIP TUTORIAL. */
+  onSkipTutorial?(): void;
 }

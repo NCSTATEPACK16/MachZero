@@ -1,6 +1,7 @@
 import { CONFIG } from '../core/config';
 import type { GhostFrame, HudActions, IHUD, RaceSnapshot, RaceState, RacerStanding, TrackData } from '../core/contracts';
 import type { Medal } from '../save/schema';
+import type { TutorialStep } from './Tutorial';
 import type { GameBus } from '../core/events';
 import { clamp, damp, formatTime, ordinal } from '../core/math';
 import { ITEM_ICONS, ITEM_KINDS, ITEM_NAMES } from '../content/items';
@@ -46,6 +47,20 @@ export function formatSplit(d: number): string {
 }
 
 const MEDAL_NAME: Readonly<Record<Medal, string>> = { gold: 'GOLD', silver: 'SILVER', bronze: 'BRONZE' };
+
+/** The tutorial's prompts (IMPLEMENTATION §M8c): the control for each step in each device's form (the App's bindings). */
+export interface TutorialHud {
+  labels: Readonly<Record<TutorialStep, { kb: string; pad: string; touch: string }>>;
+}
+
+/** Each prompt: an icon (so text is not the only cue) and one short line. */
+export const TUTORIAL_TEXT: Readonly<Record<TutorialStep, { icon: string; text: string }>> = {
+  steer: { icon: '⇆', text: 'STEER' },
+  boost: { icon: '»', text: 'STRAIGHT AHEAD: BOOST' },
+  airbrake: { icon: '◂▸', text: 'SHARP BEND: AIR-BRAKE INTO IT' },
+  pit: { icon: '⚡', text: 'PIT STRIP AHEAD: DRIVE THROUGH TO RECHARGE' },
+  item: { icon: '🛡', text: 'USE YOUR ITEM' },
+};
 
 type ToastKind = 'info' | 'good' | 'warn' | 'bad' | 'record';
 
@@ -205,16 +220,23 @@ export class HUD implements IHUD {
   private splitLeft = 0;
   private readonly myLaps: number[] = [];
   private shownTag = '';
+  /** The tutorial prompt (M8c), the step it shows and the pause panel's SKIP TUTORIAL. */
+  private readonly tutorialHud: TutorialHud | null;
+  private readonly tutorialEl: HTMLElement | null = null;
+  private readonly tutorialBody: HTMLElement | null = null;
+  private readonly skipTutorialBtn: HTMLButtonElement | null = null;
+  private shownTutorial: TutorialStep | null = null;
 
   constructor(
     root: HTMLElement,
     bus: GameBus,
     track: TrackData,
     private readonly actions: HudActions,
-    opts: { showTitle?: boolean; results?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig; trial?: TrialHud } = {},
+    opts: { showTitle?: boolean; results?: boolean; roster?: readonly RosterEntry[]; touch?: TouchRig; trial?: TrialHud; tutorial?: TutorialHud } = {},
   ) {
     this.roster = opts.roster ?? [];
     this.trial = opts.trial ?? null;
+    this.tutorialHud = opts.tutorial ?? null;
     this.showResults = opts.results !== false;
     const c = el('div', 'mz-hud');
     c.dataset.state = 'title';
@@ -400,6 +422,18 @@ export class HUD implements IHUD {
     this.stripBoost.dataset.s = 'locked';
     if (opts.touch) this.touch = new TouchControls(race, opts.touch);
 
+    // Tutorial prompt (M8c): above the bottom panels, clear of the touch controls; SKIP ends the tutorial.
+    if (this.tutorialHud) {
+      this.tutorialEl = el('div', 'mz-tutorial', undefined, race);
+      this.tutorialEl.setAttribute('role', 'status');
+      this.tutorialEl.setAttribute('aria-live', 'polite');
+      this.tutorialBody = el('div', 'mz-tutorial-body', undefined, this.tutorialEl);
+      const skip = this.button('mz-btn mz-tutorial-skip', 'SKIP', () => this.actions.onSkipTutorial?.(), this.tutorialEl);
+      skip.setAttribute('aria-label', 'Skip the tutorial');
+      skip.dataset.tutorialSkip = '';
+      this.tutorialEl.hidden = true;
+    }
+
     // Hazard cue (colour-blind mode): an icon and the way to the clear side.
     this.trackLength = track.length;
     this.cueSpots = buildCueSpots(track);
@@ -425,6 +459,10 @@ export class HUD implements IHUD {
     const cup = this.actions.cup;
     this.button('mz-btn', 'RESUME', () => this.actions.onResume(), prow);
     if (!cup) this.button('mz-btn', 'RESTART', () => this.actions.onRestart(), prow);
+    if (this.tutorialHud && this.actions.onSkipTutorial) {
+      this.skipTutorialBtn = this.button('mz-btn', 'SKIP TUTORIAL', () => this.actions.onSkipTutorial?.(), prow);
+      this.skipTutorialBtn.dataset.pauseSkipTutorial = '';
+    }
     if (this.actions.onSettings) this.button('mz-btn', 'SETTINGS', () => this.actions.onSettings?.(), prow);
     if (cup) this.button('mz-btn danger', 'RETIRE', () => cup.onRetire(), prow);
     else if (this.actions.onMenu) this.button('mz-btn', 'MENU', () => this.actions.onMenu?.(), prow);
@@ -520,6 +558,22 @@ export class HUD implements IHUD {
       chip.node.dataset.sel = k === v.selected ? '1' : '0';
     });
     this.itemsBox.dataset.s = v.shield > 0 ? 'shield' : n > 0 ? 'ready' : 'empty';
+  }
+
+  /** The tutorial prompt to show (null: none); `done` also removes SKIP TUTORIAL from the pause panel. */
+  setTutorial(step: TutorialStep | null, done: boolean): void {
+    if (done && this.skipTutorialBtn) this.skipTutorialBtn.hidden = true;
+    if (step === this.shownTutorial || !this.tutorialEl || !this.tutorialBody || !this.tutorialHud) return;
+    this.shownTutorial = step;
+    this.tutorialEl.hidden = step === null;
+    this.tutorialBody.textContent = '';
+    if (step === null) return;
+    this.tutorialEl.dataset.step = step;
+    const t = TUTORIAL_TEXT[step];
+    const l = this.tutorialHud.labels[step];
+    el('span', 'mz-tutorial-icon', t.icon, this.tutorialBody).setAttribute('aria-hidden', 'true');
+    el('span', 'mz-tutorial-text', t.text, this.tutorialBody);
+    prompt('mz-tutorial-key', l.kb, l.pad, this.tutorialBody, l.touch);
   }
 
   /** Unsubscribe and remove the DOM (RaceSession.dispose). */

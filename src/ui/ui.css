@@ -2391,3 +2391,95 @@ html.mz-pad .mzu-trial-row:focus {
   height: 1.3em;
   font-size: 0.62em;
 }
+
+/* ---------- M8c: the championship ---------- */
+.mzu-crowns {
+  display: inline-flex;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+.mzu-crown {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: rgba(244, 247, 255, 0.18);
+}
+.mzu-crown svg {
+  width: 2.4em;
+  height: 2.4em;
+}
+.mzu-crown-tier {
+  position: absolute;
+  bottom: 0.45em;
+  font-size: 0.62em;
+  font-weight: 900;
+  color: rgba(5, 3, 15, 0.85);
+}
+.mzu-crown:not(.won) .mzu-crown-tier {
+  color: rgba(244, 247, 255, 0.45);
+}
+.mzu-crown.won {
+  color: var(--amber);
+  filter: drop-shadow(0 0 0.4em rgba(255, 179, 25, 0.7));
+}
+.mzu-crown[data-tier='rookie'].won {
+  color: #d58b52;
+}
+.mzu-crown[data-tier='pilot'].won {
+  color: #d9e2f2;
+}
+.mzu-crown[data-tier='legend'].won {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 0.4em rgba(25, 240, 255, 0.8));
+}
+.mzu-crowns.small {
+  gap: 0.15em;
+}
+.mzu-crowns.small .mzu-crown svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.mzu-crowns.small .mzu-crown-tier {
+  display: none;
+}
+.mzu-season-table .face,
+.mzu-season-table .face svg {
+  display: block;
+  width: 1.8em;
+  height: 1.8em;
+}
+.mzu-champion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+/* The championship card's tier picker: the label on its own line, the four tiers sharing the row (as on the world card). */
+.mzu-season-card .mzu-tier {
+  margin: 0;
+}
+.mzu-season-card .mzu-seg {
+  flex-wrap: wrap;
+  padding: 0.4em 0;
+  border: 0;
+  background: none;
+}
+.mzu-season-card .mzu-seg .mzu-row-text {
+  flex-basis: 100%;
+}
+.mzu-season-card .mzu-seg-opts {
+  flex: 1;
+}
+.mzu-season-card .mzu-seg-opts button {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.3em;
+  font-size: 0.82em;
+}
+.mzu-season-card .mzu-tier .mzu-note {
+  font-size: 0.75em;
+  margin: 0.2em 0 0;
+}
+/* The season table: a wider column for the cups won. */
+.mzu-season-table .mzu-cup-row {
+  grid-template-columns: 2.4em 2.6em 1fr 4.2em 3em;
+}

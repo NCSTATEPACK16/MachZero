@@ -32,7 +32,8 @@ const CONTROL_LABEL: Record<KeyControl, string> = {
 };
 
 /** Standard-mapping pad button names. */
-export const PAD_BUTTON_NAMES: readonly string[] = ['Ⓐ', 'Ⓑ', 'Ⓧ', 'Ⓨ', 'LB', 'RB', 'LT', 'RT', 'VIEW', 'START', 'L3', 'R3', 'D-PAD ▲', 'D-PAD ▼', 'D-PAD ◀', 'D-PAD ▶'];
+export { PAD_BUTTON_NAMES } from '../../core/controlNames';
+import { PAD_BUTTON_NAMES } from '../../core/controlNames';
 
 const PAD_LABEL: Record<PadControl, string> = {
   throttle: 'ACCELERATE',
@@ -298,6 +299,17 @@ function Race({ app }: { app: App }) {
     <div class="mzu-section">
       <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier} onChange={(v) => app.setAiTier(v)} />
       <p class="mzu-note">{TIERS[p.aiTier].hint} Applies from the next race; also on the world select.</p>
+      {app.features.modes ? (
+        <div class="mzu-row">
+          <span class="mzu-row-text">
+            <span class="mzu-row-label">TUTORIAL</span>
+            <span class="mzu-row-hint">{p.tutorialDone ? 'Steer, boost, air-brake, pit and items, shown over your next World Tour race.' : 'It runs on your next World Tour race.'}</span>
+          </span>
+          <button type="button" class="mzu-chip" data-replay-tutorial disabled={!p.tutorialDone} onClick={() => app.replayTutorial()}>
+            REPLAY TUTORIAL
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

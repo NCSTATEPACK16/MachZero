@@ -10,32 +10,35 @@ import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTi
 import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
-import { DEFAULT_CUP_ID, cupAvailable, cupById, cupUnlocked } from '../content/cups';
+import { DEFAULT_CUP_ID, availableCups, cupAvailable, cupById, cupUnlocked, type CupDef } from '../content/cups';
+import { newSeason, seasonCup, seasonUnlocked } from '../game/modes/Championship';
+import { bookCupRaceOn, type CupBooking, type SeasonEnd } from '../game/modes/cupBooking';
 import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem, localRecordStore, type RecordStore } from '../game';
-import { addTrophy, cupAward, cupFinished, cupGridOrder, cupWorld, newCup, recordRace, type CupAward, type CupState } from '../game/modes/GrandPrix';
+import { cupGridOrder, cupWorld, newCup, type CupAward, type CupState } from '../game/modes/GrandPrix';
 import { Rumble } from '../game/Rumble';
 import { GraphicsSystem } from '../graphics';
 import { PerfOverlay, formatSummary } from '../graphics/PerfOverlay';
 import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
-import { WORLDS, worldById, type WorldDef, type WorldId } from '../content/worlds';
+import { WORLDS, worldById, worldsFor, type WorldDef, type WorldId } from '../content/worlds';
 import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
 import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
 import { bookTrial, medalTally, medalTimes } from '../game/modes/TimeTrial';
 import type { GhostData } from '../game/ghost/ghostCodec';
 import { loadDevGhost } from '../game/ghost/devGhosts';
-import type { TrialHud } from '../game/HUD';
+import type { TrialHud, TutorialHud } from '../game/HUD';
+import { PAD_BUTTON_NAMES, keyName } from '../core/controlNames';
 import { DEV_TIMES } from '../content/devTimes';
 import { GhostStore } from '../save/GhostStore';
 import { rosterOf } from '../game/pilotPortrait';
 import { InputManager } from '../physics';
 import type { InputDevice } from '../physics/InputManager';
 import { SaveStore, type FallbackReason } from '../save/SaveStore';
-import { AI_TIERS, MAX_PROFILES, NO_ASSISTS, createProfile, type Medal, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
+import { MAX_PROFILES, NO_ASSISTS, createProfile, type Medal, type Profile, type ProfilePreset, type SaveData, type SettingsData } from '../save/schema';
 import { Settings } from '../settings/Settings';
 import { DynamicResolution } from '../settings/DynamicResolution';
 import { QUALITY_PROFILES, QualityBenchmark, deviceHint, type QualityLevel } from '../settings/QualityManager';
@@ -115,6 +118,13 @@ export class App {
   readonly cupRace = signal(false);
   /** The cup just finished (for the final standings screen), with what it earned. */
   readonly lastCup = signal<{ cup: CupState; award: CupAward } | null>(null);
+  /**
+   * A season cup has just finished (IMPLEMENTATION §M8c): the standings screen shows its final standings and the
+   * season table before the next cup (whose race 1 is already queued in `profile.cup`). Cleared by NEXT CUP.
+   */
+  readonly seasonBreak = signal(false);
+  /** The season just finished: its cups, the champion, and what the player was paid (the champion card). */
+  readonly lastSeason = signal<SeasonEnd | null>(null);
   /** The last race's outcome, for the results screen (IMPLEMENTATION §M8a). */
   readonly lastResult = signal<RaceResult | null>(null);
   /** The menus' sound hooks (IMPLEMENTATION §M8a step 8): results, locked worlds and cups. The race has its own bus. */
@@ -125,6 +135,8 @@ export class App {
   private ghostSaving: Promise<unknown> = Promise.resolve();
   /** The Time Trial being raced, or null (set by `startTrial`, cleared when it is left for a menu). */
   private trial: { worldId: WorldId; trackId: string; ghosts: { kind: 'best' | 'dev'; data: GhostData }[]; hud: TrialHud } | null = null;
+  /** REPLAY TUTORIAL was pressed (Settings → Race): the next World Tour race runs it whatever the profile's preset. */
+  private tutorialReplay = false;
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -282,6 +294,8 @@ export class App {
         },
         /** The ghosts the current Time Trial shows (e2e). */
         ghosts: () => app.session?.shownGhosts.map((g) => ({ ...g })) ?? [],
+        /** The tutorial prompt showing now, and whether the race runs the tutorial (e2e). */
+        tutorial: () => ({ prompt: app.session?.tutorialPrompt ?? null, active: app.session?.tutorialActive ?? false }),
         /** Ghost meshes drawn in the last frame (one draw call each). */
         ghostsDrawn: () => app.graphics.ghostsDrawn,
         /** Add credits to the active profile (tests). */
@@ -399,8 +413,62 @@ export class App {
       return;
     }
     this.lastCup.value = null;
+    this.seasonBreak.value = false;
     this.updateProfile((q) => (q.cup = newCup(def.id, q.aiTier)));
     void this.startCupRace();
+  }
+
+  // ------------------------------------------------------------ Championship (IMPLEMENTATION §M8c)
+
+  /** The cups of a season: the cups the player can see, in `CUPS` order. */
+  seasonCups(): readonly CupDef[] {
+    return availableCups(worldsFor(this.features));
+  }
+
+  /** The championship is offered (two or more cups visible, `modes` on) and open to this profile. */
+  get seasonOpen(): boolean {
+    const p = this.activeProfile.value;
+    return this.features.modes && !!p && seasonUnlocked(p.trophies, this.seasonCups());
+  }
+
+  /** A season at `tier` (the profile's CPU difficulty by default), straight into the first cup's race 1. */
+  startSeason(tier?: AITier): void {
+    const p = this.activeProfile.value;
+    if (!p || p.cup || p.season || !this.features.modes) return;
+    if (!this.seasonOpen) {
+      this.events.emit('ui:locked', {});
+      return;
+    }
+    const t = tier ?? p.aiTier;
+    const season = newSeason(t);
+    const first = seasonCup(season, this.seasonCups());
+    if (!first) return;
+    this.lastCup.value = null;
+    this.lastSeason.value = null;
+    this.seasonBreak.value = false;
+    this.updateProfile((q) => {
+      q.season = season;
+      q.cup = newCup(first.id, t);
+    });
+    void this.startCupRace();
+  }
+
+  /** NEXT CUP: leave the season break for the next cup's standings (its race 1). */
+  nextSeasonCup(): void {
+    this.seasonBreak.value = false;
+    this.lastCup.value = null;
+    this.route.value = { name: 'cup' };
+  }
+
+  /** Abandon the season (confirmed in the UI): the cup in progress goes too; nothing paid is taken back. */
+  quitSeason(): void {
+    this.updateProfile((p) => {
+      p.season = null;
+      p.cup = null;
+    });
+    this.seasonBreak.value = false;
+    this.cupRace.value = false;
+    this.route.value = { name: 'menu' };
   }
 
   /** The standings between races (CONTINUE CUP lands here). */
@@ -436,28 +504,25 @@ export class App {
     this.route.value = { name: 'cup' };
   }
 
-  /** Book a cup race in the profile; at the end of the cup, pay the bonus and award the trophy. Returns the bonus. */
-  private bookCupRace(standings: readonly RacerStanding[], retire?: ShipId): number {
-    let award: CupAward | null = null;
-    let done: CupState | null = null;
-    this.updateProfile((p) => {
-      if (!p.cup) return;
-      const cup = recordRace(p.cup, standings, retire);
-      if (!cupFinished(cup)) {
-        p.cup = cup;
-        return;
-      }
-      award = cupAward(cup);
-      done = cup;
-      p.cup = null;
-      if (award?.trophy) p.trophies = addTrophy(p.trophies, cup.cupId, award.trophy, AI_TIERS);
-      p.credits += award?.bonus ?? 0;
-    });
-    if (!done || !award) return 0;
-    const a: CupAward = award;
-    this.lastCup.value = { cup: done, award: a };
+  /**
+   * Book a cup race in the profile; at the end of the cup, pay the bonus and award the trophy. In a season the
+   * finished cup is booked on the season too: the next cup is queued, or at the end the champion is paid.
+   * Returns the cup bonus and the champion bonus paid.
+   */
+  private bookCupRace(standings: readonly RacerStanding[], retire?: ShipId): { cup: number; champion: number } {
+    let b: CupBooking | null = null;
+    const cups = this.seasonCups();
+    this.updateProfile((p) => (b = bookCupRaceOn(p, standings, cups, retire)));
+    const booked = b as CupBooking | null;
+    if (!booked?.done || !booked.award) return { cup: 0, champion: 0 };
+    const a = booked.award;
+    const e = booked.ended;
+    this.lastCup.value = { cup: booked.done, award: a };
+    this.seasonBreak.value = booked.inSeason;
+    if (e) this.lastSeason.value = e;
     if (a.bonus > 0) this.toast(`Cup won! +${a.bonus.toLocaleString('en-US')} credits.`, 'good', 6);
-    return a.bonus;
+    if (e?.bonus) this.toast(`Champion! +${e.bonus.toLocaleString('en-US')} credits.`, 'good', 6);
+    return { cup: a.bonus, champion: e?.bonus ?? 0 };
   }
 
   openSettings(back: 'menu' | 'pause'): void {
@@ -506,7 +571,52 @@ export class App {
       return;
     }
     this.updateProfile((q) => (q.world = w.id), () => true);
+    if (this.features.modes && p && !p.tutorialDone) this.prepareTutorial(p);
     void this.startRace();
+  }
+
+  // ------------------------------------------------------------ The first-race tutorial (IMPLEMENTATION §M8c)
+
+  /** The next World Tour race runs the tutorial: a Rookie-preset profile's first, or after REPLAY TUTORIAL. */
+  private wantsTutorial(p: Profile | null): boolean {
+    if (!p || !this.features.modes || p.tutorialDone) return false;
+    // No new field: a profile with all four assists on was made with the Rookie preset (or is played like one).
+    const a = p.assists;
+    return this.tutorialReplay || (a.autoAccelerate && a.steering > 0 && a.noKO && a.earlyBoost);
+  }
+
+  /** Before a World Tour race: the tutorial's free Shield (if the bag is empty), or a Classic profile's one-line note. */
+  private prepareTutorial(p: Profile): void {
+    if (this.wantsTutorial(p)) {
+      const empty = Object.values(p.items).every((n) => n <= 0);
+      if (empty) this.updateProfile((q) => (q.items.shield = 1));
+      return;
+    }
+    this.updateProfile((q) => (q.tutorialDone = true));
+    this.toast('Tutorial: Settings → Race', 'info', 5);
+  }
+
+  /** Settings → Race → REPLAY TUTORIAL: it runs on the next World Tour race. */
+  replayTutorial(): void {
+    this.tutorialReplay = true;
+    this.updateProfile((q) => (q.tutorialDone = false));
+    this.toast('The tutorial runs on your next World Tour race.', 'good');
+  }
+
+  /** Each step's control as the player has it bound, for keyboard, pad and touch. */
+  private tutorialLabels(): TutorialHud['labels'] {
+    const k = this.settings.keyBindings.value;
+    const pad = this.settings.padBindings.value;
+    const t = this.settings.touch.value;
+    const key = (codes: readonly string[]) => (codes[0] ? keyName(codes[0]) : '?');
+    const btn = (b: readonly number[]) => (b[0] !== undefined ? (PAD_BUTTON_NAMES[b[0]] ?? `BUTTON ${b[0]}`) : '?');
+    return {
+      steer: { kb: `${key(k.left)} ${key(k.right)}`, pad: 'LEFT STICK', touch: t.steer === 'tilt' ? 'TILT' : 'SLIDE LEFT THUMB' },
+      boost: { kb: key(k.boost), pad: btn(pad.boost), touch: 'BOOST' },
+      airbrake: { kb: `${key(k.airLeft)} / ${key(k.airRight)}`, pad: `${btn(pad.airLeft)} / ${btn(pad.airRight)}`, touch: t.airbrake === 'slider' ? 'SLIDER TO THE EDGE' : '◂AIR / AIR▸' },
+      pit: { kb: 'STEER IN', pad: 'STEER IN', touch: 'STEER IN' },
+      item: { kb: key(k.item), pad: btn(pad.item), touch: 'ITEM' },
+    };
   }
 
   /** The world the next race is in, or null for the v1 classic / Bonus Track. */
@@ -916,7 +1026,19 @@ export class App {
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {
-      return { ...base, source: { kind: 'authored', def }, palette: world.palette, worldId: world.id, trackKey: def.id, records: p ? this.profileRecords(p.id, def.id) : localRecordStore };
+      // The first-race tutorial: a World Tour race (not a cup) of a profile that still wants it.
+      const tutorial =
+        !cup && this.wantsTutorial(p)
+          ? {
+              hasItem: Object.values(p!.items).some((n) => n > 0),
+              hud: { labels: this.tutorialLabels() },
+              onDone: () => {
+                this.tutorialReplay = false;
+                this.updateProfile((q) => (q.tutorialDone = true));
+              },
+            }
+          : undefined;
+      return { ...base, ...(tutorial ? { tutorial } : {}), source: { kind: 'authored', def }, palette: world.palette, worldId: world.id, trackKey: def.id, records: p ? this.profileRecords(p.id, def.id) : localRecordStore };
     }
     const seed = this.flags.seed ?? CONFIG.TRACK_SEED;
     const trackKey = this.flags.seed !== null ? `bonus-${seed}` : 'classic';
@@ -958,7 +1080,7 @@ export class App {
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
     const trial = setup.trial ? [setup.trial.ghosts.map((g) => [g.kind, g.data.totalTime]), setup.trial.hud.held] : null;
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, trial, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, trial, setup.tutorial ? [setup.tutorial.hasItem, setup.tutorial.hud.labels] : null, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;
@@ -995,6 +1117,7 @@ export class App {
       onResume: () => this.session?.pause(false),
       onToggleMute: () => this.toggleMute(),
       onSkipIntro: () => this.endIntro(),
+      onSkipTutorial: () => this.session?.skipTutorial(),
     };
     if (this.tilt) {
       const tilt = this.tilt;
@@ -1051,9 +1174,10 @@ export class App {
       const firstClear = t?.bonus ?? 0;
       // A cup race also books the cup (and, after the last race, pays the cup bonus).
       const cup = this.cupRace.value && this.session === s;
-      const cupBonus = cup ? this.bookCupRace(standings) : 0;
+      const booked = cup ? this.bookCupRace(standings) : { cup: 0, champion: 0 };
+      const cupBonus = booked.cup;
       const total = this.activeProfile.value?.credits ?? 0;
-      const delta = pay + firstClear + cupBonus;
+      const delta = pay + firstClear + cupBonus + booked.champion;
       if (delta > 0) s.bus.emit('economy:credits', { delta, total });
       if (!this.resultsScreen || this.session !== s || !world) return;
       const roster = rosterOf(s.setup.field);
@@ -1064,7 +1188,7 @@ export class App {
         standings: standings.map((x) => ({ ...x })),
         playerId: s.player.def.id,
         roster,
-        tally: raceTally(me, tier, { firstClear, cup: cupBonus }),
+        tally: raceTally(me, tier, { firstClear, cup: cupBonus, champion: booked.champion }),
         credits: total,
         unlocked: t?.unlocked ?? null,
         newTrophies: t?.newTrophies ?? [],

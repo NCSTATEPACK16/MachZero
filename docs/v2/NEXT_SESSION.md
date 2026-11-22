@@ -1,6 +1,15 @@
-# Next-session brief: MachZero (M7 built as #41–#43, rolled up in #44; M8a built 2026-11-20 as #45; M8b built 2026-11-21; next build: M8c)
+# Next-session brief: MachZero (M7, M8a and M8b on main via #47; M8c built 2026-11-22; next build: M8d)
 
-Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+Two prompts are in this file. **"Paste this prompt: M8d"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+
+## M8c built (2026-11-22)
+
+- **#47 merged everything to main** (2026-11-22): #37–#39 (X4–X6 gameplay), M7, M8a (#45) and M8b (#46). #37 shows as merged and #38 is closed; **#39 is still open** and can be closed by hand (its content is on main).
+- **M8c is built** as **NCSTATEPACK16/MachZero#48** on `v2/m8c-season-tutorial` (base `main`): the championship season (CHAMPIONSHIP card, season table between cups, champion crowns and bonus) and the first-race tutorial (five prompts over a real race, SKIP, REPLAY TUTORIAL). Behind `modes`. Read IMPLEMENTATION §M8c "As built" before M8d.
+- **Waiting on the owner in M8c:**
+  - The device check: the iPad by touch and the iPhone by pad, `VITE_FEATURES=modes,expansion`. A new Rookie profile's first race with the tutorial (a first-time player, if one is at hand), then a season from a fixture profile.
+  - The look of the championship card, the season table, the crowns and the tutorial prompt. On a phone the prompt covers the back of the ship.
+- **M8d stacks on `v2/m8c-season-tutorial`.** Merge order to main: #48 (M8c), then M8d.
 
 ## M8b built (2026-11-21)
 
@@ -46,7 +55,7 @@ Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the b
   | 3 | M7c ✅ #43: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
   | 4 | M8a ✅: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
   | 5 | M8b ✅: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
-  | 6 | M8c: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
+  | 6 | M8c ✅: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
   | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
 
 - **The world looks (X4–X6) and X7 fit in whenever their images or approvals arrive.** They block nothing, and M7 and M8 do not wait for them. `expansion` stays off until each world's look is approved (the owner's answer to the open question on #39).
@@ -54,7 +63,7 @@ Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the b
 - **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
 - **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
 
-### Paste this prompt: M8c
+### Paste this prompt: M8d
 
 ```
 You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
@@ -65,14 +74,13 @@ READ FIRST, in this order, before writing any code:
   1. docs/v2/NEXT_SESSION.md: current state, the build order and the environment table. Trust the table.
   2. docs/v2/SPEC.md §12 (and §4): what M8 is and why. Every decision is settled; do not re-open one.
   3. docs/v2/IMPLEMENTATION.md §0 (operating rules), §M7's three "As built" notes (M8 builds on save v8, the
-     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's and M8b's "As built", then "M8c" closely).
-  4. The code M8c changes, as §M8c lists it.
+     touch HUD and the comfort tokens), then §M8 (the whole section, M8a's, M8b's and M8c's "As built", then "M8d" closely).
+  4. The code M8d changes, as §M8d lists it.
 
-GOAL: build M8c exactly as IMPLEMENTATION §M8c says (the championship season and the tutorial), behind `modes`.
-Save v9 already carries its fields (M8a). One PR on branch v2/m8c-season-tutorial, stacked on v2/m8b-time-trial
-(PR #46). Follow the build steps in order, tests first. When M8c's PR is pushed and its checks are green,
-continue with M8d (v2/m8d-release), stacked on it. Stop at each PR's device gate only for what the gate needs
-from the owner (M8c: device check; a child or a new player tries the tutorial if one is at hand), and carry on meanwhile.
+GOAL: build M8d exactly as IMPLEMENTATION §M8d says (the balance pass, `modes` on, the flag clean-up, the
+"MachZero 2.0" release PR). One PR on branch v2/m8d-release, stacked on v2/m8c-season-tutorial (the M8c PR, or main
+once it is merged). Follow the build steps in order, tests first. Stop at the device gate only for what it needs from
+the owner (the full QA checklist on both devices, and the merge), and carry on meanwhile.
 
 HOW TO WORK (agreed with the owner; follow exactly):
 - You implement everything yourself, in order. Sub-agents only for read-only lookups.
@@ -97,8 +105,8 @@ AT THE END OF THE SESSION: report the PRs opened (links and preview URLs), what 
 the owner, any deviation from the spec with its reason, and update IMPLEMENTATION.md (mark each built PR, add
 its "As built" notes) and this file so the next session can resume from the docs alone.
 
-Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then write the
-season rules tests.
+Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then run the
+balance measurements M8d's first step names.
 ```
 
 ## Where things stand (2026-11-15, after the X6 gameplay half)

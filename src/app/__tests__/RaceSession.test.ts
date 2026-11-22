@@ -198,3 +198,42 @@ describe('Time Trial session (IMPLEMENTATION §M8b step 5)', () => {
     s.dispose();
   });
 });
+
+describe('the tutorial in a race (IMPLEMENTATION §M8c step 6)', () => {
+  const label = { kb: 'K', pad: 'P', touch: 'T' };
+  const labels = { steer: label, boost: label, airbrake: label, pit: label, item: label };
+
+  it('prompts STEER at the lights; SKIP ends it once', async () => {
+    let done = 0;
+    const s = await RaceSession.create(setup({ tutorial: { hasItem: false, hud: { labels }, onDone: () => void done++ } }));
+    expect(s.tutorialActive).toBe(true);
+    s.start();
+    run(s, 4.5); // through the countdown
+    expect(s.state).toBe('racing');
+    expect(s.tutorialPrompt).toBe('steer');
+    s.skipTutorial();
+    s.skipTutorial();
+    expect(done).toBe(1);
+    expect(s.tutorialActive).toBe(false);
+    expect(s.tutorialPrompt).toBeNull();
+    s.dispose();
+  });
+
+  it('on autopilot the steps clear as the AI drives, and the race end finishes it', async () => {
+    let done = 0;
+    const s = await RaceSession.create(setup({ tutorial: { hasItem: false, hud: { labels }, onDone: () => void done++ } }));
+    s.start();
+    for (let t = 0; t < 400 && s.state !== 'results'; t += CONFIG.FIXED_DT) s.fixed(CONFIG.FIXED_DT, null);
+    expect(s.state).toBe('results');
+    expect(done).toBe(1);
+    expect(s.tutorialActive).toBe(false);
+    s.dispose();
+  });
+
+  it('without the option there is no tutorial', async () => {
+    const s = await RaceSession.create(setup());
+    expect(s.tutorialActive).toBe(false);
+    s.skipTutorial();
+    s.dispose();
+  });
+});
