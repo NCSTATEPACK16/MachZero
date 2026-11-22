@@ -1,6 +1,23 @@
-# Next-session brief: MachZero (M7, M8a and M8b on main via #47; M8c built 2026-11-22; next build: M8d)
+# Next-session brief: MachZero (M8d built 2026-11-22: the "MachZero 2.0" release PR; 2.0 is complete in code)
 
-Two prompts are in this file. **"Paste this prompt: M8d"** (directly below the build order) continues the M8 builds. The older prompt at the bottom continues the 2.1 expansion (the world looks and X7). Everything else is the context those prompts rely on.
+**MachZero 2.0 is built.** M7 and M8 are done; what is left of 2.0 is the owner's QA checklist and the merges. The prompt at the bottom of this file continues the 2.1 expansion (the world looks and X7), and the M8d prompt below is kept for reference. Everything else is the context those prompts rely on.
+
+## M8d built (2026-11-22)
+
+- **M8d is built** as **NCSTATEPACK16/MachZero#__PR__ "MachZero 2.0"** on `v2/m8d-release` (base `v2/m8c-season-tutorial`). Merge order to main: #48 (M8c), then #__PR__. Read IMPLEMENTATION §M8d "As built".
+- **What it did:**
+  - the economy guard (`sim/economy.{a,b,c}.sim.test.ts`);
+  - the tier matrix and every guard re-run green;
+  - **`modes` on** (its own commit, so it can be reverted alone);
+  - **the six finished flags removed** (`profiles`, `garage`, `worlds`, `tiers`, `touch`, `modes`) with their dead branches: `FEATURE_NAMES` is `music` and `expansion`;
+  - the README, TDD §8 (the 2.0 architecture) and these docs.
+- **Found while building:** §M8's measured economy table is one part tier too low (its "Mk II kit" is Mk III, its "Mk III kit" is Prototype). Today's code reproduces its numbers exactly. The bands guard the kits that were measured; see the correction under §M8's table.
+- **Waiting on the owner:**
+  - **The QA checklist** in IMPLEMENTATION §M8d (both devices): a new Rookie profile by touch through the tutorial, world 1, the unlock, a Mk II part and world 2; a Classic profile by pad through a Pilot race and CONTINUE CUP; Time Trial fps with both ghosts; an old save from the live site (export it first); the comfort settings on the map, the results and a trial; an 8-ship race on each world at 60 fps.
+  - **The merges:** #48, then #__PR__.
+  - Still open from earlier PRs: the M7–M8c device gates and look checks (the 2.0 QA checklist covers them), the default air-brake style, and tilt's direction on iOS.
+- **Device builds now need only `expansion`:** `VITE_FEATURES=expansion npm run ios:sync`. `modes` is ignored, so the old commands still work.
+- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive, or X7; M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
 
 ## M8c built (2026-11-22)
 
@@ -9,7 +26,7 @@ Two prompts are in this file. **"Paste this prompt: M8d"** (directly below the b
 - **Waiting on the owner in M8c:**
   - The device check: the iPad by touch and the iPhone by pad, `VITE_FEATURES=modes,expansion`. A new Rookie profile's first race with the tutorial (a first-time player, if one is at hand), then a season from a fixture profile.
   - The look of the championship card, the season table, the crowns and the tutorial prompt. On a phone the prompt covers the back of the ship.
-- **M8d stacks on `v2/m8c-season-tutorial`.** Merge order to main: #48 (M8c), then M8d.
+- **M8d stacked on `v2/m8c-season-tutorial`** (built; see above).
 
 ## M8b built (2026-11-21)
 
@@ -53,17 +70,17 @@ Two prompts are in this file. **"Paste this prompt: M8d"** (directly below the b
   | 1 | M7a ✅ #41: the four assists work, the assists screen | `v2/m7a-assists` | v7 → v8 | none |
   | 2 | M7b ✅ #42: touch driving and the touch HUD | `v2/m7b-touch` | — | behind `touch` |
   | 3 | M7c ✅ #43: tilt, menus by touch, comfort, pad remapping | `v2/m7c-comfort` | — | `touch` on |
-  | 4 | M8a ✅: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
-  | 5 | M8b ✅: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
-  | 6 | M8c ✅: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
-  | 7 | M8d: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on |
+  | 4 | M8a ✅ #45: World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` |
+  | 5 | M8b ✅ #46: Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` |
+  | 6 | M8c ✅ #48: the championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` |
+  | 7 | M8d ✅ #__PR__: balance, flags on and removed, the "MachZero 2.0" PR | `v2/m8d-release` | — | `modes` on, six flags removed |
 
 - **The world looks (X4–X6) and X7 fit in whenever their images or approvals arrive.** They block nothing, and M7 and M8 do not wait for them. `expansion` stays off until each world's look is approved (the owner's answer to the open question on #39).
 - **Found while designing (IMPLEMENTATION §M7 has the details):** the four assists do nothing in the live game today, although the Rookie preset promises them. M7a repairs that first, with no flag.
 - **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
 - **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
 
-### Paste this prompt: M8d
+### Paste this prompt: M8d (done; kept for reference)
 
 ```
 You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
@@ -251,7 +268,7 @@ is not marked done, read its section and the "As built" notes of the milestones 
 stacked PR. Hold sim tests come before each new track feature. Never build a world's look without
 assets/reference/worlds/<id>/chosen.jpg: build the track, gimmick, hazard, AI and sims on a placeholder theme
 and move on. Commit after each meaningful step and push each PR before starting the next. Each milestone ends
-at its gate: the user approves the look and reads iPhone AND iPad fps. M6–M8 need the user first.
+at its gate: the user approves the look and reads iPhone AND iPad fps. M6 needs the user first (M7 and M8 are done).
 
 HOW TO WORK (agreed with the user; follow exactly):
 - Every PR ships to BOTH the Netlify site and the iOS app (IMPLEMENTATION §0 rule 9). Check controller-only play

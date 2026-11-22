@@ -306,3 +306,47 @@ Pass criteria: all green; autopilot race completes 3 laps with all 4 ships, resu
 - **Contract additions.** `RaceSnapshot.ships` (the minimap needs every ship) and the `audio:mute` event (keeps the HUD mute buttons and the M key in sync).
 - **Rendering.** The composer runs single-sample; the scene renders into a private 4× MSAA HalfFloat target (`MsaaScenePass`, NaN-sanitised) because bloom's additive blend fails on multisampled read buffers.
 - **Tests.** `src/sim/race.sim.test.ts` runs a full 3-lap, 4-ship race on two seeds with real track, physics, AI and race logic. `src/sim/corkscrew.sim.test.ts` holds a line through the corkscrew at 5 lateral offsets.
+
+## 8. MachZero 2.0 architecture (M1–M8)
+
+Sections 1–7 describe v1: one procedural track, four ships, the HUD's own start and results screens. 2.0 keeps that race core (`core`, `track`, `physics`, `graphics`, `game`) and wraps it in an app. [`v2/SPEC.md`](v2/SPEC.md) says what 2.0 is and why; [`v2/IMPLEMENTATION.md`](v2/IMPLEMENTATION.md) records each milestone's decisions and "As built" notes. This section is the map.
+
+### 8.1 The app shell (`src/app`, `src/ui`)
+- **`App`** is the long-lived object: the renderer, audio, input, settings, the save, and the current route. It is built once in `main.ts` and runs the fixed-step loop.
+- **`RaceSession`** is one race: track, Rapier world, drivers, `RaceManager`, items, the HUD and (in a trial) ghosts and (once per profile) the tutorial. `RaceSession.create` builds it from a `RaceSetup`; `dispose` frees everything, so the App runs any number of races in one page. The next race is built behind the loading screen while a menu is up, and waits in the `title` state.
+- **Routes** (`app/routes.ts`): `race` shows the HUD; every other route is a Preact screen (`ui/screens/*`) drawn over the live 3D backdrop: `profiles`, `menu`, `settings`, `garage`, `tour` (the world map), `gp` and `cup` (Grand Prix and its standings), `trial`, `results`, `loading`. `?autopilot=1` and `?seed=N` skip the menus and start a race at once; there the HUD keeps v1's title and results panels.
+- **Screens are DOM and SVG, not WebGL** (no draw calls): the world map, the results tally, the standings and the season table. The garage turntable is the only menu that renders in 3D. Every screen works with keyboard, pad (`ui/nav.ts`: focus moves by `data-nav-<dir>` or geometry) and touch (targets of at least 44 points).
+- **Booking a race** happens in one place: `App.bindStats` listens for `race:results` and, inside one save update, pays the race (`content/economy.settleRace`), books the World Tour (`game/modes/WorldTour.bookTourRace`), the cup and the season (`game/modes/cupBooking`), and builds the `RaceResult` the results screen draws (`game/modes/raceResult`).
+- **Sound hooks:** M8 emits named bus events on `App.events` (`ui:locked`, `results:*` and others) and leaves the sounds to M6.
+
+### 8.2 Content as data (`src/content`)
+Ships and chassis, parts and their effects (`ShipStatsResolver` turns a loadout into stats), pilots and their fits per tier, the four AI tiers, worlds and their authored tracks, cups, item prices and the economy (payouts × tier multiplier, part prices, first-clear and cup bonuses). The sims in `src/sim` hold these numbers to their targets: the tier matrix and balance per track, the economy bands (`economy.*.sim.test.ts`), medals, the World Tour and the season.
+
+### 8.3 Saves and migrations (`src/save`)
+- **One JSON save** in `localStorage` (`machzero.save`), **version 9**: profiles (name, badge, loadout, owned parts, credits, items, assists, CPU tier, records and medals per track, the World Tour, cup trophies, Champion crowns, a cup or season in progress, the tutorial flag) and the device's settings (graphics, comfort, controls and their bindings, touch).
+- **`migrations.ts`** upgrades any save from v1 (the bare lap record) step by step to v9; each step has its own test with a fixture. `sanitizeSave` then repairs anything out of range, so a hand-edited or corrupt save still loads with safe defaults. A save from a newer build, a full store or a blocked store falls back to memory with one toast.
+- **Saves export and import** as a file (Settings → Saves). Ghosts are not in the save.
+
+### 8.4 Modes (`src/game/modes`)
+Each mode is pure rules plus a little App wiring:
+- **`WorldTour.ts`:** the chain of visible worlds, unlocks (top 3 on the world before), trophies per tier, the first-clear bonus.
+- **`GrandPrix.ts`:** cups of five races, points, the reverse grid, the retire rule, trophies and the cup bonus. A cup opens when its `requires` world is cleared.
+- **`Championship.ts`:** a season of every visible cup at one tier, the season table, the Champion crown and bonus once per tier.
+- **`TimeTrial.ts`:** a solo race with no items, medal times from each track's dev time (`content/devTimes.ts`), medals paid once.
+- **`game/Tutorial.ts`:** a state machine of five prompts over a real race, fed each fixed step with the player's state and raw input.
+
+### 8.5 Ghosts (`src/game/ghost`, `src/save/GhostStore.ts`, `graphics/GhostShips.ts`)
+- **A ghost is a pose recording** at 20 Hz (position and rotation, 13 bytes a sample, about 25 KB a run), not an input replay, so it plays back the same on every device.
+- `GhostRecorder` and `GhostCapture` record the player in a trial; `ghostCodec` packs it; `GhostStore` keeps the best run per profile and track in IndexedDB (in memory if IndexedDB fails); `GhostPlayer` interpolates it; `GhostShips` draws each ghost in one draw call.
+- **The dev ghosts** are committed in `public/game/ghosts/` and baked by `npm run ghosts:bake`. A guard test fails when a track or the physics changes until they are re-baked.
+
+### 8.6 Input devices (`src/physics`)
+- **`InputManager`** merges keyboard, pad (standard mapping, polled each frame) and touch into one `ControlInput` per fixed step, and edge-triggered menu actions for the UI. It tracks the last-used device, and prompts, the layout and the touch controls follow it.
+- **Bindings** for keys and pad buttons are settings (`save/schema` defaults, rebound in Settings → Controls). `core/controlNames.ts` names them for prompts.
+- **Touch** (`TouchInput`, `touchSteer.ts`, and `game/TouchControls.ts` for the DOM): a floating steering slider under the left thumb (pushed to the edge it air-brakes, or the air-brakes are buttons), BOOST, BRAKE and ITEM under the right thumb, auto-accelerate by default.
+- **Tilt** (`TiltInput`, `tilt.ts`) can replace the slider's steer, after the motion permission on iOS, with CALIBRATE.
+- **Assists** (`Assists.ts`): auto-accelerate, steering help, no knock-outs and early boost, from the profile, applied on top of the raw input before physics.
+- **The iOS app** (Capacitor, `ios/`, `src/native`) adds haptics; pad rumble goes through the browser's Gamepad API where it exists.
+
+### 8.7 Flags (`src/core/features.ts`)
+Two flags remain: `music` (M6, not built) and `expansion` (the three 2.1 worlds, the Storm Cup, part variants and the Aero slot, waiting for their looks). M8d removed the flags of the finished milestones (`profiles`, `garage`, `worlds`, `tiers`, `touch`, `modes`) and every branch that read them. `?features=` and `VITE_FEATURES` ignore names they do not know, so old links and build commands still work.

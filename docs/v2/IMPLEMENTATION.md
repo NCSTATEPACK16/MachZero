@@ -1569,7 +1569,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M7 — Touch, tilt, assists and comfort — ✅ BUILT (PRs #41 M7a, #42 M7b, M7c; waiting on the owner's device gates)
+## M7 — Touch, tilt, assists and comfort — ✅ DONE (PRs #41 M7a, #42 M7b, #43 M7c; shipped in MachZero 2.0, M8d)
 
 SPEC §11 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M7 makes MachZero playable with fingers alone on the iPhone and the iPad, and makes the four player assists real.
 
@@ -1936,7 +1936,7 @@ export interface SettingsData {
 
 ---
 
-## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20; M8b built 2026-11-21; M8c built 2026-11-22)
+## M8 — Progression, modes, ghosts → 2.0 complete — ✅ DONE (designed 2026-11-16; M8a built 2026-11-20; M8b 2026-11-21; M8c and M8d 2026-11-22)
 
 SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
 
@@ -1944,10 +1944,10 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 
 | # | PR | Branch | Save | Flag | Needs from the owner |
 |---|---|---|---|---|---|
-| M8a | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
+| M8a ✅ | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
 | M8b ✅ | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
 | M8c ✅ | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
-| M8d | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
+| M8d ✅ | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
 
 **Release order (agreed):** M7a → M7b → M7c → M8a → M8b → M8c → M8d. The world looks (X4–X6) and X7 are built whenever their images or approvals arrive. They block nothing, and M8 does not wait for them.
 
@@ -1968,6 +1968,8 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
   | Pilot | 800–860 (P2–P4) | 890 | |
   | Ace | 290–360 (P4–P8) | 710 | 970 |
   | Legend | 270 (P7–P8) | 320 | 600 |
+
+  **Correction (M8d, 2026-11-22):** the two kit columns are one tier too low. They were measured with `PartTier` 2 and 3, which are Mk III and Prototype (`TIER_NAMES`). M8d measured the same numbers on this design commit and on today's code: Ace 359 (Mk II), 706 (Mk III), 970 (Prototype); Legend 321 (Mk III), 604 (Prototype); Pilot 858 (Mk II). The design decisions still hold with the right labels (a player saving for the Prototype kit races Ace on a Mk III kit). §M8d "As built" has the details.
 
 - **Kit prices:** one part in each of the 5 slots costs 3,000 (Mk II), 7,500 (Mk III), 16,000 (Prototype). Every part and variant costs 47,700.
 - **Measured solo times** (a Legend autopilot alone on the track, COMET, 3 laps, seconds). "Dev" is the dev-ghost ship: `RIVAL_FITS.legend`, variant A.
@@ -2379,13 +2381,13 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 
 ---
 
-### M8d — Balance pass, flags on, the "MachZero 2.0" release
+### M8d — Balance pass, flags on, the "MachZero 2.0" release — ✅ BUILT (PR #__PR__, `v2/m8d-release`, base `v2/m8c-season-tutorial`; waiting on the owner's QA checklist and the merge)
 
 **Design decisions:**
 - **Prices and payouts stay as they are.** The measurements at the top of §M8 already meet the targets:
   - a first Mk II part (600) after 1 Rookie race (the stand-in earns 750–1,000);
   - a full Mk III kit (7,500) after about 10 Pilot races (800–860 a race on stock);
-  - a full Prototype kit (16,000) after about 25 more Ace races (710 a race on a Mk II kit, 970 on Mk III; cups, first clears and medals shorten it).
+  - a full Prototype kit (16,000) after about 25 more Ace races (710 a race on a Mk III kit, 970 on Prototype; cups, first clears and medals shorten it). *(Corrected in M8d: the design said Mk II and Mk III; see the correction under §M8's table.)*
 - **SPEC §4.4 holds:** stock wins on Rookie and is mid-pack on Pilot; on Ace and Legend a stock ship finishes near the back, so upgrades matter there.
 - **Flags:** `modes` turns on. Then the flags `profiles`, `garage`, `worlds`, `tiers`, `touch` and `modes` are **removed** with their dead branches. `music` (M6) and `expansion` (the world looks) stay.
 - **A world without an approved look stays hidden.** 2.0 ships with the worlds visible on that day.
@@ -2394,7 +2396,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 1. **`sim/economy.sim.test.ts`** (new; the numbers are bands around today's measurements, so a later change to payouts, pace or parts that breaks the economy fails here):
    - Rookie preset, stock, Neon Bay: the first race pays ≥ 600.
    - Pilot, stock, the mean over the visible-in-`expansion` 8 tracks: 650–1,000 credits a race.
-   - Ace, Mk II kit: 550–900. Ace, Mk III kit: 750–1,150.
+   - Ace, Mk II kit: 550–900. Ace, Mk III kit: 750–1,150. *(As built: these bands sit on the Mk III and Prototype kits, the kits they were measured on; see "As built".)*
    - Ace, stock: ≤ 450. Legend, stock: ≤ 400.
    - It uses `runWorldRace` with a new option `player.loadout` (replacing the fixed `defaultLoadout()`); 5 cases × 8 races is about 90 s of sim, so split it into two files.
 2. **The §9 matrix on 8 tracks × 4 tiers:** every per-world sim file already runs `describeTierMatrix`. Confirm all 8 are green with M7's assists in play, and record the table (finishing positions of the two balance stand-ins per track) in the PR body. If a target fails, tune `content/tiers.ts` or the track, never the assertion.
