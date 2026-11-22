@@ -2372,6 +2372,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
     - pad: the first bound button;
     - touch: SLIDE LEFT THUMB, or TILT, and for the air-brake either SLIDER TO THE EDGE or ◂AIR / AIR▸, by the air-brake style.
 - **Existing tests changed:** `SaveStore.test.ts` (two v9 season fixtures now carry their current cup, plus assertions for the new drop rule). No assertion was loosened.
+- **CI:** the browser smoke job's time limit is now 30 min (was 20). M8c's first run was cancelled at 20 with every finished spec passing: the M8 specs had grown the suite past it. No test changed.
 - **Measured:** the season sim (10 real races at Pilot, a reload in cup 2) takes 31 s locally; in it a rival (REX THUNDER) won the season, so the sim checks the no-bonus path, and `cupBooking.test.ts` checks the player's win and the once-per-tier rule.
 - **Owner:** the device check below, and the look of the championship card, the season table, the crowns and the tutorial prompt (shots in `docs/v2/shots/m8c/`).
 

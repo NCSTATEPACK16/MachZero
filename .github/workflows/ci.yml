@@ -32,7 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     # About 11 min since the X4–X6 world smokes (each about 2 min on the runner) and the touch project (M7b); every
     # e2e test is still capped at 2 min (playwright.config.ts). At 10 the job was cancelled after every spec had passed.
-    timeout-minutes: 20
+    # M8a–M8c's specs (World Tour, Time Trial, the championship, the tutorial) took it past 20 (M8c's first run was
+    # cancelled at 20 with every finished spec passing and the touch project under way): 30 leaves room.
+    timeout-minutes: 30
     # Browsers and their system libraries come preinstalled; installing them on the runner took up to 11 min.
     # The tag must match @playwright/test in package-lock.json (scripts/check-playwright-image.mjs enforces it).
     container:
