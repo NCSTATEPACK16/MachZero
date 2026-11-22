@@ -29,7 +29,7 @@ export const FEATURE_DEFAULTS: FeatureSet = {
   tiers: false,
   music: false,
   touch: true, // M7 complete (touch, tilt, assists, comfort)
-  modes: false,
+  modes: true, // M8 complete (World Tour, Time Trial and ghosts, the championship, the tutorial)
   expansion: false,
 };
 
