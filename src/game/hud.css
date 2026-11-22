@@ -1729,3 +1729,66 @@ html.mz-touch .mz-hud[data-state='racing'] .mz-touch-layer {
 .mz-hud[data-mode='trial'] .mz-toasts {
   top: max(24%, calc(var(--u) * 11.2));
 }
+
+/* ------------------------------------------------------------ The tutorial prompt (IMPLEMENTATION §M8c step 6) */
+/* Bottom centre, between the power and the speed panels; on touch above the strip and narrower than it, clear of the
+   thumb controls. Only SKIP takes pointer input. */
+.mz-tutorial {
+  position: absolute;
+  left: 50%;
+  bottom: 2.6em;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  max-width: min(36em, 46vw);
+  padding: 0.45em 0.6em 0.45em 1em;
+  background: rgba(8, 6, 26, 0.82);
+  border: 1px solid var(--cyan);
+  box-shadow: 0 0 1.2em rgba(25, 240, 255, 0.35);
+  pointer-events: none;
+}
+.mz-tutorial[hidden] {
+  display: none;
+}
+.mz-tutorial-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3em 0.7em;
+  min-width: 0;
+}
+.mz-tutorial-icon {
+  font-size: 1.6em;
+  font-weight: 900;
+  color: var(--cyan);
+}
+.mz-tutorial-text {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+}
+.mz-tutorial-key {
+  padding: 0.1em 0.5em;
+  font-weight: 800;
+  color: #05030f;
+  background: var(--cyan);
+  border-radius: 0.25em;
+}
+.mz-tutorial-skip {
+  pointer-events: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.8em;
+  font-size: 0.8em;
+}
+html.mz-touch .mz-tutorial {
+  bottom: calc(12px + 60px + 12px);
+  max-width: 280px;
+  font-size: 13px;
+}
+@media (max-height: 499px) {
+  html.mz-touch .mz-tutorial {
+    bottom: calc(12px + 48px + 10px);
+  }
+}

@@ -288,3 +288,44 @@ test('Time Trial by touch (IMPLEMENTATION §M8b): the screen, its toggles and th
   await expect(page.locator('[data-trial-world="neon-bay"] .mzu-trial-best')).not.toContainText('—');
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('M8c by touch: the tutorial prompt clears the touch controls, power and speed; SKIP and the championship card are 44-point targets', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?debug=1&quality=low&features=modes,expansion');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.locator('input[type=text]').fill('NEWBIE');
+  await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).tap();
+  await page.getByRole('button', { name: "LET'S RACE" }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
+  // The championship card (locked for a new profile).
+  await page.getByRole('button', { name: /^GRAND PRIX/ }).tap();
+  await page.locator('[data-cup="championship"]').tap();
+  await expect(page.locator('[data-season-locked]')).toBeVisible();
+  expect(await tooSmall(page), 'championship card').toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
+  // The first World Tour race: the tutorial's STEER prompt over the touch controls.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).tap();
+  await page.locator('[data-planet="neon-bay"]').tap();
+  await page.locator('[data-tour-race]').tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __machzero: { app: { route: { value: { name: string } } } } }).__machzero.app.route.value.name), { timeout: 90_000 }).toBe('race');
+  await page.evaluate(() => (window as unknown as { __machzero: { app: { endIntro(): void } } }).__machzero.app.endIntro());
+  const prompt = page.locator('.mz-tutorial');
+  await expect(prompt).toBeVisible({ timeout: 60_000 });
+  await expect(prompt.locator('.mz-k-touch')).toHaveText('SLIDE LEFT THUMB');
+  expect(await tooSmall(page), 'race with the tutorial').toEqual([]);
+  const overlaps = await page.evaluate(() => {
+    const box = document.querySelector('.mz-tutorial')!.getBoundingClientRect();
+    const hit: string[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>('.mz-tb, .mz-strip, .mz-energy, .mz-speed')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0 || getComputedStyle(el).display === 'none') continue;
+      if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) hit.push(el.className);
+    }
+    return hit;
+  });
+  expect(overlaps, 'the prompt covers nothing').toEqual([]);
+  await prompt.locator('[data-tutorial-skip]').tap();
+  await expect(prompt).toBeHidden();
+  expect(errors, errors.join('\n')).toEqual([]);
+});

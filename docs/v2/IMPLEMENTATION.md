@@ -1936,7 +1936,7 @@ export interface SettingsData {
 
 ---
 
-## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20; M8b built 2026-11-21)
+## M8 — Progression, modes, ghosts → 2.0 complete (designed 2026-11-16; M8a built 2026-11-20; M8b built 2026-11-21; M8c built 2026-11-22)
 
 SPEC §12 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-16; settled, don't re-open)** are listed per PR below. M8 gives the game its main path (World Tour), Time Trial with ghosts, the championship season, a first-race tutorial, and the release called "MachZero 2.0".
 
@@ -1946,7 +1946,7 @@ SPEC §12 says what and why. This section is the how. **Design decisions (design
 |---|---|---|---|---|---|
 | M8a | World Tour, the world map, the results screen | `v2/m8a-world-tour` | v8 → v9 | behind `modes` | Look approval of the map and the results screen; device check |
 | M8b ✅ | Time Trial and ghosts | `v2/m8b-time-trial` | — | behind `modes` | Device gate (fps with two ghosts) |
-| M8c | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
+| M8c ✅ | The championship season and the tutorial | `v2/m8c-season-tutorial` | — | behind `modes` | Device check; a child or a new player tries the tutorial if one is at hand |
 | M8d | Balance pass, flags on, flag clean-up, the "MachZero 2.0" release PR | `v2/m8d-release` | — | `modes` → on; six flags removed | The full QA checklist on both devices; the merge |
 
 **Release order (agreed):** M7a → M7b → M7c → M8a → M8b → M8c → M8d. The world looks (X4–X6) and X7 are built whenever their images or approvals arrive. They block nothing, and M8 does not wait for them.
@@ -2275,7 +2275,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 
 ---
 
-### M8c — The championship season and the tutorial
+### M8c — The championship season and the tutorial — ✅ BUILT (`v2/m8c-season-tutorial`, base `main`; waiting on the owner's device check)
 
 **Design decisions (championship):**
 - **A season is every available cup, in `CUPS` order, at one tier.** With two cups that is 10 races.
@@ -2335,13 +2335,46 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 7. **Tests:** e2e (`e2e/tutorial.spec.ts`, `?features=modes`): a new Rookie profile's first Tour race shows the steer prompt; SKIP removes it and a reload does not show it again; REPLAY TUTORIAL brings it back; a Classic profile sees the note and no prompt. `e2e/grandprix.spec.ts`: the CHAMPIONSHIP card is locked for a new profile and open for a fixture with both cup trophies.
 
 **Done when:**
-- [ ] A season runs both cups in order with the season table between them, survives a reload at any point, and pays the Champion trophy and bonus once.
-- [ ] With one cup visible there is no CHAMPIONSHIP card.
-- [ ] A new Rookie profile gets the five prompts in a real race, each clearing on the action; SKIP and REPLAY work.
-- [ ] Prompts show the right control for keyboard, pad and touch, and never cover the power, speed or a touch control.
-- [ ] `modes` off: nothing changes on the live site.
+- [x] A season runs both cups in order with the season table between them, survives a reload at any point, and pays the Champion trophy and bonus once. Covered by `sim/season.sim.test.ts` (reload mid cup 2), `cupBooking.test.ts`, and the championship e2e in `e2e/grandprix.spec.ts` (between cups and the end).
+- [x] With one cup visible there is no CHAMPIONSHIP card (the e2e, with `modes` and no `expansion`).
+- [x] A new Rookie profile gets the five prompts in a real race, each clearing on the action; SKIP and REPLAY work. Covered by `Tutorial.test.ts` (each row of the table), `RaceSession.test.ts`, and `e2e/tutorial.spec.ts`.
+- [x] Prompts show the right control for keyboard, pad and touch, and never cover the power, speed or a touch control. The labels come from the live bindings. `touch.spec.ts` checks the prompt's box against every touch button, the strip, the power and the speed. The prompt does cover the back of the ship on a phone; see "As built".
+- [x] `modes` off: nothing changes on the live site. Every M8c entry point checks `modes`, and the existing Grand Prix and Storm Cup e2e (`modes` off) pass unchanged.
 
 **Device check:** on the iPad by touch and on the iPhone by pad (`VITE_FEATURES=modes,expansion`): a new Rookie profile's first race with the tutorial. If a child or a first-time player is at hand, let them play it without help and note where they stop. Then start a season from a fixture profile and play one race.
+
+
+**As built (branch `v2/m8c-season-tutorial`)** (read before M8d):
+- **Files:**
+  - `game/modes/Championship.ts` (additions: `CHAMPION_BONUS`, `seasonUnlocked`, `newSeason`, `seasonCup`, `bookSeasonCup`, `championBonus`).
+  - `game/modes/cupBooking.ts` (new): `bookCupRaceOn`, booking a cup race on a profile: the cup award; in a season the next cup, or the champion. App and the season sim share it.
+  - `game/Tutorial.ts` (new), `core/controlNames.ts` (`keyName` and `PAD_BUTTON_NAMES`, moved so the HUD can use them), `sim/season.sim.test.ts`, `e2e/tutorial.spec.ts`.
+- **Plumbing:**
+  - `App`: `startSeason`, `nextSeasonCup`, `quitSeason`, `seasonCups`, `seasonOpen`, `seasonBreak`, `lastSeason`, `replayTutorial`. `bookCupRace` now returns `{ cup, champion }`.
+  - `raceTally` adds CHAMPION BONUS.
+  - `RaceSetup.tutorial = { hasItem, hud, onDone }`; `HudActions.onSkipTutorial`; `HUD.setTutorial`.
+  - The debug hook gains `tutorial()`.
+- **Decisions made while building (none re-opens a design decision):**
+  - **While a season runs, `profile.cup` always holds its current cup.** When a season cup ends, the next cup's race 1 is queued at once, so a reload at any point resumes the season. The sanitizer drops a season whose cup is missing, at another tier, or already played (this updated two M8a v9 fixtures, which now carry the season's cup).
+  - **Between cups:** the finished cup's final standings, then SEASON TABLE, then NEXT CUP (the next cup's standings before its race 1). At the end, SEASON TABLE leads to the champion card, or the winner's name when a rival won.
+  - **While a cup or a season runs, the menu shows CONTINUE CUP or CONTINUE SEASON in place of GRAND PRIX**, as a cup always did. QUIT SEASON replaces QUIT CUP inside a season.
+  - **The CHAMPIONSHIP card is a third tab** on the Grand Prix screen, shown with `modes` when two or more cups are visible. It holds the profile's tier picker (the season runs at the profile's CPU difficulty) and START, or CONTINUE SEASON and QUIT SEASON. A single cup in progress blocks it ("FINISH OR QUIT THE … FIRST").
+  - **Champion trophies are crowns** (one per tier with its initial, lit when held), on the card, the champion card and the pilot card.
+  - **Which profile gets the tutorial:** all four assists on stands for the Rookie preset (no new field). REPLAY TUTORIAL sets `tutorialDone = false` plus an in-memory flag, so a Classic profile replays it too. A reload before that race drops the flag, and a Classic profile then gets the one-line note again.
+  - **Tutorial thresholds, measured on the 8 tracks:**
+    - **Sharp bend:** |κ| ≥ 0.006 1/m. Every track has 4–12 such bends; the largest |κ| anywhere is 0.019.
+    - **Straight:** |κ| < 0.003 1/m over the next 2 s (at least 80 m).
+    - **Pit:** the pit strip is 30–250 m past the line on every track, so "lap 2 starts" is the approach to the line at the end of lap 1.
+  - **The tutorial's steps clear on the action even before their prompt shows** (an early boost clears BOOST). A showing that runs out is followed by a 3 s gap.
+  - **The prompt** sits bottom centre between the power and speed panels. On touch it sits above the strip, no wider than 280 points, clear of every touch button. On a phone that covers the back of the ship; it is left there for the owner's look check.
+  - **The prompt's control comes from the live bindings:**
+    - keyboard: the first bound key;
+    - pad: the first bound button;
+    - touch: SLIDE LEFT THUMB, or TILT, and for the air-brake either SLIDER TO THE EDGE or ◂AIR / AIR▸, by the air-brake style.
+- **Existing tests changed:** `SaveStore.test.ts` (two v9 season fixtures now carry their current cup, plus assertions for the new drop rule). No assertion was loosened.
+- **Measured:** the season sim (10 real races at Pilot, a reload in cup 2) takes 31 s locally; in it a rival (REX THUNDER) won the season, so the sim checks the no-bonus path, and `cupBooking.test.ts` checks the player's win and the once-per-tier rule.
+- **Owner:** the device check below, and the look of the championship card, the season table, the crowns and the tutorial prompt (shots in `docs/v2/shots/m8c/`).
+
 
 ---
 

@@ -30,7 +30,8 @@ import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResul
 import { bookTrial, medalTally, medalTimes } from '../game/modes/TimeTrial';
 import type { GhostData } from '../game/ghost/ghostCodec';
 import { loadDevGhost } from '../game/ghost/devGhosts';
-import type { TrialHud } from '../game/HUD';
+import type { TrialHud, TutorialHud } from '../game/HUD';
+import { PAD_BUTTON_NAMES, keyName } from '../core/controlNames';
 import { DEV_TIMES } from '../content/devTimes';
 import { GhostStore } from '../save/GhostStore';
 import { rosterOf } from '../game/pilotPortrait';
@@ -134,6 +135,8 @@ export class App {
   private ghostSaving: Promise<unknown> = Promise.resolve();
   /** The Time Trial being raced, or null (set by `startTrial`, cleared when it is left for a menu). */
   private trial: { worldId: WorldId; trackId: string; ghosts: { kind: 'best' | 'dev'; data: GhostData }[]; hud: TrialHud } | null = null;
+  /** REPLAY TUTORIAL was pressed (Settings → Race): the next World Tour race runs it whatever the profile's preset. */
+  private tutorialReplay = false;
 
   /** Set by the UI: receives gamepad / body-focused keyboard menu actions while a menu route is shown. */
   navHandler: ((action: MenuAction) => void) | null = null;
@@ -291,6 +294,8 @@ export class App {
         },
         /** The ghosts the current Time Trial shows (e2e). */
         ghosts: () => app.session?.shownGhosts.map((g) => ({ ...g })) ?? [],
+        /** The tutorial prompt showing now, and whether the race runs the tutorial (e2e). */
+        tutorial: () => ({ prompt: app.session?.tutorialPrompt ?? null, active: app.session?.tutorialActive ?? false }),
         /** Ghost meshes drawn in the last frame (one draw call each). */
         ghostsDrawn: () => app.graphics.ghostsDrawn,
         /** Add credits to the active profile (tests). */
@@ -566,7 +571,52 @@ export class App {
       return;
     }
     this.updateProfile((q) => (q.world = w.id), () => true);
+    if (this.features.modes && p && !p.tutorialDone) this.prepareTutorial(p);
     void this.startRace();
+  }
+
+  // ------------------------------------------------------------ The first-race tutorial (IMPLEMENTATION §M8c)
+
+  /** The next World Tour race runs the tutorial: a Rookie-preset profile's first, or after REPLAY TUTORIAL. */
+  private wantsTutorial(p: Profile | null): boolean {
+    if (!p || !this.features.modes || p.tutorialDone) return false;
+    // No new field: a profile with all four assists on was made with the Rookie preset (or is played like one).
+    const a = p.assists;
+    return this.tutorialReplay || (a.autoAccelerate && a.steering > 0 && a.noKO && a.earlyBoost);
+  }
+
+  /** Before a World Tour race: the tutorial's free Shield (if the bag is empty), or a Classic profile's one-line note. */
+  private prepareTutorial(p: Profile): void {
+    if (this.wantsTutorial(p)) {
+      const empty = Object.values(p.items).every((n) => n <= 0);
+      if (empty) this.updateProfile((q) => (q.items.shield = 1));
+      return;
+    }
+    this.updateProfile((q) => (q.tutorialDone = true));
+    this.toast('Tutorial: Settings → Race', 'info', 5);
+  }
+
+  /** Settings → Race → REPLAY TUTORIAL: it runs on the next World Tour race. */
+  replayTutorial(): void {
+    this.tutorialReplay = true;
+    this.updateProfile((q) => (q.tutorialDone = false));
+    this.toast('The tutorial runs on your next World Tour race.', 'good');
+  }
+
+  /** Each step's control as the player has it bound, for keyboard, pad and touch. */
+  private tutorialLabels(): TutorialHud['labels'] {
+    const k = this.settings.keyBindings.value;
+    const pad = this.settings.padBindings.value;
+    const t = this.settings.touch.value;
+    const key = (codes: readonly string[]) => (codes[0] ? keyName(codes[0]) : '?');
+    const btn = (b: readonly number[]) => (b[0] !== undefined ? (PAD_BUTTON_NAMES[b[0]] ?? `BUTTON ${b[0]}`) : '?');
+    return {
+      steer: { kb: `${key(k.left)} ${key(k.right)}`, pad: 'LEFT STICK', touch: t.steer === 'tilt' ? 'TILT' : 'SLIDE LEFT THUMB' },
+      boost: { kb: key(k.boost), pad: btn(pad.boost), touch: 'BOOST' },
+      airbrake: { kb: `${key(k.airLeft)} / ${key(k.airRight)}`, pad: `${btn(pad.airLeft)} / ${btn(pad.airRight)}`, touch: t.airbrake === 'slider' ? 'SLIDER TO THE EDGE' : '◂AIR / AIR▸' },
+      pit: { kb: 'STEER IN', pad: 'STEER IN', touch: 'STEER IN' },
+      item: { kb: key(k.item), pad: btn(pad.item), touch: 'ITEM' },
+    };
   }
 
   /** The world the next race is in, or null for the v1 classic / Bonus Track. */
@@ -976,7 +1026,19 @@ export class App {
     const world = this.currentWorld;
     const def = world ? TRACK_DEFS[world.trackId] : undefined;
     if (world && def) {
-      return { ...base, source: { kind: 'authored', def }, palette: world.palette, worldId: world.id, trackKey: def.id, records: p ? this.profileRecords(p.id, def.id) : localRecordStore };
+      // The first-race tutorial: a World Tour race (not a cup) of a profile that still wants it.
+      const tutorial =
+        !cup && this.wantsTutorial(p)
+          ? {
+              hasItem: Object.values(p!.items).some((n) => n > 0),
+              hud: { labels: this.tutorialLabels() },
+              onDone: () => {
+                this.tutorialReplay = false;
+                this.updateProfile((q) => (q.tutorialDone = true));
+              },
+            }
+          : undefined;
+      return { ...base, ...(tutorial ? { tutorial } : {}), source: { kind: 'authored', def }, palette: world.palette, worldId: world.id, trackKey: def.id, records: p ? this.profileRecords(p.id, def.id) : localRecordStore };
     }
     const seed = this.flags.seed ?? CONFIG.TRACK_SEED;
     const trackKey = this.flags.seed !== null ? `bonus-${seed}` : 'classic';
@@ -1018,7 +1080,7 @@ export class App {
   private ensureSession(): Promise<RaceSession> {
     const setup = this.raceSetup();
     const trial = setup.trial ? [setup.trial.ghosts.map((g) => [g.kind, g.data.totalTime]), setup.trial.hud.held] : null;
-    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, trial, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
+    const key = JSON.stringify([setup.trackKey, this.activeProfile.value?.id ?? null, setup.hazards?.mode, this.cupRace.value, trial, setup.tutorial ? [setup.tutorial.hasItem, setup.tutorial.hud.labels] : null, setup.field.map((d) => [d.name, d.tier, d.loadout, d.gridIndex])]);
     if (this.session && this.sessionKey === key) return Promise.resolve(this.session);
     if (this.building && this.buildingKey === key) return this.building;
     this.buildingKey = key;
@@ -1055,6 +1117,7 @@ export class App {
       onResume: () => this.session?.pause(false),
       onToggleMute: () => this.toggleMute(),
       onSkipIntro: () => this.endIntro(),
+      onSkipTutorial: () => this.session?.skipTutorial(),
     };
     if (this.tilt) {
       const tilt = this.tilt;

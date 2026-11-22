@@ -194,3 +194,99 @@ test('the Storm Cup by pad: pick it, five races in order, final standings', asyn
   expect(await dbg(page, (d) => d.app.cup)).toBeNull();
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('the championship (IMPLEMENTATION §M8c): no card with one cup; locked for a new profile; a season ends on the season table', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
+  const screen = page.locator('[data-screen]');
+  const editSave = async (fn: string) => {
+    await page.evaluate(`(() => { const s = JSON.parse(localStorage.getItem('machzero.save')); (${fn})(s); localStorage.setItem('machzero.save', JSON.stringify(s)); })()`);
+    await page.reload();
+    await expect(screen).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
+  };
+  // One cup visible (no `expansion`): no CHAMPIONSHIP card, even with the Neon Cup won.
+  await page.goto('/?features=modes&debug=1&quality=low');
+  await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('CHAMP', 3, 'classic'));
+  await expect(screen).toHaveAttribute('data-screen', 'menu');
+  await editSave(`(s) => { s.profiles[0].trophies = { neon: ['pilot'] }; }`);
+  await page.getByRole('button', { name: /^GRAND PRIX/ }).click();
+  await expect(screen).toHaveAttribute('data-screen', 'gp');
+  await expect(page.locator('[data-cup="championship"]')).toHaveCount(0);
+
+  // Two cups (`expansion`): the card is there, locked until both cups are won.
+  await page.goto('/?features=modes,expansion&debug=1&quality=low');
+  await expect(screen).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
+  await page.getByRole('button', { name: /^GRAND PRIX/ }).click();
+  await page.locator('[data-cup="championship"]').click();
+  await expect(page.locator('[data-season-locked]')).toHaveText(/WIN EVERY CUP TO UNLOCK/);
+  await expect(page.locator('[data-season-start]')).toHaveCount(0);
+
+  // Both cups won: START. Then a fixture one race from the end of the season: the Neon Cup done, the Storm Cup at
+  // race 5. Finish it: the cup's final standings, then the season table and its end.
+  await editSave(`(s) => { s.profiles[0].trophies = { neon: ['rookie'], storm: ['rookie'] }; s.profiles[0].tour = { granted: [], trophies: { 'orbital-ring': ['rookie'], 'abyss-line': ['rookie'] } }; }`);
+  await page.getByRole('button', { name: /^GRAND PRIX/ }).click();
+  await page.locator('[data-cup="championship"]').click();
+  await expect(page.locator('[data-season-start]')).toHaveText('START CHAMPIONSHIP · PILOT');
+  const row = [1, 2, 3, 4, 5, 6, 7, 8];
+  await editSave(`(s) => {
+    const p = s.profiles[0];
+    p.season = { tier: 'pilot', done: [{ cupId: 'neon', tier: 'pilot', results: [${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}] }] };
+    p.cup = { cupId: 'storm', tier: 'pilot', results: [${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}] };
+  }`);
+  // The menu offers CONTINUE SEASON (in place of GRAND PRIX, as for a cup): the standings, with QUIT SEASON.
+  await expect(page.getByRole('button', { name: /^CONTINUE SEASON/ })).toContainText('SEASON CUP 2 OF 2');
+  await expect(page.getByRole('button', { name: /^GRAND PRIX/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /^CONTINUE SEASON/ }).click();
+  await expect(screen).toHaveAttribute('data-screen', 'cup');
+  await expect(screen).toContainText('SEASON · CUP 2 OF 2');
+  await expect(page.locator('[data-quit-season]')).toBeVisible();
+  await expect(page.locator('[data-quit-cup]')).toHaveCount(0);
+  await page.locator('[data-cup-next]').click();
+  await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/title|countdown|racing/);
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
+  await expect(screen).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
+  // The results' tally first (an input during it only shows the whole tally), then STANDINGS.
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 15_000 });
+  await page.locator('[data-res-standings]').click();
+  // The Storm Cup's final standings, then the season table: the end of the season.
+  await expect(screen).toHaveAttribute('data-screen', 'cup');
+  await page.locator('[data-season-table-open]').click();
+  await expect(page.locator('[data-season-view="end"]')).toBeVisible();
+  await expect(page.locator('[data-season-table="2"] [data-ship]')).toHaveCount(8);
+  const p = await page.evaluate(() => JSON.parse(localStorage.getItem('machzero.save')!).profiles[0]);
+  expect(p.season).toBeNull();
+  expect(p.cup).toBeNull();
+  // The player won all nine races before this one: they are the champion, paid once.
+  expect(p.champion).toEqual(['pilot']);
+  await expect(page.locator('[data-champion="pilot"]')).toContainText('PILOT champion');
+  await page.locator('[data-season-done]').click();
+  await expect(screen).toHaveAttribute('data-screen', 'menu');
+
+  // Between cups: a season one race from the end of the Neon Cup. Its final standings, the season table, NEXT CUP:
+  // the Storm Cup's standings before its race 1 (already queued, so a reload here would resume it).
+  await editSave(`(s) => {
+    const p = s.profiles[0];
+    p.season = { tier: 'pilot', done: [] };
+    p.cup = { cupId: 'neon', tier: 'pilot', results: [${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}, ${JSON.stringify(row)}] };
+  }`);
+  await page.getByRole('button', { name: /^CONTINUE SEASON/ }).click();
+  await page.locator('[data-cup-next]').click();
+  await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toMatch(/title|countdown|racing/);
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 45_000 });
+  await page.locator('[data-res-standings]').click();
+  await expect(page.locator('[data-cup-final]')).toBeVisible();
+  const mid = await page.evaluate(() => JSON.parse(localStorage.getItem('machzero.save')!).profiles[0]);
+  expect(mid.season.done.map((c: { cupId: string }) => c.cupId)).toEqual(['neon']);
+  expect(mid.cup).toEqual({ cupId: 'storm', tier: 'pilot', results: [] });
+  await page.locator('[data-season-table-open]').click();
+  await expect(page.locator('[data-season-view="between"]')).toBeVisible();
+  await expect(page.locator('[data-season-table="1"] [data-ship]')).toHaveCount(8);
+  await page.locator('[data-season-next]').click();
+  await expect(screen).toContainText('SEASON · CUP 2 OF 2');
+  await expect(page.locator('[data-cup-done="0"]')).toBeVisible();
+  expect(errors, errors.join('\n')).toEqual([]);
+});

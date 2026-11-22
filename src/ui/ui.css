@@ -2453,3 +2453,33 @@ html.mz-pad .mzu-trial-row:focus {
   flex-direction: column;
   gap: 0.5em;
 }
+/* The championship card's tier picker: the label on its own line, the four tiers sharing the row (as on the world card). */
+.mzu-season-card .mzu-tier {
+  margin: 0;
+}
+.mzu-season-card .mzu-seg {
+  flex-wrap: wrap;
+  padding: 0.4em 0;
+  border: 0;
+  background: none;
+}
+.mzu-season-card .mzu-seg .mzu-row-text {
+  flex-basis: 100%;
+}
+.mzu-season-card .mzu-seg-opts {
+  flex: 1;
+}
+.mzu-season-card .mzu-seg-opts button {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.3em;
+  font-size: 0.82em;
+}
+.mzu-season-card .mzu-tier .mzu-note {
+  font-size: 0.75em;
+  margin: 0.2em 0 0;
+}
+/* The season table: a wider column for the cups won. */
+.mzu-season-table .mzu-cup-row {
+  grid-template-columns: 2.4em 2.6em 1fr 4.2em 3em;
+}

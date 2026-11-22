@@ -16,7 +16,8 @@ import { ItemSystem, type PlayerItems } from '../game/ItemSystem';
 import { GhostCapture } from '../game/ghost/GhostCapture';
 import type { GhostData } from '../game/ghost/ghostCodec';
 import { GhostPlayer } from '../game/ghost/GhostPlayer';
-import type { TrialHud } from '../game/HUD';
+import type { TrialHud, TutorialHud } from '../game/HUD';
+import { Tutorial, type TutorialStep } from '../game/Tutorial';
 import { disposeObject3D } from '../graphics/dispose';
 import { rosterOf } from '../game/pilotPortrait';
 import type { GraphicsSystem } from '../graphics';
@@ -49,6 +50,11 @@ export interface RaceSetup {
    * recorded as a ghost. `ghosts` are the ones to show (switched-off and missing ghosts are left out).
    */
   trial?: { ghosts: { kind: 'best' | 'dev'; data: GhostData }[]; hud: TrialHud };
+  /**
+   * The first-race tutorial (IMPLEMENTATION §M8c): prompts over the race, which is never paused. `onDone` is called
+   * once, when every step is done, on SKIP, or when the race ends.
+   */
+  tutorial?: { hasItem: boolean; hud: TutorialHud; onDone: () => void };
 }
 
 /** A shown ghost: its player and the frame the graphics read. */
@@ -89,6 +95,12 @@ export class RaceSession {
   private readonly capture: GhostCapture | null = null;
   private readonly ghosts: LiveGhost[] = [];
   private readonly ghostFrames: GhostFrame[] = [];
+  /** The tutorial, its last prompt, and what it reads off the race bus. */
+  private readonly tutorial: Tutorial | null = null;
+  private tutorialStep: TutorialStep | null = null;
+  private tutorialEnded = false;
+  private playerLaps = 0;
+  private itemUsed = false;
 
   private constructor(
     readonly setup: RaceSetup,
@@ -110,6 +122,22 @@ export class RaceSession {
     this.setAssists(setup.assists ?? NO_ASSISTS);
     this.race = new RaceManager(track, this.ships, this.bus, setup.records);
     this.items = new ItemSystem({ ships: this.ships, player, race: this.race, bus, physics, track }, track.seed, setup.items);
+    if (setup.tutorial) {
+      this.tutorial = new Tutorial(track, { hasItem: setup.tutorial.hasItem });
+      const id = player.def.id;
+      bus.on('race:lap', (e) => {
+        if (e.shipId === id) this.playerLaps = e.lap;
+      });
+      bus.on('race:state', (e) => {
+        if (e.state === 'countdown' || e.state === 'title') this.playerLaps = 0;
+      });
+      bus.on('item:use', (e) => {
+        if (e.shipId === id) this.itemUsed = true;
+      });
+      bus.on('item:emp', (e) => {
+        if (e.from === id) this.itemUsed = true;
+      });
+    }
     if (setup.trial) {
       this.capture = new GhostCapture(bus, player, setup.trackKey);
       for (const g of setup.trial.ghosts) {
@@ -166,7 +194,7 @@ export class RaceSession {
     if (this.ghostFrames.length) view.graphics.setGhosts(this.ghostFrames);
     view.audio.attach(this.bus);
     view.rumble?.attach(this.bus, this.player.def.id);
-    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, results: view.results !== false, roster: rosterOf(this.setup.field), ...(view.touch ? { touch: view.touch } : {}), ...(this.setup.trial ? { trial: this.setup.trial.hud } : {}) });
+    this.hud = new HUD(view.hudRoot, this.bus, this.track, view.actions, { showTitle: view.showTitle, results: view.results !== false, roster: rosterOf(this.setup.field), ...(view.touch ? { touch: view.touch } : {}), ...(this.setup.trial ? { trial: this.setup.trial.hud } : {}), ...(this.setup.tutorial ? { tutorial: this.setup.tutorial.hud } : {}) });
   }
 
   /** The player's assists in force. */
@@ -205,6 +233,37 @@ export class RaceSession {
     this.physics.step(dt, this.controls);
     this.race.fixedUpdate(dt);
     this.capture?.step();
+    if (this.tutorial && !this.tutorialEnded) {
+      const input = driven ? human! : this.controls.get(this.player.def.id)!;
+      const v = this.tutorial.update(dt, this.player, input, { state: this.race.state, lap: this.playerLaps + 1, itemUsed: this.itemUsed });
+      this.itemUsed = false;
+      this.tutorialStep = v.step;
+      if (v.done) this.endTutorial();
+    }
+  }
+
+  /** The tutorial is running in this race (not yet done or skipped). */
+  get tutorialActive(): boolean {
+    return this.tutorial !== null && !this.tutorialEnded;
+  }
+
+  /** The prompt showing now (e2e and the HUD), or null. */
+  get tutorialPrompt(): TutorialStep | null {
+    return this.tutorialActive ? this.tutorialStep : null;
+  }
+
+  /** SKIP (the prompt's button or the pause panel's SKIP TUTORIAL). */
+  skipTutorial(): void {
+    this.tutorial?.skip();
+    this.endTutorial();
+  }
+
+  private endTutorial(): void {
+    if (this.tutorialEnded || !this.tutorial) return;
+    this.tutorialEnded = true;
+    this.tutorialStep = null;
+    this.hud?.setTutorial(null, true);
+    this.setup.tutorial?.onDone();
   }
 
   /** Each ghost's pose at the race time this frame shows (the ships are drawn `alpha` of a step behind). */
@@ -233,6 +292,7 @@ export class RaceSession {
     };
     this.view.graphics.update(ctx);
     this.hud?.setItems(this.items.playerView());
+    if (this.tutorial) this.hud?.setTutorial(this.tutorialPrompt, this.tutorialEnded);
     this.hud?.update(ctx.race, dt, ctx.hazardTime, ctx.ghosts, ctx.ghosts ? this.view.graphics.ghostTag : null);
     this.view.audio.update(ctx);
   }

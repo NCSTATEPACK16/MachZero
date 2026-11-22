@@ -108,32 +108,5 @@ export function Segmented<T extends string>(props: { label: string; hint?: strin
   );
 }
 
-/** Human-readable key name for a KeyboardEvent.code. */
-export function keyName(code: string): string {
-  if (code.startsWith('Key')) return code.slice(3);
-  if (code.startsWith('Digit')) return code.slice(5);
-  const map: Record<string, string> = {
-    ArrowUp: '↑',
-    ArrowDown: '↓',
-    ArrowLeft: '←',
-    ArrowRight: '→',
-    Space: 'SPACE',
-    ShiftLeft: 'L-SHIFT',
-    ShiftRight: 'R-SHIFT',
-    ControlLeft: 'L-CTRL',
-    ControlRight: 'R-CTRL',
-    AltLeft: 'L-ALT',
-    AltRight: 'R-ALT',
-    Semicolon: ';',
-    Quote: "'",
-    Comma: ',',
-    Period: '.',
-    Slash: '/',
-    BracketLeft: '[',
-    BracketRight: ']',
-    Backquote: '`',
-    Minus: '-',
-    Equal: '=',
-  };
-  return map[code] ?? code.replace(/^Numpad/, 'NUM ').toUpperCase();
-}
+/** Human-readable key name (moved to core/controlNames.ts so the HUD can use it). */
+export { keyName } from '../core/controlNames';

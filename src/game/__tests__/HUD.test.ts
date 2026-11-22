@@ -173,6 +173,37 @@ describe('HUD (fake DOM smoke test)', () => {
     hud.dispose();
   });
 
+  it('the tutorial prompt (IMPLEMENTATION §M8c): icon, line, the control for each device; SKIP and the pause SKIP TUTORIAL', () => {
+    const track = makeCircleTrack(500);
+    const bus = new EventBus<GameEvents>();
+    let skipped = 0;
+    const actions: HudActions = { onStart: () => undefined, onRestart: () => undefined, onResume: () => undefined, onToggleMute: () => undefined, onSkipTutorial: () => void skipped++ };
+    const root = new FakeEl('div');
+    const label = { kb: 'SPACE', pad: 'Ⓧ', touch: 'BOOST' };
+    const labels = { steer: { kb: 'A D', pad: 'LEFT STICK', touch: 'SLIDE LEFT THUMB' }, boost: label, airbrake: label, pit: label, item: label };
+    const hud = new HUD(root as unknown as HTMLElement, bus, track, actions, { showTitle: false, tutorial: { labels } });
+    const c = root.children[0];
+    const box = c.find('mz-tutorial')! as unknown as FakeEl & { hidden: boolean };
+    expect(box.hidden).toBe(true);
+    hud.setTutorial('steer', false);
+    expect(box.hidden).toBe(false);
+    expect(box.dataset.step).toBe('steer');
+    expect(box.find('mz-tutorial-text')!.textContent).toBe('STEER');
+    const key = box.find('mz-tutorial-key')!;
+    expect([key.find('mz-k-kb')!.textContent, key.find('mz-k-pad')!.textContent, key.find('mz-k-touch')!.textContent]).toEqual(['A D', 'LEFT STICK', 'SLIDE LEFT THUMB']);
+    hud.setTutorial('boost', false);
+    expect(box.find('mz-k-kb')!.textContent).toBe('SPACE');
+    box.find('mz-tutorial-skip')!.click();
+    expect(skipped).toBe(1);
+    const pauseSkip = c.find('mz-pause')!.findAll('mz-btn').find((b) => b.textContent === 'SKIP TUTORIAL')! as unknown as FakeEl & { hidden: boolean };
+    pauseSkip.click();
+    expect(skipped).toBe(2);
+    hud.setTutorial(null, true);
+    expect(box.hidden).toBe(true);
+    expect(pauseSkip.hidden).toBe(true);
+    hud.dispose();
+  });
+
   it('splits: elapsed time against the best ghost, and their text', () => {
     expect(trialSplit([32, 31], [33, 31, 31], 1)).toBeCloseTo(-1, 9);
     expect(trialSplit([32, 31.5], [33, 31, 31], 2)).toBeCloseTo(-0.5, 9);
