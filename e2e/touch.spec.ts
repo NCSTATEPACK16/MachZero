@@ -167,10 +167,10 @@ test('every menu target is at least 44 × 44 points; a garage purchase and a liv
   await page.getByRole('button', { name: /MENU/ }).first().tap();
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
 
-  // Worlds and Grand Prix.
-  await page.getByRole('button', { name: /^WORLDS/ }).tap();
-  await expect(screen(page)).toHaveAttribute('data-screen', 'worlds');
-  expect(await tooSmall(page), 'worlds').toEqual([]);
+  // The world map and Grand Prix.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).tap();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'tour');
+  expect(await tooSmall(page), 'map').toEqual([]);
   await page.getByRole('button', { name: 'MENU' }).tap();
   await page.getByRole('button', { name: /^GRAND PRIX/ }).tap();
   await expect(screen(page)).toHaveAttribute('data-screen', 'gp');
@@ -210,9 +210,17 @@ test('every menu target is at least 44 × 44 points; a garage purchase and a liv
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('race screens by touch: the pause and results panels are 44-point targets; a cup starts by taps', async ({ page }) => {
+test('race screens by touch: the pause panel and the results screen are 44-point targets; a cup starts by taps', async ({ page }) => {
   const errors = collectErrors(page);
   await toMenu(page, 'CUPS');
+  // The Neon Cup opens with Orbital Ring cleared on the World Tour (IMPLEMENTATION §M8a).
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('machzero.save')!);
+    s.profiles[0].tour = { granted: [], trophies: { 'orbital-ring': ['pilot'] } };
+    localStorage.setItem('machzero.save', JSON.stringify(s));
+  });
+  await page.reload();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await page.getByRole('button', { name: /^GRAND PRIX/ }).tap();
   await expect(screen(page)).toHaveAttribute('data-screen', 'gp');
   await page.getByRole('button', { name: /START/ }).first().tap();
@@ -227,19 +235,21 @@ test('race screens by touch: the pause and results panels are 44-point targets; 
   await page.locator('.mz-pause').getByRole('button', { name: 'RESUME' }).tap();
   await page.evaluate(() => (window as unknown as { __machzero: { simulate(s: number): Promise<void> } }).__machzero.simulate(400));
   await expect.poll(() => raceState(page), { timeout: 90_000 }).toBe('results');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 15_000 });
   expect(await tooSmall(page), 'results').toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
 test('World Tour by touch (IMPLEMENTATION §M8a): the map, a world card, a locked card and the results are 44-point targets', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/?debug=1&quality=low&features=modes');
+  await page.goto('/?debug=1&quality=low');
   await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.locator('input[type=text]').fill('TOUR');
   await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).tap();
   await page.getByRole('button', { name: "LET'S RACE" }).tap();
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
-  expect(await tooSmall(page), 'menu with modes').toEqual([]);
+  expect(await tooSmall(page), 'menu (Rookie)').toEqual([]);
   await page.getByRole('button', { name: /^WORLD TOUR/ }).tap();
   await expect(screen(page)).toHaveAttribute('data-screen', 'tour');
   expect(await tooSmall(page), 'map').toEqual([]);
@@ -265,7 +275,7 @@ test('World Tour by touch (IMPLEMENTATION §M8a): the map, a world card, a locke
 
 test('Time Trial by touch (IMPLEMENTATION §M8b): the screen, its toggles and the trial results are 44-point targets', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/?debug=1&quality=low&features=modes');
+  await page.goto('/?debug=1&quality=low');
   await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.locator('input[type=text]').fill('CLOCK');
   await page.getByRole('radio', { name: /I'VE RACED BEFORE/ }).tap();
@@ -291,7 +301,7 @@ test('Time Trial by touch (IMPLEMENTATION §M8b): the screen, its toggles and th
 
 test('M8c by touch: the tutorial prompt clears the touch controls, power and speed; SKIP and the championship card are 44-point targets', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/?debug=1&quality=low&features=modes,expansion');
+  await page.goto('/?debug=1&quality=low&features=expansion');
   await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.locator('input[type=text]').fill('NEWBIE');
   await page.getByRole('radio', { name: /I'M NEW TO RACING GAMES/ }).tap();

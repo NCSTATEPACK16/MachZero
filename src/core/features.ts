@@ -1,35 +1,27 @@
 /**
  * 2.0 feature flags. `main` is the live site (every merged PR deploys), so unfinished 2.0 surfaces stay
  * off until their milestone is complete. Previews enable them with `?features=all` or a comma list,
- * e.g. `?features=garage,worlds`. Flip a default to `true` in the PR that completes its milestone.
+ * e.g. `?features=music,expansion`. Flip a default to `true` in the PR that completes its milestone.
  *
  * The iOS app has no URL to carry `?features=`, so a build can turn flags on instead: set `VITE_FEATURES` (the same
  * comma list) when building, e.g. `VITE_FEATURES=expansion npm run ios:sync`. Netlify builds do not set it, so the
  * live site and the previews keep the defaults.
  */
 export const FEATURE_NAMES = [
-  'profiles', // M1: profiles, saves, settings menus
-  'garage', // M2: Blender ships, parts, garage, livery editor
-  'worlds', // M3/M4: authored worlds + world select
-  'tiers', // M5: AI tiers, pilots, drafting
   'music', // M6: music sequencer + expanded SFX
-  'touch', // M7: touch / tilt controls, comfort settings
-  'modes', // M8: World Tour, Grand Prix, Time Trial + ghosts
   'expansion', // 2.1 (IMPLEMENTATION §X): part variants and the Aero slot (X3), the new worlds (X4–X6)
 ] as const;
 
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 export type FeatureSet = Readonly<Record<FeatureName, boolean>>;
 
-/** Defaults shipped on `main`. A flag turns on in the PR that completes its milestone. */
+/**
+ * Defaults shipped on `main`. A flag turns on in the PR that completes its milestone. MachZero 2.0 (M8d) removed the
+ * flags of the finished milestones (profiles, garage, worlds, tiers, touch, modes) with their dead branches; an old
+ * link that names one still loads, since unknown names are ignored.
+ */
 export const FEATURE_DEFAULTS: FeatureSet = {
-  profiles: true, // M1 complete
-  garage: true, // M2 complete
-  worlds: true, // M3 complete (Neon Bay, Sunset Mesa, world select)
-  tiers: false,
   music: false,
-  touch: true, // M7 complete (touch, tilt, assists, comfort)
-  modes: true, // M8 complete (World Tour, Time Trial and ghosts, the championship, the tutorial)
   expansion: false,
 };
 

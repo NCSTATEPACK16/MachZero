@@ -9,7 +9,7 @@ import type { AITier } from '../../core/contracts';
 import { availableCups, cupById, cupUnlocked, type CupDef } from '../../content/cups';
 import { GP_POINTS, cupBonus, cupRaces, racesDone, trophiesOf } from '../../game/modes/GrandPrix';
 import { championBonus, seasonCup } from '../../game/modes/Championship';
-import { TierPicker } from './WorldSelect';
+import { TierPicker } from './TierPicker';
 import { worldById, worldsFor } from '../../content/worlds';
 import { AI_TIERS } from '../../save/schema';
 import { Screen } from '../components';
@@ -170,8 +170,8 @@ export function GrandPrix({ app }: { app: App }) {
   const cup = p?.cup ?? null;
   // A cup with a world behind the `expansion` flag stays hidden while that flag is off.
   const cups = availableCups(worldsFor(app.features));
-  // The championship (M8c, with `modes`) needs two cups or more; a season in progress shows it first.
-  const champTab = app.features.modes && cups.length >= 2;
+  // The championship (M8c) needs two cups or more; a season in progress shows it first.
+  const champTab = cups.length >= 2;
   const season = champTab ? (p?.season ?? null) : null;
   // The cup in progress is always the one shown; otherwise the last one picked here.
   const [picked, setPicked] = useState(season ? 'championship' : (cups[0]?.id ?? ''));
@@ -179,8 +179,8 @@ export function GrandPrix({ app }: { app: App }) {
   const def: CupDef | undefined = (cup ? cupById(cup.cupId) : cupById(picked)) ?? cups[0];
   const tier = cup?.tier ?? p?.aiTier ?? 'rookie';
   const done = cup ? racesDone(cup) : 0;
-  // With `modes` on a cup opens once its World Tour world is cleared (IMPLEMENTATION §M8a).
-  const locked = !cup && !!def && !!p && !cupUnlocked(def, p, app.features.modes);
+  // A cup opens once its World Tour world is cleared (IMPLEMENTATION §M8a).
+  const locked = !cup && !!def && !!p && !cupUnlocked(def, p);
   if (!def) {
     return (
       <Screen id="gp" title="GRAND PRIX" kicker="NO CUPS YET" onBack={() => (app.route.value = { name: 'menu' })} backLabel="MENU">
@@ -195,7 +195,7 @@ export function GrandPrix({ app }: { app: App }) {
         <div class="mzu-gp-cups" role="tablist" aria-label="Cups">
           {cups.map((c) => (
             <button key={c.id} type="button" role="tab" class="mzu-chip" aria-selected={!showSeason && c.id === def.id} disabled={(!!cup && c.id !== def.id) || season !== null} data-cup={c.id} onClick={() => setPicked(c.id)}>
-              {p && !cupUnlocked(c, p, app.features.modes) ? <Padlock /> : null}
+              {p && !cupUnlocked(c, p) ? <Padlock /> : null}
               {c.name}
             </button>
           ))}

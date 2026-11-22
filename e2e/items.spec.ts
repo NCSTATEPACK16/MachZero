@@ -72,7 +72,7 @@ test('buy a Shield and a Drop Mine by pad, then pick with the d-pad and use with
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
   await installPad(page);
-  await page.goto('/?features=profiles&debug=1&quality=low');
+  await page.goto('/?debug=1&quality=low');
   const screen = page.locator('[data-screen]');
   await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => {
@@ -99,7 +99,10 @@ test('buy a Shield and a Drop Mine by pad, then pick with the d-pad and use with
   // Race: the item chip shows the selection; d-pad right picks the mine, Ⓨ drops it; left picks the shield.
   await page.keyboard.press('Escape');
   await expect(screen).toHaveAttribute('data-screen', 'menu');
-  await page.getByRole('button', { name: /^RACE/ }).click();
+  // World Tour is the single race: the map, Neon Bay's card, RACE.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).click();
+  await page.locator('[data-planet="neon-bay"]').click();
+  await page.locator('[data-tour-race]').click();
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 90_000 }).toBe('racing');
   const chip = page.locator('.mz-items');
   await expect(chip).toBeVisible();

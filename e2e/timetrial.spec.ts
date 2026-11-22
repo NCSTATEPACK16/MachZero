@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Time Trial (IMPLEMENTATION §M8b), with `?features=modes`: open TIME TRIAL, start Neon Bay on autopilot, finish and
+ * Time Trial (IMPLEMENTATION §M8b): open TIME TRIAL, start Neon Bay on autopilot, finish and
  * see a time and a medal state; start again and `__machzero.ghosts()` reports two ghosts, the best one present; a
  * reload keeps the best time. A ghost switched off on the screen is not shown.
  */
@@ -24,7 +24,7 @@ interface Debug {
   };
 }
 
-const URL = '/?features=modes&debug=1&quality=low';
+const URL = '/?debug=1&quality=low';
 const screen = (page: Page) => page.locator('[data-screen]');
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 

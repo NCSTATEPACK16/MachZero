@@ -19,7 +19,7 @@ interface Debug {
   grantCredits(n: number): void;
 }
 
-const URL = '/?features=profiles&debug=1&quality=low';
+const URL = '/?debug=1&quality=low';
 /** Run `fn` against the page's debug handle (window.__machzero). */
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 const screen = (page: Page) => page.locator('[data-screen]');
@@ -98,7 +98,10 @@ test('buy and fit a part, paint the ship, persist, race with it', async ({ page 
   expect((await profile(page)).owned.engine).toEqual(['0', '2a']);
 
   // The race uses the garage loadout.
-  await page.getByRole('button', { name: /^RACE/ }).click();
+  // World Tour is the single race: the map, Neon Bay's card, RACE.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).click();
+  await page.locator('[data-planet="neon-bay"]').click();
+  await page.locator('[data-tour-race]').click();
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 60_000 }).toMatch(/countdown|racing/);
   const ship = await dbg(page, (d) => d.ships![0].def.loadout);
   expect(ship).toMatchObject({ chassisId: 'bastion', parts: { engine: 2 }, livery: { decal: 5 } });
@@ -140,7 +143,7 @@ test('cycling ships on the turntable does not grow GPU memory', async ({ page })
 for (const quality of ['low', 'med', 'high'] as const) {
   test(`every chassis, part tier and variant renders on ${quality}`, async ({ page }) => {
     const errors = collectErrors(page);
-    await page.goto(`/?features=profiles,expansion&debug=1&quality=${quality}`);
+    await page.goto(`/?features=expansion&debug=1&quality=${quality}`);
     await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
     await page.evaluate(() => {
       const d = (window as unknown as { __machzero: Debug & { app: { buyPart(s: string, t: number, v?: string): string } } }).__machzero;
@@ -183,7 +186,10 @@ for (const quality of ['low', 'med', 'high'] as const) {
     await expect(page.getByRole('radio', { name: /^PROTOTYPE SPRINT/ })).toHaveAttribute('aria-checked', 'true');
     expect(await dbg(page, (d) => Boolean(d.app.graphics.preview?.model))).toBe(true);
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: /^RACE/ }).click();
+    // World Tour is the single race: the map, Neon Bay's card, RACE.
+    await page.getByRole('button', { name: /^WORLD TOUR/ }).click();
+    await page.locator('[data-planet="neon-bay"]').click();
+    await page.locator('[data-tour-race]').click();
     await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 60_000 }).toMatch(/countdown|racing/);
     await frames();
     expect(errors, errors.join('\n')).toEqual([]);

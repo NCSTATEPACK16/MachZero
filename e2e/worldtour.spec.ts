@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * World Tour (IMPLEMENTATION §M8a), with `?features=modes`: a new profile sees world 1 open and world 2 locked, and
+ * World Tour (IMPLEMENTATION §M8a): a new profile sees world 1 open and world 2 locked, and
  * the Neon Cup locked; by keyboard the map's chain, the card's RACE, an autopilot race to the end, the results screen
  * with its tally (FIRST CLEAR 1,000, the unlock card) and NEXT WORLD to Sunset Mesa's card; a save fixture with world 1
  * cleared shows world 2 open; a v8 save with records on three worlds loads with those three open.
@@ -17,7 +17,7 @@ interface Debug {
   };
 }
 
-const URL = '/?features=modes&debug=1&quality=low';
+const URL = '/?debug=1&quality=low';
 const screen = (page: Page) => page.locator('[data-screen]');
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 const planet = (page: Page, id: string) => page.locator(`[data-planet="${id}"]`);

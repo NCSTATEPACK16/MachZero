@@ -1,5 +1,5 @@
 /**
- * The results screen (IMPLEMENTATION §M8a step 6, feature `modes`): a menu screen in place of the HUD's results
+ * The results screen (IMPLEMENTATION §M8a step 6): a menu screen in place of the HUD's results
  * panel. The standings on the left; on the right the credit tally line by line (0.35 s apart) with a counter that
  * runs up to the total, then any unlock and trophies, then the winner's quote. Any input shows everything at once,
  * and with reduced motion everything shows from the start.

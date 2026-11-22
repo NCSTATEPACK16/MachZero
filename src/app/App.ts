@@ -7,7 +7,7 @@ import { batch, computed, effect, signal, untracked } from '@preact/signals';
 import { CONFIG, readUrlFlags, type UrlFlags } from '../core/config';
 import { hazardPolicy } from '../core/hazards';
 import type { AITier, Assists, HudActions, Loadout, MenuAction, PartSlot, PartTier, PartVariant, RacerStanding, ShipId } from '../core/contracts';
-import { FEATURES, type FeatureName, type FeatureSet } from '../core/features';
+import { FEATURES, type FeatureSet } from '../core/features';
 import { FrameStats, MISSED_FRAME_MS } from '../core/FrameStats';
 import { GameLoop } from '../core/loop';
 import { DEFAULT_CUP_ID, availableCups, cupAvailable, cupById, cupUnlocked, type CupDef } from '../content/cups';
@@ -90,8 +90,8 @@ const NO_ITEMS = Object.freeze(emptyBag());
 export class App {
   readonly flags: UrlFlags = readUrlFlags();
   readonly features: FeatureSet = FEATURES;
-  /** The Preact menus replace the v1 start screen (feature `profiles`). */
-  readonly menus: boolean = FEATURES.profiles && !this.flags.autopilot;
+  /** The Preact menus run the app; `?autopilot=1` skips them and races straight away (the smoke test). */
+  readonly menus: boolean = !this.flags.autopilot;
 
   readonly route = signal<Route>({ name: 'loading' });
   readonly save = signal<SaveData>(null as unknown as SaveData);
@@ -144,11 +144,11 @@ export class App {
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
-  /** Touch controls (IMPLEMENTATION §M7b), with the `touch` feature only: without it a touch does nothing in a race. */
-  private readonly touchRig: TouchRig | null = FEATURES.touch ? new TouchRig(new TouchInput()) : null;
-  private readonly input = new InputManager(window, this.touchRig?.input ?? null);
-  /** Tilt steering (M7c), with the touch controls only. */
-  private readonly tilt: TiltInput | null = this.touchRig ? new TiltInput(window) : null;
+  /** Touch controls (IMPLEMENTATION §M7b). */
+  private readonly touchRig = new TouchRig(new TouchInput());
+  private readonly input = new InputManager(window, this.touchRig.input);
+  /** Tilt steering (M7c). */
+  private readonly tilt = new TiltInput(window);
   /** The steer of the last driving sample (debug hook for the touch e2e). */
   private lastSteer = 0;
   /** Pad rumble on the player's hits, boosts and landings, where the browser supports it (§V.3). */
@@ -199,27 +199,25 @@ export class App {
 
     // Touch controls follow the touch settings and the effective auto-accelerate, mid-race too.
     const rig = this.touchRig;
-    if (rig) {
-      rig.haptic = () => tapUi();
-      rig.onHintSeen = () => this.settings.setTouch({ hintSeen: true });
-      effect(() => {
-        const t = this.settings.touch.value;
-        const p = this.menus ? this.activeProfile.value : null;
-        const airbrake = t.airbrake;
-        rig.input.setConfig({ sensitivity: t.sensitivity, airbrake });
-        rig.setConfig({ buttonSize: t.buttonSize, leftHanded: t.leftHanded, airbrake, autoAccelerate: effectiveAssists(p?.assists ?? NO_ASSISTS, 'touch', t).autoAccelerate, hint: !t.hintSeen });
+    rig.haptic = () => tapUi();
+    rig.onHintSeen = () => this.settings.setTouch({ hintSeen: true });
+    effect(() => {
+      const t = this.settings.touch.value;
+      const p = this.menus ? this.activeProfile.value : null;
+      const airbrake = t.airbrake;
+      rig.input.setConfig({ sensitivity: t.sensitivity, airbrake });
+      rig.setConfig({ buttonSize: t.buttonSize, leftHanded: t.leftHanded, airbrake, autoAccelerate: effectiveAssists(p?.assists ?? NO_ASSISTS, 'touch', t).autoAccelerate, hint: !t.hintSeen });
+    });
+    // A touch-first screen gets 44-point menu targets before its first tap (ui.css, M7c).
+    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) document.documentElement.classList.add('mz-coarse');
+    // The web shows a rotate overlay in portrait on a touch screen (the app is locked to landscape) and pauses.
+    if (!isNativeApp()) {
+      document.documentElement.classList.add('mz-rotate-ok');
+      const portrait = window.matchMedia?.('(orientation: portrait) and (pointer: coarse)');
+      portrait?.addEventListener?.('change', (e) => {
+        const s = this.session;
+        if (e.matches && this.route.value.name === 'race' && s && (s.state === 'racing' || s.state === 'countdown')) s.pause(true);
       });
-      // A touch-first screen gets 44-point menu targets before its first tap (ui.css, M7c).
-      if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) document.documentElement.classList.add('mz-coarse');
-      // The web shows a rotate overlay in portrait on a touch screen (the app is locked to landscape) and pauses.
-      if (!isNativeApp()) {
-        document.documentElement.classList.add('mz-rotate-ok');
-        const portrait = window.matchMedia?.('(orientation: portrait) and (pointer: coarse)');
-        portrait?.addEventListener?.('change', (e) => {
-          const s = this.session;
-          if (e.matches && this.route.value.name === 'race' && s && (s.state === 'racing' || s.state === 'countdown')) s.pause(true);
-        });
-      }
     }
 
     // The in-race HUD is hidden while a menu screen is up.
@@ -311,11 +309,11 @@ export class App {
 
   /** Build the first race, pick the first screen and start the loop. */
   async start(): Promise<void> {
-    if (this.features.garage) await this.loadShipAssets();
+    await this.loadShipAssets();
     await this.loadWorldAssets();
     await this.ensureSession();
     this.loop.start();
-    const first = initialRoute(this.flags, this.features, this.save.value);
+    const first = initialRoute(this.flags, this.save.value);
     if (this.flags.autopilot) setTimeout(() => this.session?.start(), 600);
     this.route.value = first;
   }
@@ -372,7 +370,7 @@ export class App {
   async startTrial(worldId: string): Promise<void> {
     const w = worldById(worldId);
     const p = this.activeProfile.value;
-    if (!w?.built || !p || !this.features.modes) return;
+    if (!w?.built || !p) return;
     if (!worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
       this.events.emit('ui:locked', {});
       return;
@@ -408,7 +406,7 @@ export class App {
     const p = this.activeProfile.value;
     const def = cupById(cupId);
     if (!p || p.cup || !def || !cupAvailable(def)) return;
-    if (!cupUnlocked(def, p, this.features.modes)) {
+    if (!cupUnlocked(def, p)) {
       this.events.emit('ui:locked', {});
       return;
     }
@@ -425,16 +423,16 @@ export class App {
     return availableCups(worldsFor(this.features));
   }
 
-  /** The championship is offered (two or more cups visible, `modes` on) and open to this profile. */
+  /** The championship is offered (two or more cups visible) and open to this profile. */
   get seasonOpen(): boolean {
     const p = this.activeProfile.value;
-    return this.features.modes && !!p && seasonUnlocked(p.trophies, this.seasonCups());
+    return !!p && seasonUnlocked(p.trophies, this.seasonCups());
   }
 
   /** A season at `tier` (the profile's CPU difficulty by default), straight into the first cup's race 1. */
   startSeason(tier?: AITier): void {
     const p = this.activeProfile.value;
-    if (!p || p.cup || p.season || !this.features.modes) return;
+    if (!p || p.cup || p.season) return;
     if (!this.seasonOpen) {
       this.events.emit('ui:locked', {});
       return;
@@ -535,13 +533,9 @@ export class App {
     this.route.value = r.name === 'settings' && r.back === 'pause' ? { name: 'race' } : { name: 'menu' };
   }
 
-  openSoon(feature: FeatureName, title: string): void {
-    this.route.value = { name: 'soon', feature, title };
-  }
-
-  /** The world select, or with `modes` the World Tour map (IMPLEMENTATION §M8a). */
+  /** The World Tour map (IMPLEMENTATION §M8a). */
   openWorlds(): void {
-    this.route.value = this.features.modes ? { name: 'tour' } : { name: 'worlds' };
+    this.route.value = { name: 'tour' };
   }
 
   /** The world map opens with this world's card (the results screen's NEXT WORLD). */
@@ -561,17 +555,17 @@ export class App {
     return id;
   }
 
-  /** World select or World Tour card: remember the world and race it. With `modes` a locked world is refused. */
+  /** A World Tour card: remember the world and race it. A locked world is refused. */
   selectWorld(worldId: string): void {
     const w = worldById(worldId);
     if (!w?.built) return;
     const p = this.activeProfile.value;
-    if (this.features.modes && p && !worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
+    if (p && !worldUnlocked(p.tour, w.id, tourWorlds(this.features))) {
       this.events.emit('ui:locked', {});
       return;
     }
     this.updateProfile((q) => (q.world = w.id), () => true);
-    if (this.features.modes && p && !p.tutorialDone) this.prepareTutorial(p);
+    if (p && !p.tutorialDone) this.prepareTutorial(p);
     void this.startRace();
   }
 
@@ -579,7 +573,7 @@ export class App {
 
   /** The next World Tour race runs the tutorial: a Rookie-preset profile's first, or after REPLAY TUTORIAL. */
   private wantsTutorial(p: Profile | null): boolean {
-    if (!p || !this.features.modes || p.tutorialDone) return false;
+    if (!p || p.tutorialDone) return false;
     // No new field: a profile with all four assists on was made with the Rookie preset (or is played like one).
     const a = p.assists;
     return this.tutorialReplay || (a.autoAccelerate && a.steering > 0 && a.noKO && a.earlyBoost);
@@ -625,7 +619,7 @@ export class App {
     const cup = this.cupRace.value ? this.cup : null;
     const cupWorldId = cup ? cupWorld(cup) : null;
     if (cupWorldId) return worldById(cupWorldId) ?? WORLDS[0];
-    if (!this.features.worlds || this.flags.seed !== null) return null;
+    if (this.flags.seed !== null) return null;
     const w = worldById(this.flags.world ?? this.activeProfile.value?.world ?? WORLDS[0].id);
     return w?.built ? w : WORLDS[0];
   }
@@ -880,7 +874,6 @@ export class App {
   private stepTilt(dt: number): void {
     const rig = this.touchRig;
     const tilt = this.tilt;
-    if (!rig || !tilt) return;
     const t = this.settings.touch.value;
     if (t.steer !== 'tilt') {
       tilt.stop();
@@ -897,9 +890,9 @@ export class App {
 
   /** Settings → TILT, or the intro card's ENABLE TILT (inside a tap): ask for motion data; without it, the slider. */
   async enableTilt(): Promise<TiltPermission> {
-    const r = this.tilt ? await requestTiltPermission() : 'unsupported';
+    const r = await requestTiltPermission();
     if (r === 'granted') {
-      this.tilt?.start();
+      this.tilt.start();
       this.settings.setTouch({ steer: 'tilt' });
     } else {
       this.settings.setTouch({ steer: 'slider' });
@@ -910,7 +903,7 @@ export class App {
 
   /** CALIBRATE: the way the device is held now becomes straight ahead. False when no motion data is coming in. */
   calibrateTilt(): boolean {
-    const roll = this.tilt?.currentRoll ?? null;
+    const roll = this.tilt.currentRoll;
     if (roll === null) {
       this.toast('No tilt data yet. Hold the device as you play, then press CALIBRATE.', 'warn');
       return false;
@@ -939,7 +932,7 @@ export class App {
     this.inputDevice.value = d;
     document.documentElement.classList.toggle('mz-pad', d === 'pad');
     document.documentElement.classList.toggle('mz-touch', d === 'touch');
-    if (d !== 'touch') this.touchRig?.input.releaseAll();
+    if (d !== 'touch') this.touchRig.input.releaseAll();
   }
 
   /** A controller dropping mid-race pauses it (never resumes by itself); connecting one switches the prompts. */
@@ -1093,7 +1086,7 @@ export class App {
       }
       this.session?.dispose();
       this.session = null;
-      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, ...(this.touchRig ? { touch: this.touchRig } : {}) });
+      next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, touch: this.touchRig });
       this.bindStats(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
@@ -1119,13 +1112,11 @@ export class App {
       onSkipIntro: () => this.endIntro(),
       onSkipTutorial: () => this.session?.skipTutorial(),
     };
-    if (this.tilt) {
-      const tilt = this.tilt;
-      actions.tilt = {
-        needed: () => this.settings.touch.value.steer === 'tilt' && this.inputDevice.value === 'touch' && !tilt.fresh,
-        enable: () => void this.enableTilt(),
-      };
-    }
+    const tilt = this.tilt;
+    actions.tilt = {
+      needed: () => this.settings.touch.value.steer === 'tilt' && this.inputDevice.value === 'touch' && !tilt.fresh,
+      enable: () => void this.enableTilt(),
+    };
     if (this.menus) {
       actions.onMenu = () => this.quitToMenu();
       actions.onSettings = () => this.openSettings('pause');
@@ -1135,11 +1126,11 @@ export class App {
   }
 
   /**
-   * With `modes` a race ends on the results screen (IMPLEMENTATION §M8a), not on the HUD's results panel. The
-   * no-menu flows (`?autopilot=1`, `?seed=N`) keep the HUD panel.
+   * A race ends on the results screen (IMPLEMENTATION §M8a), not on the HUD's results panel. The no-menu flows
+   * (`?autopilot=1`, `?seed=N`) keep the HUD panel.
    */
   get resultsScreen(): boolean {
-    return this.menus && this.features.modes && this.features.worlds && this.flags.seed === null;
+    return this.menus && this.flags.seed === null;
   }
 
   private bindStats(s: RaceSession): void {
@@ -1161,14 +1152,9 @@ export class App {
         if (!p) return;
         pay = settleRace(p, me, tier);
         if (!world) return;
-        if (this.features.modes) {
-          tour = bookTourRace(p.tour, world.id, tier, me, tourWorlds(this.features));
-          p.tour = tour.tour;
-          p.credits += tour.bonus;
-        } else if (!p.tour.granted.includes(world.id)) {
-          // Before the Tour is on, a world raced is granted (as the 8 → 9 migration does), so no progress is lost.
-          p.tour = { ...p.tour, granted: [...p.tour.granted, world.id] };
-        }
+        tour = bookTourRace(p.tour, world.id, tier, me, tourWorlds(this.features));
+        p.tour = tour.tour;
+        p.credits += tour.bonus;
       });
       const t: TourResult | null = tour;
       const firstClear = t?.bonus ?? 0;
