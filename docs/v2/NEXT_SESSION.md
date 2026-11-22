@@ -5,11 +5,11 @@ Two prompts are in this file. **"Paste this prompt: M8d"** (directly below the b
 ## M8c built (2026-11-22)
 
 - **#47 merged everything to main** (2026-11-22): #37–#39 (X4–X6 gameplay), M7, M8a (#45) and M8b (#46). #37 shows as merged and #38 is closed; **#39 is still open** and can be closed by hand (its content is on main).
-- **M8c is built** on `v2/m8c-season-tutorial` (base `main`): the championship season (CHAMPIONSHIP card, season table between cups, champion crowns and bonus) and the first-race tutorial (five prompts over a real race, SKIP, REPLAY TUTORIAL). Behind `modes`. Read IMPLEMENTATION §M8c "As built" before M8d.
+- **M8c is built** as **NCSTATEPACK16/MachZero#48** on `v2/m8c-season-tutorial` (base `main`): the championship season (CHAMPIONSHIP card, season table between cups, champion crowns and bonus) and the first-race tutorial (five prompts over a real race, SKIP, REPLAY TUTORIAL). Behind `modes`. Read IMPLEMENTATION §M8c "As built" before M8d.
 - **Waiting on the owner in M8c:**
   - The device check: the iPad by touch and the iPhone by pad, `VITE_FEATURES=modes,expansion`. A new Rookie profile's first race with the tutorial (a first-time player, if one is at hand), then a season from a fixture profile.
   - The look of the championship card, the season table, the crowns and the tutorial prompt. On a phone the prompt covers the back of the ship.
-- **M8d stacks on `v2/m8c-season-tutorial`.** Merge order to main: the M8c PR, then M8d.
+- **M8d stacks on `v2/m8c-season-tutorial`.** Merge order to main: #48 (M8c), then M8d.
 
 ## M8b built (2026-11-21)
 

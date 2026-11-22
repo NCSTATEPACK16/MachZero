@@ -2275,7 +2275,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 
 ---
 
-### M8c — The championship season and the tutorial — ✅ BUILT (`v2/m8c-season-tutorial`, base `main`; waiting on the owner's device check)
+### M8c — The championship season and the tutorial — ✅ BUILT (PR #48, `v2/m8c-season-tutorial`, base `main`; waiting on the owner's device check)
 
 **Design decisions (championship):**
 - **A season is every available cup, in `CUPS` order, at one tier.** With two cups that is 10 races.
