@@ -4,11 +4,11 @@ Two prompts are in this file. **"Paste this prompt: M8c"** (directly below the b
 
 ## M8b built (2026-11-21)
 
-- **M8b is built** on `v2/m8b-time-trial` (base `v2/x6-abyss-line`, which holds M7 and M8a): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
+- **M8b is built** as **NCSTATEPACK16/MachZero#46** on `v2/m8b-time-trial` (base `v2/x6-abyss-line`, which holds M7 and M8a): ghosts (codec, recorder, player, IndexedDB store), Time Trial rules and medals, the 8 baked dev ghosts and `DEV_TIMES` with their guard, the trial race, the ghosts on screen, the trial HUD, the Time Trial screen and the trial results. Behind `modes`. Read IMPLEMENTATION §M8b "As built" before M8c.
 - **Waiting on the owner in M8b:** the device gate: fps with two ghosts on Neon Bay and Abyss Line, on both devices, and the best ghost still there after a relaunch.
 - **Re-bake the dev ghosts** (`npm run ghosts:bake`) whenever a track or the physics changes. The guard test in `sim/ghostBake.sim.test.ts` fails until you do.
 - **#44 and #45 are merged** (2026-11-21): #45 into `v2/m7c-comfort`, then #44 carried M7 and M8a into `v2/x6-abyss-line` (#39's head). So M8b's PR is based on `v2/x6-abyss-line`, and its diff is M8b alone.
-- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → M8b → M8c.
+- **M8c stacks on `v2/m8b-time-trial`.** Merge order to main: #37 → #38 → #39 → #46 (M8b) → M8c.
 
 ## M8a built (2026-11-20)
 
@@ -70,7 +70,7 @@ READ FIRST, in this order, before writing any code:
 
 GOAL: build M8c exactly as IMPLEMENTATION §M8c says (the championship season and the tutorial), behind `modes`.
 Save v9 already carries its fields (M8a). One PR on branch v2/m8c-season-tutorial, stacked on v2/m8b-time-trial
-(the M8b PR). Follow the build steps in order, tests first. When M8c's PR is pushed and its checks are green,
+(PR #46). Follow the build steps in order, tests first. When M8c's PR is pushed and its checks are green,
 continue with M8d (v2/m8d-release), stacked on it. Stop at each PR's device gate only for what the gate needs
 from the owner (M8c: device check; a child or a new player tries the tutorial if one is at hand), and carry on meanwhile.
 

@@ -2141,7 +2141,7 @@ export interface SettingsData {
 
 ---
 
-### M8b — Time Trial and ghosts — ✅ BUILT (`v2/m8b-time-trial`, base `v2/x6-abyss-line` (#39's head, which holds M7 and M8a since #44 and #45 merged); waiting on the owner's device gate)
+### M8b — Time Trial and ghosts — ✅ BUILT (PR #46, `v2/m8b-time-trial`, base `v2/x6-abyss-line` (#39's head, which holds M7 and M8a since #44 and #45 merged); waiting on the owner's device gate)
 
 **Design decisions:**
 - **Time Trial:** solo, 3 laps, on any track whose world is unlocked, with the player's own ship and parts. No rivals, no items. RESTART at any time.
