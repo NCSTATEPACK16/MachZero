@@ -86,6 +86,10 @@ export interface SetPieceSpec {
   scale?: number;
   /** Tint of the prop's neon role (default: white-hot). */
   neon?: number;
+  /** Turn about the prop's own vertical axis, in rad/s (a dust devil); 0 keeps it pointed along its path. */
+  spin?: number;
+  /** Rise and fall on an orbit, in metres (default 12, a drifting airship; 0 keeps a dust devil on the ground). */
+  bob?: number;
 }
 
 /** A glossier deck with the rail neon stretched along it. Not a real reflection. */
@@ -94,6 +98,10 @@ export interface WetDeckSpec {
   gloss: number;
   /** 0..1: strength of the neon streaks. */
   streak: number;
+  /** 0..1: ice glitter, sparse points on the deck that twinkle as the camera moves (Cryo Station). */
+  glitter?: number;
+  /** Colour of the glitter (default: cold white). */
+  glitterColor?: number;
 }
 
 /** Additive light-shaft cards beside the track (cheap god rays), one draw call. */

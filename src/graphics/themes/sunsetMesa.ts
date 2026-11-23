@@ -10,6 +10,7 @@ import { CONFIG } from '../../core/config';
 import type { TrackData } from '../../core/contracts';
 import { Rng } from '../../core/rng';
 import { FOG_GLSL, type FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 import { PropInstancer, nearestTrack, placement, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
@@ -207,6 +208,19 @@ export class SunsetMesaTheme implements WorldTheme {
   readonly group = new THREE.Group();
   readonly sunDirection = new THREE.Vector3(-0.55, 0.05, -0.83).normalize();
   readonly shimmer = 1;
+  /**
+   * A dry, windy dusk (SPEC §10.3, IMPLEMENTATION §X7): dust blowing across the canyon, shafts of low sun
+   * leaning out of the haze, dust kicked up behind the ships, and dust devils wandering the desert floor
+   * beyond the mesas. A warm grade.
+   */
+  readonly envfx: EnvFxSpec = {
+    grade: { lift: [0.004, 0.0015, 0], gamma: [1, 1, 0.98], gain: [1.05, 1, 0.94], saturation: 1.05 },
+    weather: { kind: 'dust', count: 1400, fall: 0.4, wind: [9, 3], size: 0.1, color: 0xffc79a, streak: 0.04, opacity: 0.2, sway: 1.5 },
+    surface: { kind: 'dust', color: 0xd9a07a },
+    // On the desert floor (CONFIG.GROUND_Y, about 90 m below the track's mean height), well beyond the track.
+    setPieces: [{ prop: 'dustdevil_0', count: 3, path: 'orbit', radius: 1050, height: -90, speed: 6, bob: 0, spin: 0.7, scale: 1.5 }],
+    shafts: { count: 10, color: 0xffb070, angle: 0.9, width: 30, height: 360, opacity: 0.08 },
+  };
   readonly lighting: ThemeLighting = {
     hemiSky: 0xffa070,
     hemiGround: 0x40182a,
@@ -442,12 +456,21 @@ export class SunsetMesaTheme implements WorldTheme {
     this.group.add(group);
   }
 
+  /** Prop materials, shared with the drifting set pieces (the dust devils). */
+  roleMaterial(role: string): THREE.Material {
+    return this.propMaterial(role);
+  }
+
   private propMaterial(role: string): THREE.Material {
     let m = this.propMaterials.get(role);
     if (m) return m;
     switch (role) {
       case 'neon':
         m = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3) });
+        break;
+      case 'dust':
+        // See-through airborne dust: no depth write, both sides, fogged like the scenery behind it.
+        m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide });
         break;
       case 'chrome':
         m = new THREE.MeshStandardMaterial({ color: 0xffe6d6, metalness: 1, roughness: 0.12 });

@@ -5,7 +5,7 @@ Build the scenery props of each world as one GLB per world (public/game/worlds/<
 
 Each prop is one mesh object at the origin, base on z = 0 (Blender Z up; glTF Y up after export), named
 <kind>_<n>. Colours are baked into COLOR_0 (linear RGB, flat-shaded low-poly facets); materials are named by
-role and replaced at runtime by the world theme (graphics/themes): sandstone, chrome, dark, neon, foliage, ice.
+role and replaced at runtime by the world theme (graphics/themes): sandstone, chrome, dark, neon, foliage, ice, dust.
 Billboards carry an empty named `screen` at the centre of the panel face; the runtime puts its neon sign there.
 Deterministic: every random draw comes from random.Random(seed).
 """
@@ -27,6 +27,8 @@ PROP_ROLES = {
     "neon": ((1.0, 0.2, 0.8, 1.0), 0.0, 0.5, 4.0),
     "foliage": ((0.1, 0.4, 0.15, 1.0), 0.0, 0.8, 0.0),
     "ice": ((0.75, 0.9, 1.0, 1.0), 0.0, 0.08, 0.0),
+    # Translucent airborne dust (X7 dust devils): the theme draws it see-through.
+    "dust": ((0.7, 0.45, 0.28, 1.0), 0.0, 1.0, 0.0),
 }
 C.ROLES.update(PROP_ROLES)
 
@@ -238,6 +240,31 @@ def build_cactus(name, seed):
     return pb.done()
 
 
+def build_dust_devil(name, seed, height=150.0):
+    """A dust devil (X7 set piece): a leaning, twisted funnel of dust, narrow at the ground and wide at the top,
+    open at both ends. Role "dust" (the theme draws it translucent); denser and warmer near the ground."""
+    rng = random.Random(seed)
+    pb = PropBuilder(name)
+    n, rows = 10, 12
+    low = (0.62, 0.38, 0.2)
+    high = (0.85, 0.6, 0.42)
+    lean = [rng.uniform(0.0, math.tau) for _ in range(2)]
+
+    def centre(t):
+        return (9.0 * math.sin(t * 2.4 + lean[0]) * t, 6.0 * math.sin(t * 1.5 + lean[1]) * t)
+
+    outlines = []
+    for r in range(rows + 1):
+        t = r / rows
+        cx, cy = centre(t)
+        rad = 3.5 + 34.0 * t ** 1.6
+        outlines.append(ring(cx, cy, rad, n, rng, 0.08, phase=t * 2.6))
+    for r in range(rows):
+        t0, t1 = r / rows, (r + 1) / rows
+        frustum(pb, outlines[r], outlines[r + 1], height * t0, height * t1, "dust", lambda x, y, z: lerp3(low, high, z / height), cap_top=False)
+    return pb.done()
+
+
 def build_sunset_mesa(out_dir):
     C.reset_scene()
     objs = []
@@ -250,6 +277,7 @@ def build_sunset_mesa(out_dir):
     objs.append(build_billboard("billboard_0"))
     objs.append(build_cactus("cactus_0", 61))
     objs.append(build_cactus("cactus_1", 67))
+    objs.append(build_dust_devil("dustdevil_0", 71))
     export(out_dir, "sunset-mesa", objs)
 
 
@@ -790,6 +818,46 @@ def build_dish(name, radius):
     return pb.done()
 
 
+def build_shuttle(name, length=26.0):
+    """A drifting shuttle (X7 set piece): a lofted fuselage, chrome above and dark below, delta wings, a tail fin,
+    a lit window strip and glowing engines. Nose along +Y (glTF -Z), so the runtime can point it along its path."""
+    pb = PropBuilder(name)
+    hw, hh = 2.6, 2.3
+    zc = hh + 0.4  # the prop's base stays on z = 0
+    belly = (0.04, 0.045, 0.06)
+    n = 8
+    # Stations from the tail (t = 0) to the nose (t = 1): (t, scale, height offset of the centre).
+    stations = [(0.0, 0.85, 0.0), (0.08, 1.0, 0.0), (0.7, 1.0, 0.0), (0.88, 0.72, -0.35), (1.0, 0.14, -0.9)]
+    rings = []
+    for t, k, dz in stations:
+        y = t * length
+        rings.append([(hw * k * math.cos(math.tau * i / n + math.pi / n), y, zc + dz + hh * k * math.sin(math.tau * i / n + math.pi / n)) for i in range(n)])
+    for a, b in zip(rings, rings[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            quad = [a[i], a[j], b[j], b[i]]
+            upper = (a[i][2] + a[j][2]) * 0.5 > zc - 0.3
+            pb.add(quad, [(0, 1, 2, 3)], "chrome" if upper else "dark", (1, 1, 1) if upper else belly)
+    pb.add(rings[-1], [tuple(range(n))], "dark", belly)
+    # The engines: the tail face glows.
+    pb.add(rings[0], [tuple(reversed(range(n)))], "neon", (1, 1, 1))
+    # A lit window strip across the cockpit roof.
+    wy0, wy1 = length * 0.74, length * 0.82
+    box(pb, -hw * 0.55, hw * 0.55, wy0, wy1, zc + hh * 0.86, zc + hh * 0.98, "neon", (1, 1, 1))
+    # Delta wings, slightly below the centre line, both faces.
+    zw = zc - hh * 0.35
+    for side in (-1, 1):
+        wing = [(side * hw * 0.9, length * 0.1, zw), (side * (hw + 9.0), length * 0.1, zw), (side * hw * 0.9, length * 0.62, zw)]
+        pb.add(wing, [(0, 1, 2), (2, 1, 0)], "dark", belly)
+        # A neon strip along the trailing edge.
+        edge = [(side * hw * 0.9, length * 0.1, zw + 0.05), (side * (hw + 9.0), length * 0.1, zw + 0.05), (side * (hw + 9.0), length * 0.13, zw + 0.05), (side * hw * 0.9, length * 0.13, zw + 0.05)]
+        pb.add(edge, [(0, 1, 2, 3), (3, 2, 1, 0)], "neon", (1, 1, 1))
+    # Tail fin.
+    fin = [(0, length * 0.02, zc + hh * 0.8), (0, length * 0.3, zc + hh * 0.8), (0, length * 0.12, zc + hh + 6.5), (0, length * 0.02, zc + hh + 6.5)]
+    pb.add(fin, [(0, 1, 2, 3), (3, 2, 1, 0)], "chrome", (1, 1, 1))
+    return pb.done()
+
+
 def build_orbital_ring(out_dir):
     C.reset_scene()
     objs = [
@@ -798,6 +866,7 @@ def build_orbital_ring(out_dir):
         build_solar("solar_0", 401, 34, 12),
         build_module("module_0", 7, 34),
         build_dish("dish_0", 9),
+        build_shuttle("shuttle_0"),
     ]
     export(out_dir, "orbital-ring", objs)
 

@@ -1062,7 +1062,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 🟡 gameplay half built (PR #38) | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X6 🟡 gameplay half built (PR #39) | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
-| X7 | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
+| X7 ✅ built (#52) | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
 
 **Rules for every X milestone** (in addition to §0):
 - **Scope:** audio (M6), touch (M7), World Tour, Time Trial and ghosts (M8) are not touched. Nothing here may block them.
@@ -1531,7 +1531,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X7 — Effects polish on the five 2.0 worlds
+### X7 — Effects polish on the five 2.0 worlds — ✅ BUILT (PR #52, base `main`; waiting on the owner's look approval per world and the device gate)
 
 **Design decisions:** each world gets the set in SPEC §10.3, as `envfx` data plus any theme-specific piece. No gameplay change; any sim diff is a bug.
 
@@ -1550,6 +1550,40 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 - [ ] Sims and unit tests are unchanged and green.
 - [ ] **The user approves each world's look** on the preview; a rejected world's `envfx` is tuned in a follow-up commit.
 - [ ] **Device gate:** an 8-ship race on Jade Ruins (the heaviest scenery) and on Cryo Station (the pipe), on both devices.
+
+**As built (branch `v2/x7-old-world-fx`, base `main`):**
+- **The sets** (each world's `envfx` in `graphics/themes/<world>.ts`):
+
+  | World | Effects | Draw calls added (High / Med / Low) |
+  |---|---|---|
+  | Sunset Mesa | blowing dust (weather `dust`, 1,400, wind 9 m/s), low-sun shafts (10), dust behind the ships, a warm grade, 3 dust devils on the desert floor | 3 / 3 / 2 |
+  | Cryo Station | snowfall (2,200, drifting, short streaks at speed), a cold grade, ice glitter on the deck, aurora pulses | 1 / 1 / 1 |
+  | Jade Ruins | mist banks on the canopy (3 sheets), rising spores (1,600), canopy shafts (12, low amber sun), a greener grade | 3 / 3 / 2 |
+  | Orbital Ring | micro-meteor streaks (260), 3 shuttles, a sun glint, a crisp cool grade | 4 / 4 / 4 |
+
+  Every world is within the +6 budget on every preset, counting each set piece's meshes from its `props.glb` (`graphics/envfx/__tests__/worldSets.test.ts`). No draw calls per ship.
+- **New props** (`blender/props/build_props.py`):
+  - **`dustdevil_0`** (Sunset Mesa, 240 tris): a leaning, twisted funnel in a new role, **`dust`**, which the theme draws see-through. `props.glb` 71.6 → 78.0 KB.
+  - **`shuttle_0`** (Orbital Ring, 96 tris; chrome, dark and neon roles). `props.glb` 38.9 → 44.3 KB.
+  - `check-assets.mjs` knows both props and the `dust` role.
+- **Framework additions:**
+  - `SetPieceSpec.spin` (rad/s about the prop's own axis) and `bob` (default 12 m, as before; 0 keeps a dust devil on the ground).
+  - `WetDeckSpec.glitter` and `glitterColor`. The deck is split into half-metre cells; about one in 30 holds a crystal that lights when the view lines up with its random facet, so the glints come and go as the ship moves. The glitter compiles under its own program key (`mz-wetdeck-glitter`), so Neon Bay's wet deck is unchanged.
+  - Sunset Mesa and Orbital Ring gained `roleMaterial`, so their set pieces use the theme's prop materials.
+- **Theme work in the sky shaders:**
+  - **Cryo Station's aurora** breathes (±20% over 14 s), and a brighter surge runs along the curtains about every 30 s.
+  - **Orbital Ring's sun glint:** a six-pointed star and a thin horizontal streak round the sun, breathing slowly.
+  - Both are gentle and never flash, so reduced motion keeps them. If they should stop with reduced motion, that is one uniform each.
+- **Decisions made while building:**
+  - **Jade Ruins' fireflies stay their own points.** The world's one weather slot is the spores', so moving the fireflies into it would not save a draw call.
+  - **Jade Ruins' mist lies on the canopy beside the road (top sheet at 41 m, just under the road's mean height of 45 m).** Next to the road the canopy crowns top out a few metres under the deck, so a sheet below the road's lowest point (38 m) was buried in them. Where the road dips under 41 m the mist drifts over the deck. That is visual only, and the sheets fade as the camera comes level with them.
+  - **Set pieces orbit the track's centre at radii checked against the track** (the test keeps each prop, at its scale, outside the 80 m corridor): dust devils at 1,050 m (scale 1.5); shuttles at 1,150 m, 35–85 m above the track's mean height. That keeps the shuttles above the track's highest point, which is 29 m above the mean.
+- **The Blender used here** was the `bpy` 5.2.0 module (PyPI), run through a small stand-in for the Blender binary (`BLENDER=<wrapper> npm run assets -- props`). Rebuilt unchanged, all five `props.glb` files came out byte-identical to the committed ones before the new props were added.
+- **Checks:**
+  - Unit tests: `worldSets.test.ts` (each world's set as the design names it; the budget from `props.glb` on every preset; set pieces clear of the corridor; the dust devils on the ground; the mist height; the shuttles above the road; the glitter compiled in).
+  - Sims and gameplay tests unchanged (the effects are visual only).
+  - Shots: `docs/v2/shots/x7/<world>-{med,low}-{before,after}.jpg`, at the same moment of the race (10 s in).
+- **Perf:** draw calls were measured here, on a CPU-only container. **Frame times need the owner's Mac** (`npm run build && node scripts/perf-desktop.mjs --world <id> --quality high,med,low --seconds 25 --audit`) **and the device gate.**
 
 ---
 
