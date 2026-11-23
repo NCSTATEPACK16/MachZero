@@ -12,6 +12,7 @@ import type { TrackData } from '../../core/contracts';
 import { wrap01 } from '../../core/math';
 import { Rng } from '../../core/rng';
 import type { FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 import { PropInstancer, nearestTrack, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
@@ -106,6 +107,19 @@ const SKY_FRAG = /* glsl */ `
     float sd = dot(d, sun);
     col += vec3(1.0, 0.95, 0.85) * (smoothstep(0.9993, 0.9997, sd) * 3.0 + pow(max(sd, 0.0), 600.0) * 0.5 + pow(max(sd, 0.0), 30.0) * 0.04);
 
+    // Sun glint (X7): a six-pointed star and a thin horizontal streak, as the sun catches the camera's optics in
+    // vacuum. It breathes slowly as the station turns (gentle: no flash, so reduced motion keeps it).
+    if (sd > 0.0) {
+      vec3 sr = normalize(cross(sun, vec3(0.0, 1.0, 0.0)));
+      vec3 su = cross(sr, sun);
+      vec2 p = vec2(dot(d, sr), dot(d, su)) / sd;
+      float r = length(p);
+      float rays = pow(abs(cos(atan(p.y, p.x) * 3.0 + uTime * 0.04)), 60.0) * exp(-r * 14.0);
+      float streak = exp(-abs(p.y) * 260.0) * exp(-abs(p.x) * 5.0);
+      float breathe = 0.75 + 0.25 * sin(uTime * 0.6);
+      col += vec3(1.0, 0.93, 0.82) * (rays * 0.9 + streak * 0.7) * breathe;
+    }
+
     // Earth below: ray from the camera, ALT above a unit sphere at the origin. The station orbits tilted, so the
     // planet lies below and off to one side: its horizon rises above eye level there (seen past the deck from the
     // chase camera) and drops away on the other.
@@ -144,6 +158,15 @@ export class OrbitalRingTheme implements WorldTheme {
   /** The sun, low over the Earth's limb ahead of the start. */
   readonly sunDirection = new THREE.Vector3(-0.55, 0.22, -0.8).normalize();
   readonly shimmer = 0;
+  /**
+   * Space (SPEC §10.3, IMPLEMENTATION §X7): micro-meteors streaking past, shuttles drifting round the station on
+   * their own orbits, and a glint off the sun (in the sky shader). A crisp, slightly cool grade.
+   */
+  readonly envfx: EnvFxSpec = {
+    grade: { lift: [0, 0, 0.003], gamma: [1, 1, 1], gain: [1.02, 1, 1.04], saturation: 1.04 },
+    weather: { kind: 'meteors', count: 260, fall: 60, wind: [120, -40], size: 0.08, color: 0xffd9b0, streak: 0.08, opacity: 0.7 },
+    setPieces: [{ prop: 'shuttle_0', count: 3, path: 'orbit', radius: 1150, height: 60, speed: 40, bob: 25, scale: 2 }],
+  };
   readonly lighting: ThemeLighting = {
     hemiSky: 0x9fb8ff,
     hemiGround: 0x1d3a6e,
@@ -250,6 +273,11 @@ export class OrbitalRingTheme implements WorldTheme {
       [out[i], out[j]] = [out[j], out[i]];
     }
     return out;
+  }
+
+  /** Prop materials, shared with the drifting set pieces (the shuttles). */
+  roleMaterial(role: string): THREE.Material {
+    return this.propMaterial(role);
   }
 
   private propMaterial(role: string): THREE.Material {

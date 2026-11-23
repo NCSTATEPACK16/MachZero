@@ -818,6 +818,46 @@ def build_dish(name, radius):
     return pb.done()
 
 
+def build_shuttle(name, length=26.0):
+    """A drifting shuttle (X7 set piece): a lofted fuselage, chrome above and dark below, delta wings, a tail fin,
+    a lit window strip and glowing engines. Nose along +Y (glTF -Z), so the runtime can point it along its path."""
+    pb = PropBuilder(name)
+    hw, hh = 2.6, 2.3
+    zc = hh + 0.4  # the prop's base stays on z = 0
+    belly = (0.04, 0.045, 0.06)
+    n = 8
+    # Stations from the tail (t = 0) to the nose (t = 1): (t, scale, height offset of the centre).
+    stations = [(0.0, 0.85, 0.0), (0.08, 1.0, 0.0), (0.7, 1.0, 0.0), (0.88, 0.72, -0.35), (1.0, 0.14, -0.9)]
+    rings = []
+    for t, k, dz in stations:
+        y = t * length
+        rings.append([(hw * k * math.cos(math.tau * i / n + math.pi / n), y, zc + dz + hh * k * math.sin(math.tau * i / n + math.pi / n)) for i in range(n)])
+    for a, b in zip(rings, rings[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            quad = [a[i], a[j], b[j], b[i]]
+            upper = (a[i][2] + a[j][2]) * 0.5 > zc - 0.3
+            pb.add(quad, [(0, 1, 2, 3)], "chrome" if upper else "dark", (1, 1, 1) if upper else belly)
+    pb.add(rings[-1], [tuple(range(n))], "dark", belly)
+    # The engines: the tail face glows.
+    pb.add(rings[0], [tuple(reversed(range(n)))], "neon", (1, 1, 1))
+    # A lit window strip across the cockpit roof.
+    wy0, wy1 = length * 0.74, length * 0.82
+    box(pb, -hw * 0.55, hw * 0.55, wy0, wy1, zc + hh * 0.86, zc + hh * 0.98, "neon", (1, 1, 1))
+    # Delta wings, slightly below the centre line, both faces.
+    zw = zc - hh * 0.35
+    for side in (-1, 1):
+        wing = [(side * hw * 0.9, length * 0.1, zw), (side * (hw + 9.0), length * 0.1, zw), (side * hw * 0.9, length * 0.62, zw)]
+        pb.add(wing, [(0, 1, 2), (2, 1, 0)], "dark", belly)
+        # A neon strip along the trailing edge.
+        edge = [(side * hw * 0.9, length * 0.1, zw + 0.05), (side * (hw + 9.0), length * 0.1, zw + 0.05), (side * (hw + 9.0), length * 0.13, zw + 0.05), (side * hw * 0.9, length * 0.13, zw + 0.05)]
+        pb.add(edge, [(0, 1, 2, 3), (3, 2, 1, 0)], "neon", (1, 1, 1))
+    # Tail fin.
+    fin = [(0, length * 0.02, zc + hh * 0.8), (0, length * 0.3, zc + hh * 0.8), (0, length * 0.12, zc + hh + 6.5), (0, length * 0.02, zc + hh + 6.5)]
+    pb.add(fin, [(0, 1, 2, 3), (3, 2, 1, 0)], "chrome", (1, 1, 1))
+    return pb.done()
+
+
 def build_orbital_ring(out_dir):
     C.reset_scene()
     objs = [
@@ -826,6 +866,7 @@ def build_orbital_ring(out_dir):
         build_solar("solar_0", 401, 34, 12),
         build_module("module_0", 7, 34),
         build_dish("dish_0", 9),
+        build_shuttle("shuttle_0"),
     ]
     export(out_dir, "orbital-ring", objs)
 

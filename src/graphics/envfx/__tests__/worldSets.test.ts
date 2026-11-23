@@ -156,6 +156,27 @@ describe('Jade Ruins (IMPLEMENTATION §X7)', () => {
   });
 });
 
+describe('Orbital Ring (IMPLEMENTATION §X7)', () => {
+  it('micro-meteor streaks and drifting shuttles above the ring', () => {
+    const s = spec('orbital-ring');
+    expect(s.weather?.kind).toBe('meteors');
+    expect(s.weather!.streak).toBeGreaterThan(0);
+    const shuttles = s.setPieces?.find((p) => p.prop === 'shuttle_0');
+    expect(shuttles?.count).toBeGreaterThan(0);
+    // Clear of the road vertically too: the lowest point of a shuttle's bob is above the track's highest point.
+    const track = trackFromSource({ kind: 'authored', def: TRACK_DEFS['orbital-ring'] });
+    const plan = trackPlan(track);
+    let mean = 0;
+    let high = -Infinity;
+    for (let i = 1; i < plan.length; i += 3) {
+      mean += plan[i];
+      high = Math.max(high, plan[i]);
+    }
+    mean /= plan.length / 3;
+    expect(mean + shuttles!.height - (shuttles!.bob ?? 12)).toBeGreaterThan(high);
+  });
+});
+
 describe.each(WORLDS)('%s: budget and clearance', (world) => {
   const s = spec(world);
   const gltf = readGlb(world);
