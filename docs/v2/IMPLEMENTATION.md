@@ -1062,7 +1062,7 @@ SPEC §10 says what and why. This section is the how. **Design decisions (grilli
 | X4 🟡 gameplay half built (PR #37) | World 6, Tempest Spire | `v2/x4-tempest-spire` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X5 🟡 gameplay half built (PR #38) | World 7, Cinder Forge | `v2/x5-cinder-forge` | — | **`chosen.jpg`** (the look waits for it); then look approval and the device gate |
 | X6 🟡 gameplay half built (PR #39) | World 8, Abyss Line (and the Storm Cup) | `v2/x6-abyss-line` | — | `chosen.jpg`; look approval; device gate |
-| X7 ✅ built (#__PR__) | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
+| X7 ✅ built (#52) | Effects polish on the five 2.0 worlds | `v2/x7-old-world-fx` | — | Look approval per world; device gate |
 
 **Rules for every X milestone** (in addition to §0):
 - **Scope:** audio (M6), touch (M7), World Tour, Time Trial and ghosts (M8) are not touched. Nothing here may block them.
@@ -1531,7 +1531,7 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-### X7 — Effects polish on the five 2.0 worlds — ✅ BUILT (PR #__PR__, base `main`; waiting on the owner's look approval per world and the device gate)
+### X7 — Effects polish on the five 2.0 worlds — ✅ BUILT (PR #52, base `main`; waiting on the owner's look approval per world and the device gate)
 
 **Design decisions:** each world gets the set in SPEC §10.3, as `envfx` data plus any theme-specific piece. No gameplay change; any sim diff is a bug.
 

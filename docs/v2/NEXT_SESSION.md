@@ -4,7 +4,7 @@
 
 ## X7 built (2026-11-23)
 
-- **X7 is built** as **NCSTATEPACK16/MachZero#__PR__** on `v2/x7-old-world-fx` (base `main`, which has 2.0 and the 1.1.0 version since #50 and #51 merged). It adds effect sets on the four other 2.0 worlds:
+- **X7 is built** as **NCSTATEPACK16/MachZero#52** on `v2/x7-old-world-fx` (base `main`, which has 2.0 and the 1.1.0 version since #50 and #51 merged). It adds effect sets on the four other 2.0 worlds:
   - **Sunset Mesa:** dust, low-sun shafts, dust behind the ships, dust devils.
   - **Cryo Station:** snow, ice glitter on the deck, aurora pulses.
   - **Jade Ruins:** mist banks, spores, canopy shafts.
@@ -34,7 +34,7 @@
   - **The merge of #50** (M8d to `main`). #48 and #49 are merged.
   - Still open from earlier PRs: the M7–M8c device gates and look checks (the 2.0 QA checklist covers them), the default air-brake style, and tilt's direction on iOS.
 - **Device builds now need only `expansion`:** `VITE_FEATURES=expansion npm run ios:sync`. `modes` is ignored, so the old commands still work.
-- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive (X7 is built, #__PR__); M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
+- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive (X7 is built, #52); M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
 
 ## M8c built (2026-11-22)
 
