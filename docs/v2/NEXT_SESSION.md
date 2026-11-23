@@ -1,10 +1,25 @@
-# Next-session brief: MachZero (2.0 live and on TestFlight as 1.1.0; X7 built 2026-11-23; next: the X4–X6 world looks when their images arrive)
+# Next-session brief: MachZero (2.0 live, iOS 1.1.0, X7 merged; next: the M6 audio design session, and the X4–X6 world looks when their images arrive)
 
 **MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. The prompt at the bottom of this file continues the 2.1 expansion (the world looks and X7), and the M8d prompt below is kept for reference. Everything else is the context those prompts rely on.
 
+## Next: M6 (audio) design session
+
+- **M6 is the next milestone, and it needs a design session first.** Everything else in the 2.0 and 2.1 plans is
+  built, except the X4–X6 world looks, which wait for the owner's `chosen.jpg` images.
+- **The prompt is `docs/v2/FABLE_PROMPT_M6.md`:** Claude Fable 5.2 at high effort, design and spec only, with a
+  grilling interview.
+  - It covers the audio graph, the music sequencer and the 8 world songs, the full event-to-sound table, iOS
+    audio, accessibility, budgets, tests, a jukebox for the owner's listening approvals, and the PR split.
+  - It ends with a docs PR and a build prompt for M6a.
+- **What M6 inherits:**
+  - the `music` flag (off);
+  - the saved `musicVolume`, whose slider is hidden behind the flag;
+  - the 9 `MenuEvents` sound hooks that nothing plays;
+  - hazard events with no sound of their own (lightning; geysers and jets reuse the mine's sound).
+
 ## X7 built (2026-11-23)
 
-- **X7 is built** as **NCSTATEPACK16/MachZero#52** on `v2/x7-old-world-fx` (base `main`, which has 2.0 and the 1.1.0 version since #50 and #51 merged). It adds effect sets on the four other 2.0 worlds:
+- **X7 is merged** (**NCSTATEPACK16/MachZero#52**, `v2/x7-old-world-fx`). It added effect sets on the four other 2.0 worlds:
   - **Sunset Mesa:** dust, low-sun shafts, dust behind the ships, dust devils.
   - **Cryo Station:** snow, ice glitter on the deck, aurora pulses.
   - **Jade Ruins:** mist banks, spores, canopy shafts.
@@ -34,7 +49,7 @@
   - **The merge of #50** (M8d to `main`). #48 and #49 are merged.
   - Still open from earlier PRs: the M7–M8c device gates and look checks (the 2.0 QA checklist covers them), the default air-brake style, and tilt's direction on iOS.
 - **Device builds now need only `expansion`:** `VITE_FEATURES=expansion npm run ios:sync`. `modes` is ignored, so the old commands still work.
-- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive (X7 is built, #52); M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
+- **Next:** the M6 audio design session (`docs/v2/FABLE_PROMPT_M6.md`), and the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
 
 ## M8c built (2026-11-22)
 
