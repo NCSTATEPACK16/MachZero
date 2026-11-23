@@ -10,7 +10,7 @@ The iOS app is the web game in a native shell ([Capacitor](https://capacitorjs.c
 | Bundle ID | `com.ncstatepack16.machzero` |
 | SKU (App Store Connect) | `machzero-ios` |
 | Team | `Q82SM8NY2Y` (set in the project; automatic signing) |
-| Version / build | `1.0.0`; the build number is the git commit count (set by `npm run ios:sync`) |
+| Version / build | The version is `"version"` in `package.json` (1.1.0 since MachZero 2.0); the build number is the git commit count. `npm run ios:sync` sets both in the Xcode project |
 | Devices | iPhone and iPad, landscape only, iOS 15+ |
 | Controllers | Declared to the App Store as Extended Gamepad (Xbox / PlayStation / 8BitDo in X-input mode) |
 
@@ -20,8 +20,13 @@ The iOS app is the web game in a native shell ([Capacitor](https://capacitorjs.c
 npm run ios:sync
 ```
 
-It runs `npm run build`, copies `dist/` into the app (`npx cap sync ios`) and bumps the build number.
-Commit the changed `project.pbxproj` with the release.
+It runs `npm run build`, copies `dist/` into the app (`npx cap sync ios`), sets the app's version from
+`package.json` and bumps the build number. Leave the changed `project.pbxproj` out of commits: every sync rewrites
+those two lines from `package.json` and git.
+
+**A new version** (what testers and the App Store show, e.g. 1.1.0 → 1.2.0): change `"version"` in `package.json`
+(`npm version 1.2.0 --no-git-tag-version`) in the release's PR, then sync and upload as below. Within one
+version, every upload only needs a higher build number, which the sync gives it.
 
 ```bash
 npm run ios:open

@@ -41,7 +41,7 @@ Read [`SPEC.md`](SPEC.md) first (the *what*). This file is the *how*: operating 
      cd /Users/johnbradner/Documents/ClaudeWork/MachZero && git checkout main && git pull && npm ci && npm run ios:sync && npm run ios:open
      ```
 
-     Then in Xcode: Any iOS Device (arm64) → Product → Archive → Distribute App → App Store Connect → Upload. The version stays 1.0.0 during TestFlight; `ios:sync` raises the build number.
+     Then in Xcode: Any iOS Device (arm64) → Product → Archive → Distribute App → App Store Connect → Upload. The version is `package.json`'s (1.1.0 since MachZero 2.0; raise it in a release's PR); `ios:sync` writes it into the Xcode project and raises the build number.
 
 ---
 
