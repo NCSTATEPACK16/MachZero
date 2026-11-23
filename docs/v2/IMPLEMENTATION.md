@@ -2381,7 +2381,7 @@ export function decodeGhost(buf: ArrayBuffer): GhostData | null; // null on a ba
 
 ---
 
-### M8d — Balance pass, flags on, the "MachZero 2.0" release — ✅ BUILT (PR #49, `v2/m8d-release`, base `v2/m8c-season-tutorial`; waiting on the owner's QA checklist and the merge)
+### M8d — Balance pass, flags on, the "MachZero 2.0" release — ✅ BUILT (PR #49, `v2/m8d-release`; #49 was merged into the already-merged M8c branch, so PR #50 carries it to `main`; waiting on the owner's QA checklist and the merge of #50)
 
 **Design decisions:**
 - **Prices and payouts stay as they are.** The measurements at the top of §M8 already meet the targets:
