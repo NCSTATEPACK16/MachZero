@@ -229,7 +229,7 @@ function PadSection({ app }: { app: App }) {
 
 function Controls({ app }: { app: App }) {
   const s = app.settings;
-  const touch = app.features.touch && (app.inputDevice.value === 'touch' || coarsePointer());
+  const touch = app.inputDevice.value === 'touch' || coarsePointer();
   const keyboard = app.keyboardSeen.value || !coarsePointer();
   const pad = app.padConnected.value || app.inputDevice.value === 'pad';
   return (
@@ -298,18 +298,16 @@ function Race({ app }: { app: App }) {
   return (
     <div class="mzu-section">
       <Segmented label="CPU DIFFICULTY" options={TIER_OPTIONS} value={p.aiTier} onChange={(v) => app.setAiTier(v)} />
-      <p class="mzu-note">{TIERS[p.aiTier].hint} Applies from the next race; also on the world select.</p>
-      {app.features.modes ? (
-        <div class="mzu-row">
-          <span class="mzu-row-text">
-            <span class="mzu-row-label">TUTORIAL</span>
-            <span class="mzu-row-hint">{p.tutorialDone ? 'Steer, boost, air-brake, pit and items, shown over your next World Tour race.' : 'It runs on your next World Tour race.'}</span>
-          </span>
-          <button type="button" class="mzu-chip" data-replay-tutorial disabled={!p.tutorialDone} onClick={() => app.replayTutorial()}>
-            REPLAY TUTORIAL
-          </button>
-        </div>
-      ) : null}
+      <p class="mzu-note">{TIERS[p.aiTier].hint} Applies from the next race; also on the world map.</p>
+      <div class="mzu-row">
+        <span class="mzu-row-text">
+          <span class="mzu-row-label">TUTORIAL</span>
+          <span class="mzu-row-hint">{p.tutorialDone ? 'Steer, boost, air-brake, pit and items, shown over your next World Tour race.' : 'It runs on your next World Tour race.'}</span>
+        </span>
+        <button type="button" class="mzu-chip" data-replay-tutorial disabled={!p.tutorialDone} onClick={() => app.replayTutorial()}>
+          REPLAY TUTORIAL
+        </button>
+      </div>
     </div>
   );
 }

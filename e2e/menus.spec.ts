@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * 2.0 menu flow (feature `profiles`): create a profile, navigate by keyboard, gamepad and touch, change
+ * 2.0 menu flow: create a profile, navigate by keyboard, gamepad and touch, change
  * settings live, race, pause to menu, reload (persistence), and race rebuilds without GPU-memory growth.
  */
 
@@ -12,7 +12,7 @@ interface Debug {
   rebuildRace(): Promise<void>;
 }
 
-const URL = '/?features=profiles&debug=1';
+const URL = '/?debug=1';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -97,12 +97,12 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
   await expect(page.locator('.mzu-pilot-name')).toHaveText('TESS');
 
-  // Keyboard: RACE is focused; ↓ WORLDS, ↓ GRAND PRIX, ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
-  await expect.poll(() => focusedText(page)).toContain('RACE');
-  await page.keyboard.press('ArrowDown');
-  await expect.poll(() => focusedText(page)).toContain('WORLDS');
+  // Keyboard: WORLD TOUR is focused; ↓ GRAND PRIX, ↓ TIME TRIAL, ↓ GARAGE, ↓ SETTINGS; Enter opens it; Escape returns.
+  await expect.poll(() => focusedText(page)).toContain('WORLD TOUR');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => focusedText(page)).toContain('GRAND PRIX');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => focusedText(page)).toContain('TIME TRIAL');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => focusedText(page)).toContain('GARAGE');
   await page.keyboard.press('ArrowDown');
@@ -119,11 +119,11 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
 
   // Gamepad (always routed InputManager → App → UI nav): D-pad moves focus, A activates, B goes back.
-  await expect.poll(() => focusedText(page)).toContain('RACE');
+  await expect.poll(() => focusedText(page)).toContain('WORLD TOUR');
   await padPress(page, 13); // D-pad down
-  await expect.poll(() => focusedText(page)).toContain('WORLDS');
+  await expect.poll(() => focusedText(page)).toContain('GRAND PRIX');
   await padPress(page, 12); // D-pad up
-  await expect.poll(() => focusedText(page)).toContain('RACE');
+  await expect.poll(() => focusedText(page)).toContain('WORLD TOUR');
   await padPress(page, 13);
   await padPress(page, 13);
   await padPress(page, 13);
@@ -137,8 +137,11 @@ test('profiles, menus (keyboard + gamepad), live settings, race, pause → menu,
   // The menus never froze (races are built behind the loading screen, not in the background).
   expect(await longestTaskSince(page, created)).toBeLessThan(2000);
 
-  // Race from the menu, pause with Escape, quit to the menu from the pause screen.
-  await page.getByRole('button', { name: /^RACE/ }).click();
+  // Race from the menu (WORLD TOUR → Neon Bay's card → RACE), pause with Escape, quit to the menu from the pause screen.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).click();
+  await expect(screen(page)).toHaveAttribute('data-screen', 'tour');
+  await page.locator('[data-planet="neon-bay"]').click();
+  await page.locator('[data-tour-race]').click();
   // The grid intro card (every racer, portrait and catchphrase) shows first, then the countdown starts by itself.
   await expect(page.locator('.mz-hud.intro .mz-intro-row')).toHaveCount(8, { timeout: 60_000 });
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toMatch(/countdown|racing/);

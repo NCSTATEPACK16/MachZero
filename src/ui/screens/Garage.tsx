@@ -1,5 +1,5 @@
 /**
- * Garage (feature `garage`): pick a chassis, buy and fit parts, paint the ship, stock up on items. The turntable is WebGL,
+ * Garage: pick a chassis, buy and fit parts, paint the ship, stock up on items. The turntable is WebGL,
  * drawn by GraphicsSystem into the transparent stage element; hovering or focusing an option previews it on
  * the turntable and as ghost stat bars. Chassis are free, parts cost credits, nothing can be sold.
  */

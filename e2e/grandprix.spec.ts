@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Grand Prix by pad only (IMPLEMENTATION §GP): menu → GRAND PRIX → START CUP, race 1 driven to the finish by the
- * player's AI (debug `simulate`, the same autopilot path headless), Ⓐ on the results → cup standings; reload
+ * Grand Prix by pad only (IMPLEMENTATION §GP): a profile with the Neon Cup open (Orbital Ring cleared on the World
+ * Tour), menu → GRAND PRIX → START CUP, race 1 driven to the finish by the player's AI (debug `simulate`, the same
+ * autopilot path headless), Ⓐ on the results screen → cup standings; reload
  * (the app closed between races) → CONTINUE CUP → the same standings, then race 2 on the next world with the
  * reverse grid. No restarts in a cup: R does nothing and the pause panel has no RESTART.
  */
@@ -59,6 +60,28 @@ async function padPress(page: Page, index: number): Promise<void> {
 
 const dbg = <T>(page: Page, fn: (d: Debug) => T) => page.evaluate(`(${fn.toString()})(window.__machzero)`) as Promise<T>;
 
+/**
+ * Open both cups (IMPLEMENTATION §M8a: a cup opens when its world is cleared on the World Tour): Orbital Ring for the
+ * Neon Cup and Abyss Line for the Storm Cup, then reload to the menu.
+ */
+async function unlockCups(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('machzero.save')!);
+    s.profiles[0].tour = { granted: [], trophies: { 'orbital-ring': ['rookie'], 'abyss-line': ['rookie'] } };
+    localStorage.setItem('machzero.save', JSON.stringify(s));
+  });
+  await page.reload();
+  await expect(page.locator('[data-screen]')).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
+}
+
+/** On the results screen: wait for the whole tally, then Ⓐ on its focused button (STANDINGS in a cup). */
+async function resultsToStandings(page: Page): Promise<void> {
+  await expect(page.locator('[data-screen]')).toHaveAttribute('data-screen', 'results', { timeout: 120_000 });
+  await expect(page.locator('[data-results-done]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-res-standings]')).toBeFocused();
+  await padPress(page, PAD.A);
+}
+
 /** D-pad down until the focused button's text starts with `label`. */
 async function focusButton(page: Page, label: string): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -74,11 +97,12 @@ test('a Grand Prix cup by pad: race 1, standings, reload, CONTINUE CUP, race 2 o
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
   await installPad(page);
-  await page.goto('/?features=profiles&debug=1&quality=low');
+  await page.goto('/?debug=1&quality=low');
   const screen = page.locator('[data-screen]');
   await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('CUPPER', 3, 'classic'));
   await expect(screen).toHaveAttribute('data-screen', 'menu');
+  await unlockCups(page);
 
   // Menu → GRAND PRIX → START PILOT CUP (a Classic profile races Pilot rivals).
   await focusButton(page, 'GRAND PRIX');
@@ -99,14 +123,14 @@ test('a Grand Prix cup by pad: race 1, standings, reload, CONTINUE CUP, race 2 o
   await padPress(page, PAD.START);
   await expect.poll(() => dbg(page, (d) => d.race?.state)).not.toBe('paused');
 
-  // Race 1 to the finish on autopilot; Ⓐ on the results → the cup standings.
+  // Race 1 to the finish on autopilot; the results screen (STANDINGS, no RACE AGAIN), Ⓐ → the cup standings.
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
   await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 120_000 }).toBe('results');
-  await expect(page.locator('.mz-results button', { hasText: 'CUP STANDINGS' })).toBeVisible();
-  await expect(page.locator('.mz-results button', { hasText: 'RACE AGAIN' })).toHaveCount(0);
+  await expect(screen).toHaveAttribute('data-screen', 'results', { timeout: 30_000 });
+  await expect(page.locator('[data-res-again]')).toHaveCount(0);
   await page.keyboard.press('KeyR'); // restart: ignored in a cup
   expect(await dbg(page, (d) => d.race?.state)).toBe('results');
-  await padPress(page, PAD.A);
+  await resultsToStandings(page);
   await expect(screen).toHaveAttribute('data-screen', 'cup');
   await expect(page.locator('[data-cup-done="1"]')).toBeVisible();
   await expect(page.locator('.mzu-cup-row[data-ship]')).toHaveCount(8);
@@ -137,8 +161,8 @@ test('a Grand Prix cup by pad: race 1, standings, reload, CONTINUE CUP, race 2 o
 
 /**
  * The Storm Cup by pad only, start to finish (IMPLEMENTATION §X6): with the `expansion` flag on and Abyss Line built,
- * the Grand Prix screen offers it beside the Neon Cup. Pick its tab, start it, and run all five races (each to the
- * finish on autopilot, Ⓐ on the results, Ⓐ on NEXT RACE) in its world order, ending on Abyss Line, to the final
+ * the Grand Prix screen offers it beside the Neon Cup (both opened by a World Tour fixture). Pick its tab, start it,
+ * and run all five races (each to the finish on autopilot, Ⓐ on the results screen, Ⓐ on NEXT RACE) in its world order, ending on Abyss Line, to the final
  * standings. No console error on the way.
  */
 test('the Storm Cup by pad: pick it, five races in order, final standings', async ({ page }) => {
@@ -147,11 +171,12 @@ test('the Storm Cup by pad: pick it, five races in order, final standings', asyn
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
   await installPad(page);
-  await page.goto('/?features=profiles,expansion&debug=1&quality=low');
+  await page.goto('/?features=expansion&debug=1&quality=low');
   const screen = page.locator('[data-screen]');
   await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('STORMY', 2, 'classic'));
   await expect(screen).toHaveAttribute('data-screen', 'menu');
+  await unlockCups(page);
 
   await focusButton(page, 'GRAND PRIX');
   await padPress(page, PAD.A);
@@ -179,8 +204,7 @@ test('the Storm Cup by pad: pick it, five races in order, final standings', asyn
     expect(await dbg(page, (d) => d.app.currentWorld?.id)).toBe(order[race]);
     expect((await dbg(page, (d) => d.app.cup))?.cupId).toBe('storm');
     await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(600));
-    await expect.poll(() => dbg(page, (d) => d.race?.state), { timeout: 120_000 }).toBe('results');
-    await padPress(page, PAD.A);
+    await resultsToStandings(page);
     await expect(screen).toHaveAttribute('data-screen', 'cup');
     if (race < order.length - 1) {
       await expect(page.locator(`[data-cup-done="${race + 1}"]`)).toBeVisible();
@@ -207,7 +231,7 @@ test('the championship (IMPLEMENTATION §M8c): no card with one cup; locked for 
     await expect(screen).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   };
   // One cup visible (no `expansion`): no CHAMPIONSHIP card, even with the Neon Cup won.
-  await page.goto('/?features=modes&debug=1&quality=low');
+  await page.goto('/?debug=1&quality=low');
   await expect(screen).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
   await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('CHAMP', 3, 'classic'));
   await expect(screen).toHaveAttribute('data-screen', 'menu');
@@ -217,7 +241,7 @@ test('the championship (IMPLEMENTATION §M8c): no card with one cup; locked for 
   await expect(page.locator('[data-cup="championship"]')).toHaveCount(0);
 
   // Two cups (`expansion`): the card is there, locked until both cups are won.
-  await page.goto('/?features=modes,expansion&debug=1&quality=low');
+  await page.goto('/?features=expansion&debug=1&quality=low');
   await expect(screen).toHaveAttribute('data-screen', 'menu', { timeout: 60_000 });
   await page.getByRole('button', { name: /^GRAND PRIX/ }).click();
   await page.locator('[data-cup="championship"]').click();

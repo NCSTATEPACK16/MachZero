@@ -11,7 +11,7 @@ interface Debug {
   app: { route: { value: { name: string } }; session: { activeAssists: Record<string, unknown> } | null };
 }
 
-const URL = '/?features=profiles&debug=1';
+const URL = '/?debug=1';
 const screen = (page: Page) => page.locator('[data-screen]');
 const raceState = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.race?.state);
 const sessionAssists = (page: Page) => page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.session?.activeAssists ?? null);
@@ -69,7 +69,10 @@ test('assists: Rookie profile on, CLASSIC PRESET off and persists, ROOKIE PRESET
   await expect(screen(page)).toHaveAttribute('data-screen', 'menu');
 
   // A race with no assists; pause → SETTINGS → ASSISTS → ROOKIE PRESET reaches the race at once.
-  await page.getByRole('button', { name: /^RACE/ }).click();
+  // World Tour is the single race: the map, Neon Bay's card, RACE.
+  await page.getByRole('button', { name: /^WORLD TOUR/ }).click();
+  await page.locator('[data-planet="neon-bay"]').click();
+  await page.locator('[data-tour-race]').click();
   await expect.poll(() => raceState(page), { timeout: 60_000 }).toMatch(/countdown|racing/);
   expect(await sessionAssists(page)).toEqual({ autoAccelerate: false, steering: 0, noKO: false, earlyBoost: false });
   await page.keyboard.press('Escape');
