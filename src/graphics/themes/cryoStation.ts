@@ -10,6 +10,7 @@ import { CONFIG } from '../../core/config';
 import type { TrackData } from '../../core/contracts';
 import { Rng } from '../../core/rng';
 import { FOG_GLSL, type FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 import { PropInstancer, nearestTrack, placement, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
@@ -60,10 +61,13 @@ const SKY_FRAG = /* glsl */ `
     float star = step(0.982, h) * (1.0 - smoothstep(0.0, 0.18, length(fract(sp) - 0.5)));
     col += vec3(0.85, 0.92, 1.0) * star * smoothstep(0.05, 0.3, e) * (0.65 + 0.35 * sin(uTime * 1.7 + h * 60.0));
 
-    // Aurora: two curtains around the sky.
+    // Aurora: two curtains around the sky. Pulses (X7): the whole display breathes slowly, and a brighter
+    // surge runs along the curtains every half a minute or so (gentle: no flash, so reduced motion keeps it).
     float az = atan(d.z, d.x);
     vec3 aur = curtain(az, e, 0.26, 0.06, 0.05, 0.0) + 0.7 * curtain(az, e, 0.4, 0.05, -0.04, 2.3);
-    col += aur * 0.55 * smoothstep(0.04, 0.2, e);
+    float breathe = 0.8 + 0.2 * sin(uTime * 0.45);
+    float surge = pow(max(0.0, sin(uTime * 0.21 - az * 0.5)), 12.0);
+    col += aur * 0.55 * smoothstep(0.04, 0.2, e) * (breathe + 0.9 * surge);
 
     col = mix(col, uFog, 1.0 - smoothstep(-0.03, 0.02, e));
     gl_FragColor = vec4(col, 1.0);
@@ -135,6 +139,16 @@ export class CryoStationTheme implements WorldTheme {
   /** The aurora's brightest arc (the fill light comes from it). */
   readonly sunDirection = new THREE.Vector3(0.2, 0.35, -0.9).normalize();
   readonly shimmer = 0;
+  /**
+   * A polar night (SPEC §10.3, IMPLEMENTATION §X7): snow drifting across the station, a cold grade, and ice
+   * glitter on the deck (a sparkle term in the wet-look branch, with only a little gloss). The aurora's pulses
+   * are in the sky shader.
+   */
+  readonly envfx: EnvFxSpec = {
+    grade: { lift: [0, 0.002, 0.006], gamma: [1, 1, 1.02], gain: [0.96, 1, 1.06], saturation: 0.94 },
+    weather: { kind: 'snow', count: 2200, fall: 2.2, wind: [1.5, 0.5], size: 0.09, color: 0xe8f2ff, streak: 0.012, opacity: 0.55, sway: 0.8 },
+    wetDeck: { gloss: 0.3, streak: 0.12, glitter: 0.8 },
+  };
   readonly lighting: ThemeLighting = {
     hemiSky: 0x8fb8ff,
     hemiGround: 0x1a2440,

@@ -98,6 +98,10 @@ export interface WetDeckSpec {
   gloss: number;
   /** 0..1: strength of the neon streaks. */
   streak: number;
+  /** 0..1: ice glitter, sparse points on the deck that twinkle as the camera moves (Cryo Station). */
+  glitter?: number;
+  /** Colour of the glitter (default: cold white). */
+  glitterColor?: number;
 }
 
 /** Additive light-shaft cards beside the track (cheap god rays), one draw call. */

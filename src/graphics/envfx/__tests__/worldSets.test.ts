@@ -13,6 +13,7 @@ import { createFogUniforms } from '../../shaders/fog';
 import { createTheme } from '../../themes';
 import { nearestTrack, planBounds, trackPlan } from '../../themes/WorldTheme';
 import { ENVFX_MAX_DRAW_CALLS, resolveEnvFx, type EnvFxSpec } from '../EnvFxSpec';
+import { applyWetDeck } from '../WetDeck';
 
 /** The track corridor (m from the centre line) that scenery stays out of. */
 const CORRIDOR = 80;
@@ -102,6 +103,33 @@ describe('the 2.0 worlds each have their effect set (SPEC §10.3)', () => {
     const base = y / (plan.length / 3) + devils!.height;
     expect(base).toBeGreaterThan(CONFIG.GROUND_Y - 8);
     expect(base).toBeLessThan(CONFIG.GROUND_Y + 1);
+  });
+});
+
+describe('Cryo Station (IMPLEMENTATION §X7)', () => {
+  it('snowfall, a cold grade and ice glitter on the deck; Low keeps the snow and drops the glitter with the wet deck', () => {
+    const s = spec('cryo-station');
+    expect(s.weather?.kind).toBe('snow');
+    expect(s.weather!.fall).toBeLessThan(5); // it drifts, it does not pour
+    expect(s.grade!.gain[2]).toBeGreaterThan(s.grade!.gain[0]); // cold
+    expect(s.wetDeck?.glitter).toBeGreaterThan(0);
+    expect(resolveEnvFx(s, 'med', false).wetDeck?.glitter).toBeGreaterThan(0);
+    expect(resolveEnvFx(s, 'low', false).wetDeck).toBeNull();
+    expect(resolveEnvFx(s, 'low', false).weather).not.toBeNull();
+  });
+
+  it('the glitter is compiled into the deck shader, under its own program key', () => {
+    const glitterKey = (glitter: number | undefined) => {
+      const deck = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial());
+      deck.name = 'TrackDeck';
+      applyWetDeck(deck, { gloss: 0.3, streak: 0.1, ...(glitter ? { glitter } : {}) }, 0xffffff, 0xffffff);
+      const mat = deck.material as THREE.MeshStandardMaterial;
+      const shader = { uniforms: {} as Record<string, unknown>, fragmentShader: '#include <common>\n#include <emissivemap_fragment>', vertexShader: '' };
+      mat.onBeforeCompile(shader as never, null as never);
+      return { key: mat.customProgramCacheKey(), glitter: shader.fragmentShader.includes('uGlitterColor * uGlitter'), uniform: 'uGlitter' in shader.uniforms };
+    };
+    expect(glitterKey(0.8)).toEqual({ key: 'mz-wetdeck-glitter', glitter: true, uniform: true });
+    expect(glitterKey(undefined)).toMatchObject({ key: 'mz-wetdeck', glitter: false });
   });
 });
 
