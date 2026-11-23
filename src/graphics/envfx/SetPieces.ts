@@ -70,7 +70,7 @@ export class SetPieces {
         let yaw: number;
         if (spec.path === 'orbit') {
           const a = (time * spec.speed) / spec.radius + offset * Math.PI * 2;
-          this.p.set(this.centre.x + Math.cos(a) * spec.radius, this.centre.y + spec.height + Math.sin(a * 3 + i) * 12, this.centre.z + Math.sin(a) * spec.radius);
+          this.p.set(this.centre.x + Math.cos(a) * spec.radius, this.centre.y + spec.height + Math.sin(a * 3 + i) * (spec.bob ?? 12), this.centre.z + Math.sin(a) * spec.radius);
           yaw = Math.PI - a; // props point their nose along -Z (glTF): turn it along the direction of travel
         } else {
           const span = spec.radius * 2;
@@ -81,6 +81,7 @@ export class SetPieces {
           this.p.set(this.centre.x + Math.sin(heading) * along + Math.cos(heading) * side, this.centre.y + spec.height + i * 40, this.centre.z + Math.cos(heading) * along - Math.sin(heading) * side);
           yaw = heading + Math.PI;
         }
+        if (spec.spin) yaw += time * spec.spin + i * 2.1;
         this.q.setFromAxisAngle(SetPieces.UP, yaw);
         this.s.setScalar(scale);
         this.m.compose(this.p, this.q, this.s);
