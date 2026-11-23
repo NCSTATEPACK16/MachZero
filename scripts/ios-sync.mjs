@@ -1,6 +1,7 @@
 /**
- * Build the web game and copy it into the iOS app (npx cap sync ios), then set the app's build number to the
- * git commit count so every TestFlight upload gets a higher one. Run: npm run ios:sync
+ * Build the web game and copy it into the iOS app (npx cap sync ios), then set the app's version from package.json
+ * (MARKETING_VERSION, the version testers see) and its build number to the git commit count, so every TestFlight
+ * upload gets a higher one. Run: npm run ios:sync. To release a new version, change "version" in package.json.
  */
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,8 +11,12 @@ run('npm run build');
 run('npx cap sync ios');
 
 const build = execSync('git rev-list --count HEAD').toString().trim();
+const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+if (!/^\d+\.\d+(\.\d+)?$/.test(version)) throw new Error(`package.json version "${version}" is not an App Store version (X.Y or X.Y.Z)`);
 const pbx = 'ios/App/App.xcodeproj/project.pbxproj';
 const before = readFileSync(pbx, 'utf8');
-const after = before.replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${build};`);
+const after = before
+  .replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${build};`)
+  .replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${version};`);
 if (after !== before) writeFileSync(pbx, after);
 console.log(`\niOS app synced: version ${/MARKETING_VERSION = ([^;]+);/.exec(after)?.[1]} (build ${build}). Next: npm run ios:open, then Product → Archive.`);
