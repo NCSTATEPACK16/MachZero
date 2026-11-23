@@ -1,6 +1,22 @@
-# Next-session brief: MachZero (M8d built 2026-11-22: the "MachZero 2.0" release PR; 2.0 is complete in code)
+# Next-session brief: MachZero (2.0 live and on TestFlight as 1.1.0; X7 built 2026-11-23; next: the X4–X6 world looks when their images arrive)
 
-**MachZero 2.0 is built.** M7 and M8 are done; what is left of 2.0 is the owner's QA checklist and the merges. The prompt at the bottom of this file continues the 2.1 expansion (the world looks and X7), and the M8d prompt below is kept for reference. Everything else is the context those prompts rely on.
+**MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. The prompt at the bottom of this file continues the 2.1 expansion (the world looks and X7), and the M8d prompt below is kept for reference. Everything else is the context those prompts rely on.
+
+## X7 built (2026-11-23)
+
+- **X7 is built** as **NCSTATEPACK16/MachZero#__PR__** on `v2/x7-old-world-fx` (base `main`, which has 2.0 and the 1.1.0 version since #50 and #51 merged). It adds effect sets on the four other 2.0 worlds:
+  - **Sunset Mesa:** dust, low-sun shafts, dust behind the ships, dust devils.
+  - **Cryo Station:** snow, ice glitter on the deck, aurora pulses.
+  - **Jade Ruins:** mist banks, spores, canopy shafts.
+  - **Orbital Ring:** meteor streaks, shuttles, a sun glint.
+
+  It also adds two new Blender props, `dustdevil_0` and `shuttle_0`. Read IMPLEMENTATION §X7 "As built".
+- **Waiting on the owner:**
+  - The look approval of each world's set on the preview.
+  - Frame times on the Mac (`perf-desktop`).
+  - The device gate: an 8-ship race on Jade Ruins and on Cryo Station, on both devices.
+- **Blender in a cloud session:** the `bpy` 5.2.0 module from PyPI rebuilds the props byte-identically. In a venv, `uv pip install bpy==5.2.0`. Then point `BLENDER` at a wrapper that runs `python -c 'import sys, runpy, bpy; …runpy.run_path(script)'`; `bpy` has to be imported before the script's `import bmesh`. §X7 "As built" has the details.
+- **The concept-art prompts for X4–X6** are in `docs/v2/WORLD_CONCEPTS.md`, and the owner has them. When a `chosen.jpg` lands, build that world's look (§X4–§X6).
 
 ## M8d built (2026-11-22)
 
@@ -18,7 +34,7 @@
   - **The merge of #50** (M8d to `main`). #48 and #49 are merged.
   - Still open from earlier PRs: the M7–M8c device gates and look checks (the 2.0 QA checklist covers them), the default air-brake style, and tilt's direction on iOS.
 - **Device builds now need only `expansion`:** `VITE_FEATURES=expansion npm run ios:sync`. `modes` is ignored, so the old commands still work.
-- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive, or X7; M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
+- **Next:** the 2.1 world looks (X4–X6) when their `chosen.jpg` images arrive (X7 is built, #__PR__); M6 (audio) is still not designed. Use the 2.1 prompt at the bottom of this file. `expansion` stays off until each look is approved.
 
 ## M8c built (2026-11-22)
 
