@@ -133,6 +133,29 @@ describe('Cryo Station (IMPLEMENTATION §X7)', () => {
   });
 });
 
+describe('Jade Ruins (IMPLEMENTATION §X7)', () => {
+  it('mist banks among the canopy just under the road, rising spores, light shafts through the canopy', () => {
+    const s = spec('jade-ruins');
+    expect(s.weather?.kind).toBe('spores');
+    expect(s.weather!.fall).toBeLessThan(0); // they rise
+    expect(s.shafts).toBeTruthy();
+    const track = trackFromSource({ kind: 'authored', def: TRACK_DEFS['jade-ruins'] });
+    const plan = trackPlan(track);
+    let low = Infinity;
+    let mean = 0;
+    for (let i = 1; i < plan.length; i += 3) {
+      low = Math.min(low, plan[i]);
+      mean += plan[i];
+    }
+    mean /= plan.length / 3;
+    // The top sheet lies on the canopy beside the road: under the road's mean height, no lower than its lowest
+    // point less a sheet's spacing. The mist banks drift.
+    expect(s.heightFog!.base).toBeLessThan(mean);
+    expect(s.heightFog!.base).toBeGreaterThan(low - s.heightFog!.falloff);
+    expect(s.heightFog!.bankSpeed).toBeGreaterThan(0);
+  });
+});
+
 describe.each(WORLDS)('%s: budget and clearance', (world) => {
   const s = spec(world);
   const gltf = readGlb(world);

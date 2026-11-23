@@ -11,6 +11,7 @@ import { CONFIG } from '../../core/config';
 import type { TrackData } from '../../core/contracts';
 import { Rng } from '../../core/rng';
 import { FOG_GLSL, type FogUniforms } from '../shaders/fog';
+import type { EnvFxSpec } from '../envfx/EnvFxSpec';
 import { PropInstancer, nearestTrack, placement, planBounds, trackPlan, type PropInstance, type ThemeLighting, type WorldTheme } from './WorldTheme';
 
 const SKY_RADIUS = 6000;
@@ -212,6 +213,21 @@ export class JadeRuinsTheme implements WorldTheme {
   readonly group = new THREE.Group();
   readonly sunDirection = new THREE.Vector3(-0.75, 0.08, 0.66).normalize();
   readonly shimmer = 0;
+  /**
+   * A humid dusk (SPEC §10.3, IMPLEMENTATION §X7): banks of mist drifting among the canopy crowns just below the
+   * road, glowing spores rising through the air, and shafts of the low amber sun falling through the canopy. A
+   * slightly greener grade. The fireflies stay the theme's own points: the one weather slot is the spores', so
+   * moving them into it would not save a draw call.
+   */
+  readonly envfx: EnvFxSpec = {
+    grade: { lift: [0.002, 0.004, 0.002], gamma: [1, 1, 1], gain: [1, 1.03, 0.98], saturation: 1.05 },
+    weather: { kind: 'spores', count: 1600, fall: -0.35, wind: [0.6, 0.4], size: 0.07, color: 0xc8ff9a, streak: 0, opacity: 0.5, sway: 1.2 },
+    // Next to the road the canopy crowns top out a few metres under the deck, so the top sheet lies on them, just
+    // under the road's mean height (45 m). Where the road dips (to 38 m) it drifts over the deck: visual only,
+    // and the sheets fade as the camera comes level with them.
+    heightFog: { base: CONFIG.GROUND_Y + 81, falloff: 12, color: 0x8a72a0, density: 0.45, bankScale: 500, bankSpeed: 3 },
+    shafts: { count: 12, color: 0xffcf8f, angle: 0.6, width: 22, height: 260, opacity: 0.09 },
+  };
   readonly lighting: ThemeLighting = {
     hemiSky: 0xd9a0c0,
     hemiGround: 0x123018,
