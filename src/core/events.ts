@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { AITier, RaceState, RacerStanding, ShipId } from './contracts';
+import type { AITier, PartSlot, RaceState, RacerStanding, ShipId } from './contracts';
 import type { ItemKind } from '../content/items';
 
 /**
@@ -63,7 +63,7 @@ export interface GameEvents {
 
 /**
  * Sound hooks for the M8 screens (IMPLEMENTATION §M8a step 8), emitted on the App's menu bus (`App.events`), which
- * lives as long as the app (each race has its own `GameBus`). Nothing plays them until M6.
+ * lives as long as the app (each race has its own `GameBus`). `audio/MenuSounds.ts` plays them (behind `music`).
  */
 export interface MenuEvents {
   /** Results screen: one tally line appeared. */
@@ -84,6 +84,14 @@ export interface MenuEvents {
   'tutorial:step': { step: string };
   /** Tutorial: finished or skipped (M8c). */
   'tutorial:done': Record<string, never>;
+  /** Shop: a part or an item was bought (M6a). */
+  'shop:buy': { slot: PartSlot | 'item' };
+  /** Garage: a part was equipped (M6a). */
+  'shop:equip': { slot: PartSlot };
+  /** Shop: a purchase was refused for want of credits (M6a). */
+  'shop:deny': Record<string, never>;
+  /** The results screen (or the HUD results panel) appeared: the result its stinger is picked from (M6a; played from M6c). */
+  'results:open': { mode: 'tour' | 'cup' | 'trial'; position: number | null; medal: 'bronze' | 'silver' | 'gold' | null; previousMedal: 'bronze' | 'silver' | 'gold' | null; best: boolean };
 }
 
 export type Handler<T> = (payload: T) => void;
