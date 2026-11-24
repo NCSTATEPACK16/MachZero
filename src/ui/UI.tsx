@@ -3,7 +3,7 @@
  * toasts. The in-race HUD stays v1 direct DOM (game/HUD).
  */
 import { render } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { App } from '../app/App';
 import { navigate } from './nav';
 import { CupStandings } from './screens/CupStandings';
@@ -12,7 +12,6 @@ import { GrandPrix } from './screens/GrandPrix';
 import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { SoundTest } from './screens/SoundTest';
 import { WorldMap } from './screens/WorldMap';
 import { TimeTrial } from './screens/TimeTrial';
 import { NAV_EVENT, Results } from './screens/Results';
@@ -26,6 +25,25 @@ function Loading() {
       GET READY
     </div>
   );
+}
+
+/**
+ * SOUND TEST loads as its own chunk the first time it opens (IMPLEMENTATION §M6b, the owner's size call): the page
+ * itself carries none of its code or the sound table it lists.
+ */
+type SoundTestComponent = typeof import('./screens/SoundTest').SoundTest;
+let soundTestModule: Promise<SoundTestComponent> | null = null;
+function LazySoundTest({ app }: { app: App }) {
+  const [Comp, setComp] = useState<SoundTestComponent | null>(null);
+  useEffect(() => {
+    let live = true;
+    soundTestModule ??= import('./screens/SoundTest').then((m) => m.SoundTest);
+    void soundTestModule.then((c) => live && setComp(() => c));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return Comp ? <Comp app={app} /> : <Loading />;
 }
 
 function Toasts({ app }: { app: App }) {
@@ -58,7 +76,7 @@ function Root({ app }: { app: App }) {
   if (r.name === 'profiles') screen = <ProfileSelect app={app} />;
   else if (r.name === 'menu') screen = <MainMenu app={app} />;
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
-  else if (r.name === 'soundtest') screen = <SoundTest app={app} />;
+  else if (r.name === 'soundtest') screen = <LazySoundTest app={app} />;
   else if (r.name === 'garage') screen = <Garage app={app} />;
   else if (r.name === 'tour') screen = <WorldMap app={app} />;
   else if (r.name === 'results') screen = <Results app={app} />;
