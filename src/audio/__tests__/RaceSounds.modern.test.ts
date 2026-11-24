@@ -132,7 +132,7 @@ describe('the M6 event sounds', () => {
   });
 
   it('fades the ice crackle in on ice and out off it', () => {
-    const { audio, ac, bus, at } = setup({ strikeAt: null });
+    const { ac, bus, at } = setup({ strikeAt: null });
     bus.emit('ship:ice', { shipId: 0, active: true });
     at(1);
     const voice = ac.nodes.find((n) => n.kind === 'BufferSource' && n.prop('loop') === true && (n.prop('buffer') as { length: number } | null)?.length === 441);
