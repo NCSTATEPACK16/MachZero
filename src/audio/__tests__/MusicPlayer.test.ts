@@ -21,7 +21,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 /** A rendered song at 120 BPM (a bar is 2 s): a 1-bar intro and a 4-bar loop. */
-function rendered(id: string, opts: { lift?: boolean; intro?: boolean } = {}): RenderedSong {
+function rendered(id: string, opts: { lift?: boolean; intro?: boolean; offset?: number } = {}): RenderedSong {
   const loop = 8 * SR;
   const intro = opts.intro === false ? 0 : 2 * SR;
   return {
@@ -30,6 +30,7 @@ function rendered(id: string, opts: { lift?: boolean; intro?: boolean } = {}): R
     bpm: 120,
     intro: intro ? [new Float32Array(intro + SR), new Float32Array(intro + SR)] : null,
     introSamples: intro,
+    loopOffset: opts.offset ?? 0,
     loop: [new Float32Array(loop), new Float32Array(loop)],
     loopSamples: loop,
     lift: opts.lift === false ? null : new Float32Array(loop),
@@ -174,6 +175,20 @@ describe('MusicPlayer (§M6b step 6)', () => {
     expect(loop.prop('loop')).toBe(true);
     expect(lift.prop('loop')).toBe(true);
     expect(p.player.debug().song).toBe('neon-bay');
+  });
+
+  it('when the intro runs on into the loop, the loop and the lift take over at that offset', async () => {
+    const p = await setup();
+    p.ac.currentTime = 10;
+    await play(p, {}, rendered('neon-bay', { offset: SR / 2 }));
+    const [, loop, lift] = sources(p.ac);
+    expect(lines(p.ac, new RegExp(`^#${loop.id}\\.start`))).toEqual([`#${loop.id}.start(12.55, 0.5)`]);
+    expect(lines(p.ac, new RegExp(`^#${lift.id}\\.start`))).toEqual([`#${lift.id}.start(12.55, 0.5)`]);
+    // Bar lines still count from the loop's first bar (12.05): a lift at 12.3 comes in at 14.05.
+    p.ac.currentTime = 12.3;
+    p.player.apply(cue({ lift: true, restart: false }));
+    const g = p.player.debugNodes().liftGain as unknown as FakeAudioNode;
+    expect(lines(p.ac, new RegExp(`^#${g.id}\\.gain\\.linearRamp`))).toEqual([`#${g.id}.gain.linearRampToValueAtTime(1, 16.05)`]);
   });
 
   it('without the intro, the loop and the lift start together at once', async () => {

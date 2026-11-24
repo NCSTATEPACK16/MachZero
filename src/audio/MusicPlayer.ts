@@ -3,8 +3,10 @@
  *
  * The song chain on the music bus (§M6.1, built only with `music` on):
  *   each song's gain → duck gain → pause low-pass → EQ dip (−4 dB at 1.5 kHz, Q 1) → music bus (MUSIC × the trim)
- * A song is three sources started together: the intro at t0, the loop (`loop = true`) and the lift (gain 0) both at
- * t0 + the intro's length, so they stay sample-locked; without the intro, loop and lift start at t0.
+ * A song is three sources: the intro at t0; the loop (`loop = true`) and the lift (gain 0) together where the intro's
+ * buffer ends (the intro runs on into the loop's first pass, see dsp/render.ts), started at that offset into their
+ * own buffers, so they stay sample-locked and the hand-over has no seam. Without the intro, loop and lift start at
+ * t0 from their beginning. Bar lines count from where the loop's first bar falls (t0 + the intro's length).
  *
  * Every level change is a ramp from the level the player knows the param has (its own record of the ramps it
  * scheduled; an AudioParam's `value` is never read), so nothing clicks. Ducks (decision C): countdown −8 dB, stinger
@@ -321,7 +323,12 @@ export class MusicPlayer {
       srcs.push(lift);
       nodes += 2;
     }
-    for (const s of srcs.slice(withIntro ? 1 : 0)) s.start(tLoop);
+    // After the intro, the loop and the lift take over where the intro's buffer ends, at that offset in their own.
+    const offset = withIntro ? meta.loopOffset / meta.sampleRate : 0;
+    for (const s of srcs.slice(withIntro ? 1 : 0)) {
+      if (offset > 0) s.start(tLoop + offset, offset);
+      else s.start(tLoop);
+    }
     this.engine.made(nodes);
     const p: Playing = { id: cue.song!, key: cue.key, gain, level, liftGain, lift: new Level(0), liftOn: false, srcs, tLoop, bar: 240 / meta.bpm, ending: false, nodes };
     let ended = 0;

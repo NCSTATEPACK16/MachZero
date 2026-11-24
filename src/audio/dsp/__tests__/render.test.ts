@@ -10,9 +10,9 @@ describe('renderSong', () => {
 
   it('the test song is valid', () => expect(validateSong(def)).toEqual([]));
 
-  it('renders an intro with its tail, a loop of exactly its length, and a lift as long', () => {
+  it('renders an intro running on into the loop’s first pass, a loop of exactly its length, and a lift as long', () => {
     expect(song.introSamples).toBe(Math.round(2 * 2 * 44100)); // 2 bars at 120 BPM
-    expect(song.intro![0].length).toBeGreaterThan(song.introSamples);
+    expect(song.intro![0].length).toBe(song.introSamples + song.loopOffset);
     expect(song.loopSamples).toBe(60 * 44100);
     expect(song.loop[0].length).toBe(song.loopSamples);
     expect(song.lift!.length).toBe(song.loopSamples);
@@ -45,6 +45,26 @@ describe('renderSong', () => {
     let diff = 0;
     for (let i = 0; i < 44100; i++) diff = Math.max(diff, Math.abs(twice.loop[0][i] - twice.loop[0][n + i]));
     expect(diff).toBeGreaterThan(1e-3);
+  });
+
+  it('the intro hands over to the loop with no seam: intro buffer, then the loop from its offset, equal one continuous render', () => {
+    // The reference: the intro and two passes of the loop rendered as one timeline, unfolded.
+    const intro = new SongRender(def, { passes: 2 }).raw();
+    const g = song.gain;
+    const ref = new Float32Array(song.introSamples + 2 * song.loopSamples);
+    const introRaw = new SongRender(def).rawIntro()!;
+    for (let i = 0; i < Math.min(ref.length, introRaw[0].length); i++) ref[i] += introRaw[0][i];
+    for (let i = 0; i < 2 * song.loopSamples && song.introSamples + i < ref.length; i++) ref[song.introSamples + i] += intro.loop[0][i];
+    // The playback: the intro buffer, then the loop source from loopOffset, looping.
+    const T = song.loopOffset;
+    expect(T).toBeGreaterThan(0);
+    expect(song.intro![0].length).toBe(song.introSamples + T);
+    let err = 0;
+    for (let i = 0; i < ref.length; i++) {
+      const v = i < song.introSamples + T ? song.intro![0][i] : song.loop[0][(i - song.introSamples) % song.loopSamples];
+      err = Math.max(err, Math.abs(v - ref[i] * g));
+    }
+    expect(err).toBeLessThan(1e-4);
   });
 
   it('the lift holds only the lift tracks, and is not silent', () => {

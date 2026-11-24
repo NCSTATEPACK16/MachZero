@@ -4,20 +4,21 @@
  * the main-thread fallback can render a song in slices that never block a frame for long.
  *
  * How the parts fit:
- *  - The intro is rendered with its own tail (notes still ringing, the delay and the reverb), so its buffer is longer
- *    than the intro itself. At playback the loop starts `introSamples` after the intro, and the intro's tail plays
- *    over the loop's first seconds.
  *  - The loop is rendered once, then its tail past the end (no new notes) until it is silent, and the tail is added
  *    onto the loop's start. Every effect after a voice is linear, every note is seeded by what it is (not when), the
  *    pump's hits repeat with the loop, and the chorus's rate fits the loop a whole number of times, so the folded
  *    loop equals the loop's second pass exactly (the song tests check it).
+ *  - The folded loop's start holds the tail of its own end, which is right from the second pass on but not after the
+ *    intro. So the intro's buffer runs on through the loop's first pass for `loopOffset` samples (until both the
+ *    intro's tail and the loop's have died away), and at playback the loop source takes over there, started at
+ *    that offset: from then on the two hold the same samples, so the hand-over has no seam.
  *  - `lift: true` tracks go to a mono accumulator with their own mono delay and reverb, folded the same way.
  *  - One gain for intro, loop and lift together: the loop measures −14 LUFS, and no true peak (the intro over the
  *    loop's start, the loop with the lift) exceeds −1 dBFS; if the peak limits the gain, the loop ends quieter.
  *  - A stinger is an intro only, with at most 2 s of tail.
  */
 import { kindOf, type SongDef } from '../songs/format';
-import { Chorus, Delay, pumpGain, Reverb } from './effects';
+import { Chorus, Delay, Reverb } from './effects';
 import { renderNote, resolveInstrument, type ResolvedInstrument } from './instruments';
 import { LoudnessMeter, TruePeakMeter, toDb } from './loudness';
 import { hash, rng } from './osc';
@@ -41,9 +42,13 @@ export interface RenderedSong {
   id: string;
   sampleRate: number;
   bpm: number;
-  /** The intro with its tail ([L, R]), or null; the loop starts `introSamples` after the intro does. */
+  /**
+   * The intro, run on into the loop's first pass ([L, R]), or null: `introSamples + loopOffset` long. The loop's bars
+   * start `introSamples` after the intro does; the loop source starts `loopOffset` later, at that offset.
+   */
   intro: [Float32Array, Float32Array] | null;
   introSamples: number;
+  loopOffset: number;
   /** The seamless loop ([L, R]), exactly `loopSamples` long; for a stinger, the whole stinger. */
   loop: [Float32Array, Float32Array];
   loopSamples: number;
@@ -204,10 +209,14 @@ class Segment {
       }
       if (t.pump) {
         const p = t.pump;
+        const hits = p.hits;
         for (let k = 0; k < len; k++) {
-          const r = pumpGain(p.hits, (b + k) / this.sr, p.depth, p.release, p.at);
-          p.at = r.index;
-          scratch[k] *= r.gain;
+          const time = (b + k) / this.sr;
+          while (p.at + 1 < hits.length && hits[p.at + 1] <= time) p.at++;
+          const h = hits[p.at];
+          if (h === undefined || h > time) continue;
+          const x = (time - h) / p.release;
+          if (x < 1) scratch[k] *= 1 - p.depth * (1 - x) * (1 - x);
         }
       }
       if (t.lift) {
@@ -275,8 +284,10 @@ class Segment {
   private note(t: TrackState, e: Timed): Float32Array {
     const ev = e.ev;
     const drum = t.inst.kind === 'drum';
-    const key = drum ? `${t.index}|d|${ev.velocity}` : `${t.index}|${ev.midi}|${ev.velocity}|${e.gate}|${ev.prev ?? ''}`;
-    return this.cache.get(key, () => renderNote(t.inst, ev.midi, ev.velocity, e.gate, this.sr, rng(hash(`${this.def.id}|${t.name}|${drum ? 'd' : ev.midi}|${ev.velocity}`)), ev.prev));
+    // The previous note matters only to an instrument that glides.
+    const prev = t.inst.p.glide ? ev.prev : null;
+    const key = drum ? `${t.index}|d|${ev.velocity}` : `${t.index}|${ev.midi}|${ev.velocity}|${e.gate}|${prev ?? ''}`;
+    return this.cache.get(key, () => renderNote(t.inst, ev.midi, ev.velocity, e.gate, this.sr, rng(hash(`${this.def.id}|${t.name}|${drum ? 'd' : ev.midi}|${ev.velocity}`)), prev));
   }
 }
 
@@ -311,7 +322,9 @@ export class SongRender {
   private intro: Segment | null;
   private loop: Segment | null = null;
   /** The finished parts. */
+  private introRaw: [Float32Array, Float32Array] | null = null;
   private introOut: [Float32Array, Float32Array] | null = null;
+  private loopOffset = 0;
   private loopOut: [Float32Array, Float32Array] | null = null;
   private liftOut: Float32Array | null = null;
   private readonly loud: LoudnessMeter;
@@ -364,6 +377,7 @@ export class SongRender {
     const loopOnce = timed(loop.events, false);
     const passes = opts.passes ?? 1;
     this.fold = opts.passes === undefined;
+    // The loop is rendered unfolded (with its tail); `work` folds it, after the intro has taken its first pass.
     const loopEvents: Timed[] = [];
     for (let k = 0; k < passes; k++) for (const e of loopOnce) loopEvents.push({ ...e, start: e.start + k * this.loopSamples });
 
@@ -390,7 +404,7 @@ export class SongRender {
         ),
         loopEvents,
         this.loopSamples * passes,
-        this.fold,
+        false,
         sr,
         cache,
         hasLift,
@@ -430,6 +444,12 @@ export class SongRender {
     return { intro: this.introOut, loop: this.loopOut!, lift: this.liftOut, loopSamples: this.loopSamples };
   }
 
+  /** The intro alone with its tail, unnormalised (tests). */
+  rawIntro(): [Float32Array, Float32Array] | null {
+    while (this.phase === 'intro') this.work();
+    return this.introRaw;
+  }
+
   result(): RenderedSong {
     if (!this.out) throw new Error(`${this.def.id} is not rendered yet`);
     return this.out;
@@ -452,7 +472,7 @@ export class SongRender {
         const seg = this.intro!;
         if (!seg.run(16)) return;
         const end = Math.max(seg.end, this.introSamples);
-        this.introOut = [seg.outL.slice(0, end), seg.outR.slice(0, end)];
+        this.introRaw = this.introOut = [seg.outL.slice(0, end), seg.outR.slice(0, end)];
         this.intro = null;
         if (this.stinger) this.fadeEnd(this.introOut);
         this.startLoop();
@@ -461,12 +481,40 @@ export class SongRender {
       case 'loop': {
         const seg = this.loop!;
         if (!seg.run(16)) return;
-        const end = this.fold ? seg.length : seg.end;
-        this.loopOut = [seg.outL.subarray(0, end), seg.outR.subarray(0, end)];
-        this.liftOut = seg.outLift ? seg.outLift.subarray(0, end) : null;
         this.loop = null;
-        this.phase = this.fold ? 'measure' : 'done';
         this.cursor = 0;
+        const end = seg.end;
+        if (!this.fold) {
+          this.loopOut = [seg.outL.subarray(0, end), seg.outR.subarray(0, end)];
+          this.liftOut = seg.outLift ? seg.outLift.subarray(0, end) : null;
+          this.phase = 'done';
+          return;
+        }
+        const L = this.loopSamples;
+        // The intro runs on into the loop's first pass until every tail has died away…
+        if (this.introRaw) {
+          const [il, ir] = this.introRaw;
+          const T = Math.min(end, Math.max(end - L, il.length - this.introSamples, 0));
+          const n = this.introSamples + T;
+          const ol = new Float32Array(n);
+          const or = new Float32Array(n);
+          ol.set(il.subarray(0, Math.min(n, il.length)));
+          or.set(ir.subarray(0, Math.min(n, ir.length)));
+          for (let k = 0; k < T; k++) {
+            ol[this.introSamples + k] += seg.outL[k];
+            or[this.introSamples + k] += seg.outR[k];
+          }
+          this.introOut = [ol, or];
+          this.loopOffset = T;
+        }
+        // …then the loop's tail is folded onto its start.
+        const fold = (b: Float32Array) => {
+          for (let k = L; k < end; k++) b[k - L] += b[k];
+          return b.slice(0, L);
+        };
+        this.loopOut = [fold(seg.outL), fold(seg.outR)];
+        this.liftOut = seg.outLift ? fold(seg.outLift) : null;
+        this.phase = 'measure';
         return;
       }
       case 'measure': {
@@ -528,16 +576,9 @@ export class SongRender {
     }
   }
 
-  /** The intro's tail plays over the loop's start: the true peak of the two together. */
+  /** The intro (run on into the loop's first pass) plays alone until the loop takes over. */
   private peakOfIntro(): void {
-    if (!this.introOut) return;
-    const loop = this.loopOut!;
-    const sum = (a: Float32Array, l: Float32Array) => {
-      const out = new Float32Array(a.length);
-      for (let i = 0; i < a.length; i++) out[i] = a[i] + (i >= this.introSamples ? l[(i - this.introSamples) % l.length] : 0);
-      return out;
-    };
-    this.peak.push([sum(this.introOut[0], loop[0]), sum(this.introOut[1], loop[1])]);
+    if (this.introOut) this.peak.push(this.introOut);
   }
 
   /** A stinger cut at its tail's limit fades over its last 50 ms. */
@@ -558,6 +599,7 @@ export class SongRender {
       bpm: this.def.bpm,
       intro: this.stinger ? null : intro,
       introSamples: this.stinger ? 0 : this.introSamples,
+      loopOffset: this.stinger ? 0 : this.loopOffset,
       loop: this.stinger ? intro! : this.loopOut!,
       loopSamples: this.stinger ? intro![0].length : this.loopSamples,
       lift: this.stinger ? null : this.liftOut,

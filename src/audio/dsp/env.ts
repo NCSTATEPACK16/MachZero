@@ -18,6 +18,8 @@ export class Envelope {
   private readonly dK: number;
   private readonly rN: number;
   private readonly rK: number;
+  /** The release's last samples fade linearly to exactly 0. */
+  private readonly fadeN: number;
 
   constructor(
     private readonly e: Adsr,
@@ -28,6 +30,7 @@ export class Envelope {
     this.dK = Math.exp(-5 / Math.max(1, e.d * sampleRate));
     this.rN = Math.max(1, Math.round(e.r * sampleRate));
     this.rK = Math.exp(-6.9 / this.rN);
+    this.fadeN = Math.max(1, Math.min(this.rN, Math.round(0.01 * sampleRate)));
   }
 
   /** Samples from note-on to silence. */
@@ -46,9 +49,10 @@ export class Envelope {
     const k = n - this.gate;
     if (k >= this.rN) return (this.level = 0);
     if (k === 0) this.level = this.relFrom;
-    // An exponential fall, bent to reach exactly 0 at the end.
+    // An exponential fall (−60 dB over the release), then a short linear fade to exactly 0 at the end.
     this.level *= this.rK;
-    return this.level * (1 - (k + 1) / this.rN) ** 0.25;
+    const left = this.rN - 1 - k;
+    return left < this.fadeN ? (this.level * left) / this.fadeN : this.level;
   }
 }
 

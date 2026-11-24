@@ -144,11 +144,19 @@ export class Chorus {
   process(input: Float32Array, outL: Float32Array, outR: Float32Array, len: number, t0: number, mix: number, gl: number, gr: number): void {
     const n = this.buf.length;
     const sr = this.sampleRate;
+    // The modulation as a phasor, set from the clock at the block's start and rotated a sample at a time.
+    const step = (TAU * this.rate) / sr;
+    const cs = Math.cos(step);
+    const sn = Math.sin(step);
+    let s = Math.sin(step * t0);
+    let c = Math.cos(step * t0);
     for (let k = 0; k < len; k++) {
       this.buf[this.w] = input[k];
-      const ph = (TAU * this.rate * (t0 + k)) / sr;
-      const dl = (this.base + this.depth * Math.sin(ph)) * sr;
-      const dr = (this.base + this.depth * Math.cos(ph)) * sr;
+      const dl = (this.base + this.depth * s) * sr;
+      const dr = (this.base + this.depth * c) * sr;
+      const s2 = s * cs + c * sn;
+      c = c * cs - s * sn;
+      s = s2;
       const wl = read(this.buf, this.w - dl, n);
       const wr = read(this.buf, this.w - dr, n);
       outL[k] += (input[k] * (1 - mix) + wl * mix) * gl;
