@@ -2409,3 +2409,32 @@ html.mz-pad .mzu-trial-row:focus {
 .mzu-season-table .mzu-cup-row {
   grid-template-columns: 2.4em 2.6em 1fr 4.2em 3em;
 }
+
+/* ---------- M6a: SOUND TEST ---------- */
+.mzu-sound-start {
+  align-self: flex-start;
+  margin-bottom: 0.6em;
+}
+.mzu-sound-group {
+  margin-top: 0.8em;
+}
+.mzu-sound-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15em, 1fr));
+  gap: 0.4em 1em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mzu-sound {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em;
+  padding: 0.2em 0.6em;
+  border: 1px solid rgba(244, 247, 255, 0.12);
+  background: rgba(8, 6, 26, 0.55);
+}
+.mzu-sound-name {
+  font-weight: 700;
+}

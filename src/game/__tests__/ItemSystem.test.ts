@@ -11,7 +11,7 @@ const DT = CONFIG.FIXED_DT;
 const GAP = 20;
 
 /** Ships in standings order (index 0 leads), all racing; the player is `playerAt`. */
-function world(opts: { tier?: AITier; playerAt?: number; n?: number; seed?: number; bag?: Partial<ItemBag> } = {}) {
+function world(opts: { tier?: AITier; playerAt?: number; n?: number; seed?: number; bag?: Partial<ItemBag>; noBag?: boolean } = {}) {
   const n = opts.n ?? 4;
   const playerAt = opts.playerAt ?? n - 1;
   const ships: ShipState[] = [];
@@ -43,7 +43,7 @@ function world(opts: { tier?: AITier; playerAt?: number; n?: number; seed?: numb
   const used: ItemKind[] = [];
   const playerItems = { counts: () => bag, use: (k: ItemKind) => (used.push(k), bag[k]--) };
   const host: ItemHost = { ships, player, race, bus, physics: { dropMine: (owner) => (drops.push(owner), 0) }, track: makeCircleTrack(2000) };
-  const items = new ItemSystem(host, opts.seed ?? 1234, playerItems);
+  const items = new ItemSystem(host, opts.seed ?? 1234, opts.noBag ? undefined : playerItems);
   const step = (input: Partial<ControlInput> | null = null) => items.fixed(DT, input ? { ...neutralControls(), ...input } : null);
   const run = (seconds: number) => {
     for (let t = 0; t < seconds - 1e-9; t += DT) step();
@@ -179,6 +179,34 @@ describe('ItemSystem: CPU items', () => {
     expect(incomingSeen).toBe(true);
     for (let i = 0; i < warns.length; i++) expect(hits[i] - warns[i]).toBeCloseTo(CONFIG.EMP_WARN_TIME, 1);
     for (let i = 1; i < warns.length; i++) expect(warns[i] - warns[i - 1]).toBeGreaterThanOrEqual(CONFIG.EMP_RETARGET_TIME - 1e-6);
+  });
+
+  it('reports an incoming CPU EMP to a player who carries no items (the HUD warning, M6a)', () => {
+    const w = world({ tier: 'legend', n: 2, playerAt: 0, noBag: true });
+    const cpu = w.ships[1];
+    Object.assign(w.items.cpuBag(cpu.def.id) as ItemBag, { emp: 5, shield: 0, mine: 0 });
+    let warned = -1;
+    let landed = -1;
+    let clock = 0;
+    w.bus.on('item:warn', () => {
+      if (warned < 0) warned = clock;
+    });
+    w.bus.on('item:emp', () => {
+      if (landed < 0) landed = clock;
+    });
+    let seenWhileWarned = false;
+    for (; clock < 60 && landed < 0; clock += DT) {
+      w.step();
+      expect(w.items.playerView()).toBeNull();
+      if (warned >= 0 && landed < 0) {
+        expect(w.items.incomingAtPlayer()).toBeGreaterThan(0);
+        seenWhileWarned = true;
+      }
+    }
+    expect(warned).toBeGreaterThanOrEqual(0);
+    expect(seenWhileWarned).toBe(true);
+    // It hides once the EMP has landed.
+    expect(w.items.incomingAtPlayer()).toBe(0);
   });
 
   it('a CPU with a shield raises it against an incoming EMP (Legend always)', () => {

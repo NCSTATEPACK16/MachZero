@@ -101,6 +101,30 @@ describe('HUD (fake DOM smoke test)', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows "EMP INCOMING" while a CPU EMP is on its way, with or without items (M6a, §M6.6)', () => {
+    const track = makeCircleTrack(500);
+    const bus = new EventBus<GameEvents>();
+    const actions: HudActions = { onStart: () => undefined, onRestart: () => undefined, onResume: () => undefined, onToggleMute: () => undefined };
+    const root = new FakeEl('div');
+    const hud = new HUD(root as unknown as HTMLElement, bus, track, actions, { showTitle: false });
+    const warn = root.find('mz-emp-warn')! as unknown as { hidden: boolean };
+    const items = root.find('mz-items')! as unknown as { hidden: boolean };
+    hud.setItems(null, 0);
+    expect(warn.hidden).toBe(true);
+    // No items: the chip stays hidden, the warning shows.
+    hud.setItems(null, 0.4);
+    expect(warn.hidden).toBe(false);
+    expect(items.hidden).toBe(true);
+    // It lands: hidden again.
+    hud.setItems(null, 0);
+    expect(warn.hidden).toBe(true);
+    // With items, the view's own `incoming` still works for older callers.
+    hud.setItems({ selected: 'emp', counts: { emp: 1, shield: 0, mine: 0 }, shield: 0, incoming: 0.2 });
+    expect(warn.hidden).toBe(false);
+    expect(items.hidden).toBe(false);
+    hud.dispose();
+  });
+
   it('shows the grid intro card with every pilot, and the draft chip while the player drafts', () => {
     const track = makeCircleTrack(500);
     const bus = new EventBus<GameEvents>();

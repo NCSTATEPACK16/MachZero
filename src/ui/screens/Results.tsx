@@ -11,7 +11,7 @@ import type { App } from '../../app/App';
 import { formatTime, ordinal } from '../../core/math';
 import { TIERS } from '../../content/tiers';
 import { worldById } from '../../content/worlds';
-import type { RaceResult } from '../../game/modes/raceResult';
+import { resultsOpenOf, type RaceResult } from '../../game/modes/raceResult';
 import { Screen } from '../components';
 import { TierPips } from './WorldMap';
 import { MedalBadge } from './TimeTrial';
@@ -145,7 +145,10 @@ function ResultsBody({ app, r }: { app: App; r: RaceResult }) {
     return () => cancelAnimationFrame(raf);
   }, [target]);
 
-  // Sound hooks (M6 plays them): each line, then the total, the unlock and each trophy.
+  // Sound hooks (M6 plays them): the screen opening, each line, then the total, the unlock and each trophy.
+  useEffect(() => {
+    app.events.emit('results:open', resultsOpenOf(r));
+  }, []);
   useEffect(() => {
     if (step >= 1 && step <= n && !reduced) app.events.emit('results:tally', { amount: r.tally[step - 1].amount });
   }, [step]);

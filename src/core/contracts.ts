@@ -572,6 +572,8 @@ export interface FrameContext {
   time: number;
   /** Physics seconds since the race reset (the timeline of the gates, mines and debris). */
   hazardTime: number;
+  /** The hazard policy's telegraph scale: hazard warnings last this many times longer (2 in Rookie races, else 1). */
+  telegraphScale: number;
   /** Mines on the track (Orbital Ring; dropped mines): absent on tracks without any. */
   mines?: readonly MineView[];
   ships: ShipState[];

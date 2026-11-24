@@ -11,7 +11,8 @@ import type { Assists, ControlInput, FrameContext, GhostFrame, HudActions, ShipD
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
-import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
+import type { AudioSystem } from '../audio/AudioSystem';
+import { AIDriver, HUD, RaceManager, type RecordStore } from '../game';
 import { ItemSystem, type PlayerItems } from '../game/ItemSystem';
 import { GhostCapture } from '../game/ghost/GhostCapture';
 import type { GhostData } from '../game/ghost/ghostCodec';
@@ -283,6 +284,7 @@ export class RaceSession {
       alpha,
       time,
       hazardTime: this.physics.hazardTime,
+      telegraphScale: this.setup.hazards?.telegraphScale ?? 1,
       ...(this.physics.mines.length > 0 ? { mines: this.physics.mines } : {}),
       ships: this.ships,
       player: this.player,
@@ -291,7 +293,7 @@ export class RaceSession {
       ...(this.ghostFrames.length > 0 ? { ghosts: this.ghostFrames } : {}),
     };
     this.view.graphics.update(ctx);
-    this.hud?.setItems(this.items.playerView());
+    this.hud?.setItems(this.items.playerView(), this.items.incomingAtPlayer());
     if (this.tutorial) this.hud?.setTutorial(this.tutorialPrompt, this.tutorialEnded);
     this.hud?.update(ctx.race, dt, ctx.hazardTime, ctx.ghosts, ctx.ghosts ? this.view.graphics.ghostTag : null);
     this.view.audio.update(ctx);

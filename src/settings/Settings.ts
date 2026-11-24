@@ -30,6 +30,7 @@ export class Settings {
   readonly musicVolume = signal(0);
   readonly sfxVolume = signal(0);
   readonly muted = signal(false);
+  readonly mono = signal(false);
   readonly reducedMotion = signal(false);
   readonly colorBlind = signal(false);
   readonly hudSize = signal<HudSize>('normal');
@@ -55,6 +56,7 @@ export class Settings {
       this.musicVolume.value = d.musicVolume;
       this.sfxVolume.value = d.sfxVolume;
       this.muted.value = d.muted;
+      this.mono.value = d.mono;
       this.reducedMotion.value = d.reducedMotion;
       this.colorBlind.value = d.colorBlind;
       this.hudSize.value = d.hudSize;
@@ -75,6 +77,7 @@ export class Settings {
       musicVolume: this.musicVolume.value,
       sfxVolume: this.sfxVolume.value,
       muted: this.muted.value,
+      mono: this.mono.value,
       reducedMotion: this.reducedMotion.value,
       colorBlind: this.colorBlind.value,
       hudSize: this.hudSize.value,

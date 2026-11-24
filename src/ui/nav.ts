@@ -6,6 +6,7 @@
  * sliders take left/right as value steps. `confirm` clicks the focused element; `back` clicks the screen's [data-back] button.
  */
 import type { MenuAction } from '../core/contracts';
+import { dispatchUiSound } from './uiSounds';
 
 const SELECTOR = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [data-nav]';
 
@@ -74,19 +75,25 @@ function nearest(els: HTMLElement[], from: HTMLElement, dir: Dir): HTMLElement |
 function move(screen: ParentNode, dir: Dir): void {
   const els = focusables(screen);
   if (els.length === 0) return;
-  const sel = document.activeElement instanceof HTMLElement ? document.activeElement.getAttribute(`data-nav-${dir}`) : null;
+  const from = document.activeElement;
+  const sel = from instanceof HTMLElement ? from.getAttribute(`data-nav-${dir}`) : null;
   const named = sel ? screen.querySelector<HTMLElement>(sel) : null;
   if (named && els.includes(named)) {
-    named.focus();
-    named.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    focusTo(named, from);
     return;
   }
   const step = dir === 'down' || dir === 'right' ? 1 : -1;
-  const i = els.indexOf(document.activeElement as HTMLElement);
+  const i = els.indexOf(from as HTMLElement);
   const next =
     (i >= 0 && nearest(els, els[i], dir)) || els[i < 0 ? (step > 0 ? 0 : els.length - 1) : (i + step + els.length) % els.length];
-  next.focus();
-  next.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  focusTo(next, from);
+}
+
+/** Focus `el`, bring it into view, and tell the UI sound layer when focus actually moved (M6a: `ui.move`). */
+function focusTo(el: HTMLElement, from: Element | null): void {
+  el.focus();
+  el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  if (el !== from) dispatchUiSound(el, 'move');
 }
 
 function back(screen: ParentNode): void {

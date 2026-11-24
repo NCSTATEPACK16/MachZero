@@ -17,7 +17,9 @@ import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
-import { AudioSystem, localRecordStore, type RecordStore } from '../game';
+import { AudioSystem } from '../audio/AudioSystem';
+import { bindUiSounds } from '../ui/uiSounds';
+import { localRecordStore, type RecordStore } from '../game';
 import { cupGridOrder, cupWorld, newCup, type CupAward, type CupState } from '../game/modes/GrandPrix';
 import { Rumble } from '../game/Rumble';
 import { GraphicsSystem } from '../graphics';
@@ -26,7 +28,7 @@ import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
 import { WORLDS, worldById, worldsFor, type WorldDef, type WorldId } from '../content/worlds';
 import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
-import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
+import { raceTally, resultsOpenOf, winnerQuote, type RaceResult } from '../game/modes/raceResult';
 import { bookTrial, medalTally, medalTimes } from '../game/modes/TimeTrial';
 import type { GhostData } from '../game/ghost/ghostCodec';
 import { loadDevGhost } from '../game/ghost/devGhosts';
@@ -143,7 +145,9 @@ export class App {
 
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
-  private readonly audio = new AudioSystem();
+  /** The page's audio (public for SOUND TEST). */
+  readonly audio = new AudioSystem();
+  private audioRendering = false;
   /** Touch controls (IMPLEMENTATION §M7b). */
   private readonly touchRig = new TouchRig(new TouchInput());
   private readonly input = new InputManager(window, this.touchRig.input);
@@ -183,6 +187,13 @@ export class App {
     if (pendingFallback) this.toast(FALLBACK_TEXT[pendingFallback], 'warn', 9);
 
     this.graphics = new GraphicsSystem(els.app);
+    // Audio (IMPLEMENTATION §M6a): the menu bus's sounds, and a hidden page pauses a running race (both with `music`).
+    this.audio.bindMenus(this.events);
+    if (this.audio.modern) for (const root of [els.ui, els.hud]) bindUiSounds(root, (kind, value) => this.audio.uiSound(kind, value));
+    this.audio.onHidden(() => {
+      const r = this.session;
+      if (r && (r.state === 'racing' || r.state === 'countdown')) r.pause(true);
+    });
     this.input.onDeviceChange = (d) => this.setInputDevice(d);
     this.input.onPadChange = (connected) => this.padChanged(connected);
     this.applySettings(this.settings.snapshot());
@@ -238,6 +249,11 @@ export class App {
         const t1 = performance.now();
         this.graphics.render();
         const t2 = performance.now();
+        // The render Worker starts after the first rendered frame, so nothing new runs before it (§M6.5 boot).
+        if (!this.audioRendering) {
+          this.audioRendering = true;
+          this.audio.startRendering();
+        }
         if (this.bench) this.benchFrame(dt);
         this.afterFrame(this.loop.rawDt * 1000, t1 - t0, t2 - t1);
       },
@@ -294,6 +310,8 @@ export class App {
         ghosts: () => app.session?.shownGhosts.map((g) => ({ ...g })) ?? [],
         /** The tutorial prompt showing now, and whether the race runs the tutorial (e2e). */
         tutorial: () => ({ prompt: app.session?.tutorialPrompt ?? null, active: app.session?.tutorialActive ?? false }),
+        /** The audio's state, node count, voices, buffers and the last sounds played (audio e2e, §M6a step 11). */
+        audio: () => app.audio.debug(),
         /** Ghost meshes drawn in the last frame (one draw call each). */
         ghostsDrawn: () => app.graphics.ghostsDrawn,
         /** Add credits to the active profile (tests). */
@@ -316,6 +334,15 @@ export class App {
     const first = initialRoute(this.flags, this.save.value);
     if (this.flags.autopilot) setTimeout(() => this.session?.start(), 600);
     this.route.value = first;
+    // ?jukebox=1 (with `music`): SOUND TEST as soon as a profile is active.
+    if (this.flags.jukebox && this.audio.modern && this.menus) {
+      let opened = false;
+      effect(() => {
+        if (opened || !this.activeProfile.value) return;
+        opened = true;
+        untracked(() => (this.route.value = { name: 'soundtest', back: 'menu' }));
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -532,6 +559,17 @@ export class App {
     this.route.value = { name: 'settings', back };
   }
 
+  /** SOUND TEST, from Settings → Sound (with `music`). */
+  openSoundTest(): void {
+    const r = this.route.value;
+    this.route.value = { name: 'soundtest', back: r.name === 'settings' ? r.back : 'menu' };
+  }
+
+  closeSoundTest(): void {
+    const r = this.route.value;
+    this.route.value = { name: 'settings', back: r.name === 'soundtest' ? r.back : 'menu' };
+  }
+
   closeSettings(): void {
     const r = this.route.value;
     this.route.value = r.name === 'settings' && r.back === 'pause' ? { name: 'race' } : { name: 'menu' };
@@ -644,12 +682,14 @@ export class App {
   buyPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): PurchaseResult {
     let result: PurchaseResult = 'invalid';
     this.updateProfile((p) => (result = buyPart(p, slot, tier, variant)), () => result === 'bought');
+    this.shopSound(result, slot);
     return result;
   }
 
   equipPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): boolean {
     let ok = false;
     this.updateProfile((p) => (ok = equipPart(p, slot, tier, variant)), () => ok);
+    if (ok) this.events.emit('shop:equip', { slot });
     return ok;
   }
 
@@ -665,7 +705,14 @@ export class App {
   buyItem(kind: ItemKind): ItemPurchase {
     let result: ItemPurchase = 'short';
     this.updateProfile((p) => (result = buyItem(p, kind)), () => result === 'bought');
+    this.shopSound(result, 'item');
     return result;
+  }
+
+  /** The shop's sound hooks (IMPLEMENTATION §M6a): a purchase, or a refusal for want of credits. */
+  private shopSound(result: string, slot: PartSlot | 'item'): void {
+    if (result === 'bought') this.events.emit('shop:buy', { slot });
+    else if (result === 'short') this.events.emit('shop:deny', {});
   }
 
   /** CPU difficulty for the active profile's next race. */
@@ -984,6 +1031,14 @@ export class App {
     }
   }
 
+  /** The HUD's results panel (the no-menu flows) has no screen to emit the `results:open` sound hook, so the App does. */
+  private bindResultsPanel(s: RaceSession): void {
+    if (this.resultsScreen) return;
+    s.bus.on('race:results', ({ standings }) => {
+      this.events.emit('results:open', resultsOpenOf({ mode: 'tour', standings, playerId: s.player.def.id }));
+    });
+  }
+
   /** Per race: restart the run stats at GO; at the results, log the race's frame summary. */
   private bindPerf(s: RaceSession): void {
     s.bus.on('race:countdown', ({ value }) => {
@@ -1095,6 +1150,7 @@ export class App {
       this.session = null;
       next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, touch: this.touchRig });
       this.bindStats(next);
+      this.bindResultsPanel(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
       this.session = next;
@@ -1340,8 +1396,9 @@ export class App {
       this.perf.dispose();
       this.perf = null;
     }
-    this.audio.setVolumes(s.masterVolume, s.sfxVolume);
+    this.audio.setVolumes(s.masterVolume, s.sfxVolume, s.musicVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
+    this.audio.setMono(s.mono);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
     this.graphics.setColorBlind(s.colorBlind);
     setHapticsEnabled(s.haptics);

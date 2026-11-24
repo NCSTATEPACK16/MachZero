@@ -406,6 +406,12 @@ export function SettingsScreen({ app }: { app: App }) {
           <Slider label="EFFECTS" value={s.sfxVolume.value} onChange={(v) => (s.sfxVolume.value = v)} />
           {app.features.music ? <Slider label="MUSIC" value={s.musicVolume.value} onChange={(v) => (s.musicVolume.value = v)} /> : null}
           <Toggle label="MUTE" hint="Also M on the keyboard" value={s.muted.value} onChange={(v) => (s.muted.value = v)} />
+          {app.features.music ? <Toggle label="MONO" hint="The same sound in both ears; for one earbud or one speaker" value={s.mono.value} onChange={(v) => (s.mono.value = v)} /> : null}
+          {app.features.music ? (
+            <button type="button" class="mzu-chip" data-soundtest onClick={() => app.openSoundTest()}>
+              SOUND TEST
+            </button>
+          ) : null}
         </div>
       ) : null}
       {tab === 'graphics' ? <Graphics app={app} /> : null}

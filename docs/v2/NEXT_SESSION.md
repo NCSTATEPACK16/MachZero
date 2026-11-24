@@ -1,6 +1,67 @@
-# Next-session brief: MachZero (2.0 live, iOS 1.1.0, X7 merged; M6 audio designed; next: build M6a, and the X4–X6 world looks when their images arrive)
+# Next-session brief: MachZero (2.0 live, iOS 1.1.0, X7 merged; M6 audio: M6a built (PR #54); next: M6b, and the X4–X6 world looks when their images arrive)
 
-**MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. **M6 (audio) is designed** (2026-11-24): build it from IMPLEMENTATION §M6 with the M6a prompt below. The 2.1 prompt at the bottom of this file continues the world looks. Everything else is the context those prompts rely on.
+**MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. **M6 (audio) is designed** (2026-11-24) and **M6a is built** (PR #54, waiting on the owner's device check and a size call): continue with the M6b prompt below. The 2.1 prompt at the bottom of this file continues the world looks. Everything else is the context those prompts rely on.
+
+## M6a built (2026-11-24, PR #54)
+
+- **Status.** PR #54 is [NCSTATEPACK16/MachZero#54](https://github.com/NCSTATEPACK16/MachZero/pull/54), branch `v2/m6a-audio-graph`, base `main`.
+  - Not merged.
+  - It is waiting on the owner's device check: the baseline fps on today's `main` (four numbers), listening to the 30 new effects, the ringer switch, AirPods, background and resume, menus by pad and touch, and whether SOUND TEST on iOS says the effects rendered in the "background" or on the "main thread".
+- **What it built.** IMPLEMENTATION §M6a "As built" is the record: `src/audio/` (the `AudioSystem` facade, `AudioEngine`, `SfxBank`, `RaceSounds`, `MenuSounds`, the render Worker and `RenderClient`), the pure parts, SOUND TEST, MONO and the EMP warning fix.
+  - The v1 golden test (`src/audio/__tests__/v1-golden.json`) must keep passing in every M6 PR until M6d removes the v1 graph.
+- **Open owner decision: size.** App JS +14.8 KB gzip against the "+8 KB" line for M6a (main chunk +9.0, Worker 3.0, lazy fallback 2.9). That leaves 10.2 KB of the 25 KB M6 budget for M6b–M6d. The PR asks whether to raise the line or trim (a lazy SOUND TEST screen; not counting the fallback chunk, which only loads on failure). **Ask before M6b grows the bundle.**
+- **iOS Worker risk.** WKWebView may refuse module Workers under `capacitor://` (a WebKit report says so for service workers). The main-thread fallback covers effects. M6b's song renders are heavier, so if the device check says "main thread", M6b must slice song renders on the main thread too (render a song in chunks per idle slice) before relying on them.
+- **Moved to M6b:** the perf overlay's `audio` line (§M6.5).
+
+### Paste this prompt: M6b
+
+```
+You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
+/Users/johnbradner/Documents/ClaudeWork/MachZero. It is live at https://machzero.netlify.app (MachZero 2.0) and on
+TestFlight as an iOS app (Capacitor 8, version 1.1.0). The owner tests on an iPhone 18 Pro Max and an iPad Air 11"
+with an 8BitDo SN30 Pro pad in X-input mode, and by touch. Players are ages 7 to 70.
+
+READ FIRST, in this order, before writing any code:
+  1. docs/v2/NEXT_SESSION.md: current state ("M6a built"), the M6 build order and the environment table.
+  2. docs/v2/SPEC.md §8: what M6 is and why. Every decision is settled; do not re-open one.
+  3. docs/v2/IMPLEMENTATION.md §0, then §M6: the facts, decisions A–K, §M6.1–§M6.6, "M6a" with its "As built"
+     notes (what exists and every deviation), then "M6b" closely. Skim M6c–M6d.
+  4. The code M6b builds on: src/audio/ (AudioSystem, AudioEngine, SfxBank, RaceSounds, MenuSounds,
+     render/RenderClient.ts and render/audio.worker.ts, sfx/presetMeta.ts, duck.ts), src/audio/__tests__/ (the fake
+     context and the v1 golden test), src/ui/screens/SoundTest.tsx, src/app/App.ts (the audio parts).
+
+FIRST: check PR #54 (gh api repos/NCSTATEPACK16/MachZero/pulls/54). If merged, branch from main; if open, stack on
+v2/m6a-audio-graph and say so in the PR. Read the owner's comments on #54: the device-check numbers (the baseline
+fps every M6 gate compares with), which effects to rework, whether SOUND TEST said "background" or "main thread" on
+iOS, and the answer on the size line. If the size question is unanswered, ask the owner before adding code that
+grows the bundle.
+
+GOAL: build M6b exactly as IMPLEMENTATION §M6b says: the synthesiser (audio/dsp/), songs rendered in the Worker, the
+music player and director, ducking wired to the music bus, songs in SOUND TEST, the menu theme, Neon Bay and
+Orbital Ring. One PR on branch v2/m6b-music-engine. Tests first. Everything stays behind `music`; with it off the v1
+golden test must still pass. The owner's style approval of the three songs blocks M6c.
+
+HOW TO WORK (agreed with the owner; follow exactly):
+- You implement everything yourself, in order. Sub-agents only for read-only lookups.
+- Never merge a PR, push to main or enable auto-merge. The owner playtests each preview and merges.
+- Audio never builds or schedules a node inside the physics step (decision F), and the game loop never waits on
+  audio. No console.error from audio code (one console.warn per failure).
+- Before every push: npm run typecheck && npm test && npm run build && npm run size && npm run smoke.
+  On this shared Mac use npm test -- --maxWorkers=3 and npm run smoke -- --workers=1. Never loosen an assertion.
+- Confirm current APIs with Context7 before relying on them; record what you checked in the PR.
+- Never commit ios/App/App.xcodeproj/project.pbxproj. Leave docs/v2/FABLE_PROMPT*.md alone.
+- No session IDs or attribution lines in commits or PR bodies. Run npm run codebase at the end of the PR.
+
+AT THE PR: what shipped, the "done when" list ticked or explained, test counts, sizes from npm run size (and what is
+left of the 25 KB M6 budget), any change nobody asked for, render times per song, and the device check with the
+listening checklist for the style approval. End with the preview URL
+(https://deploy-preview-<PR#>--machzero.netlify.app/?features=music,expansion; SOUND TEST is ?features=music&jukebox=1)
+and the iOS command:
+git fetch && git checkout <branch> && npm ci && VITE_FEATURES=music,expansion npm run ios:sync && npm run ios:open
+
+AT THE END OF THE SESSION: report the PR, what the device check needs from the owner, any deviation with its
+reason, and update IMPLEMENTATION.md ("As built" for M6b) and this file so M6c can resume from the docs alone.
+```
 
 ## M6 (audio) designed (2026-11-24)
 
