@@ -10,12 +10,12 @@ const root = new URL('..', import.meta.url).pathname;
 const APP_JS_GZIP_BUDGET = 600 * 1024;
 const RAPIER_GZIP_BUDGET = 1.7 * 1024 * 1024;
 const CONTENT_BUDGET = 15 * 1024 * 1024;
-// M6 (IMPLEMENTATION §M6.5): app JS may grow by at most 25 KB gzip over the build before M6, the render Worker
+// M6 (IMPLEMENTATION §M6.5): app JS may grow by at most 45 KB gzip (raised from 25 KB by the owner on M6b, once the synthesiser and the first songs were measured) over the build before M6, the render Worker
 // included. Chunks loaded only on demand are reported but not counted against it (the owner's size call on M6b):
 // SOUND TEST (a jukebox screen) and the render fallback (loaded only when the Worker fails). They still count
 // toward the 600 KB app budget.
 const PRE_M6_APP_GZIP = 375.0 * 1024;
-const M6_BUDGET = 25 * 1024;
+const M6_BUDGET = 45 * 1024;
 const ON_DEMAND = /[\\/](SoundTest|fallback|presets)-[^\\/]*\.js$/;
 
 function walk(dir, out = []) {
@@ -62,7 +62,7 @@ if (appGzip > APP_JS_GZIP_BUDGET) {
   ok = false;
 }
 if (m6 > M6_BUDGET) {
-  console.error('✗ M6 over its 25 KB app JS budget');
+  console.error('✗ M6 over its 45 KB app JS budget');
   ok = false;
 }
 if (rapierGzip === 0) {
