@@ -21,12 +21,12 @@ const world = (id: WorldId, title: string, bpm: number, key: string, ready = fal
 const sting = (id: MusicId, title: string): CatalogEntry => ({ id, title, bpm: 120, key: 'C major', kind: 'stinger', ready: false });
 
 export const CATALOG: readonly CatalogEntry[] = [
-  { id: 'menu', title: 'MACHZERO — "STARTING GRID"', bpm: 108, key: 'F major', kind: 'menu', ready: false },
-  world('neon-bay', 'NEON BAY — "GRID RUNNER"', 118, 'A minor'),
+  { id: 'menu', title: 'MACHZERO — "STARTING GRID"', bpm: 108, key: 'F major', kind: 'menu', ready: true },
+  world('neon-bay', 'NEON BAY — "GRID RUNNER"', 118, 'A minor', true),
   world('sunset-mesa', 'SUNSET MESA', 124, 'D Dorian'),
   world('cryo-station', 'CRYO STATION', 110, 'E minor'),
   world('jade-ruins', 'JADE RUINS', 128, 'G Phrygian'),
-  world('orbital-ring', 'ORBITAL RING — "LOW ORBIT"', 96, 'C Lydian'),
+  world('orbital-ring', 'ORBITAL RING — "LOW ORBIT"', 96, 'C Lydian', true),
   world('tempest-spire', 'TEMPEST SPIRE', 132, 'F# minor'),
   world('cinder-forge', 'CINDER FORGE', 140, 'C Phrygian'),
   world('abyss-line', 'ABYSS LINE', 104, 'D Mixolydian'),

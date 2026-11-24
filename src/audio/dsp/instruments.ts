@@ -124,19 +124,19 @@ const fm = (range: readonly [number, number], p: InstrumentParams): InstrumentDe
 export const INSTRUMENTS: Readonly<Record<InstrumentId, InstrumentDef>> = {
   // --- tuned for M6b ---
   'saw-pad': synth([36, 96], { osc: 'saw', osc2: 'saw', detune: 11, mix2: 0.9, filter: 'lp', cutoff: 1500, res: 0.1, envAmt: 0.6, fDecay: 1.2, fSus: 0.4, keytrack: 0.3, a: 0.35, d: 1.2, s: 0.8, r: 1.0, gate: 1, chorus: 0.5, level: 0.32 }),
-  'saw-lead': synth([48, 96], { osc: 'saw', osc2: 'saw', detune: 7, mix2: 0.6, filter: 'lp', cutoff: 2400, res: 0.2, envAmt: 1.2, fDecay: 0.35, fSus: 0.5, keytrack: 0.5, a: 0.01, d: 0.3, s: 0.75, r: 0.18, gate: 0.95, vib: 0.18, vibRate: 5.2, vibDelay: 0.25, glide: 0.03, drive: 0.4, level: 0.4 }),
+  'saw-lead': synth([48, 96], { osc: 'saw', osc2: 'saw', detune: 7, mix2: 0.6, filter: 'lp', cutoff: 3000, res: 0.2, envAmt: 1.2, fDecay: 0.35, fSus: 0.5, keytrack: 0.5, a: 0.01, d: 0.3, s: 0.75, r: 0.18, gate: 0.95, vib: 0.18, vibRate: 5.2, vibDelay: 0.25, glide: 0.03, drive: 0.4, level: 0.4 }),
   'pulse-lead': synth([48, 100], { osc: 'pulse', width: 0.3, pwm: 0.12, pwmRate: 3, osc2: 'pulse', semi2: 12, mix2: 0.25, filter: 'lp', cutoff: 3200, res: 0.15, envAmt: 0.8, fDecay: 0.25, fSus: 0.6, keytrack: 0.5, a: 0.008, d: 0.2, s: 0.7, r: 0.15, gate: 0.9, vib: 0.12, vibRate: 5.5, vibDelay: 0.2, level: 0.34 }),
-  'square-arp': synth([48, 100], { osc: 'pulse', width: 0.5, filter: 'lp', cutoff: 1300, res: 0.35, envAmt: 2.2, fDecay: 0.09, fSus: 0, keytrack: 0.6, a: 0.002, d: 0.14, s: 0.25, r: 0.06, gate: 0.6, level: 0.3 }),
-  'saw-bass': synth([24, 60], { osc: 'saw', osc2: 'pulse', semi2: -12, width: 0.5, mix2: 0.5, filter: 'lp', cutoff: 420, res: 0.3, envAmt: 2.0, fDecay: 0.12, fSus: 0.15, keytrack: 0.4, a: 0.003, d: 0.25, s: 0.8, r: 0.05, gate: 0.8, drive: 0.6, level: 0.5 }),
+  'square-arp': synth([48, 100], { osc: 'pulse', width: 0.5, filter: 'lp', cutoff: 1700, res: 0.35, envAmt: 2.2, fDecay: 0.09, fSus: 0, keytrack: 0.6, a: 0.002, d: 0.14, s: 0.25, r: 0.06, gate: 0.6, level: 0.3 }),
+  'saw-bass': synth([24, 60], { osc: 'saw', osc2: 'pulse', detune: 9, width: 0.4, mix2: 0.55, filter: 'lp', cutoff: 560, res: 0.3, envAmt: 2.0, fDecay: 0.12, fSus: 0.15, keytrack: 0.4, a: 0.003, d: 0.25, s: 0.8, r: 0.05, gate: 0.8, drive: 0.6, level: 0.5 }),
   'fm-epiano': fm([40, 96], { osc: 'sine', ratio: 1, index: 2.2, indexSus: 0.3, indexDecay: 0.6, a: 0.003, d: 1.6, s: 0.25, r: 0.4, gate: 0.95, chorus: 0.45, level: 0.42 }),
   bell: fm([60, 108], { osc: 'sine', ratio: 3.5, index: 3.2, indexSus: 0.4, indexDecay: 0.5, a: 0.001, d: 1.4, s: 0, r: 0.9, gate: 1, level: 0.32 }),
   'sine-sub': synth([24, 60], { osc: 'sine', osc2: 'tri', mix2: 0.15, a: 0.01, d: 0.3, s: 0.9, r: 0.12, gate: 0.95, drive: 0.3, level: 0.6 }),
-  kick: drum({ kind: 'kick', tune: 52, drop: 3.2, decay: 0.32, length: 0.5, noise: 0.15, level: 0.95 }),
+  kick: drum({ kind: 'kick', tune: 52, drop: 3.2, decay: 0.26, length: 0.45, noise: 0.18, level: 0.95 }),
   'kick-soft': drum({ kind: 'kick', tune: 48, drop: 2.2, decay: 0.26, length: 0.45, noise: 0.05, level: 0.8 }),
   snare: drum({ kind: 'snare', tune: 190, decay: 0.08, noiseDecay: 0.12, length: 0.3, noise: 0.65, tone: 2600, level: 0.7 }),
   'snare-big': drum({ kind: 'snare', tune: 175, decay: 0.12, noiseDecay: 0.22, length: 0.5, noise: 0.7, tone: 2000, level: 0.8 }),
-  hat: drum({ kind: 'hat', tune: 330, decay: 0.035, length: 0.12, level: 0.35 }),
-  'hat-open': drum({ kind: 'hat', tune: 330, decay: 0.22, length: 0.5, level: 0.3 }),
+  hat: drum({ kind: 'hat', tune: 330, decay: 0.035, length: 0.12, level: 0.5 }),
+  'hat-open': drum({ kind: 'hat', tune: 330, decay: 0.22, length: 0.5, level: 0.42 }),
   rim: drum({ kind: 'rim', tune: 1650, decay: 0.012, noiseDecay: 0.01, length: 0.07, noise: 0.35, tone: 3500, level: 0.45 }),
 
   // --- first recipes, tuned in M6c ---

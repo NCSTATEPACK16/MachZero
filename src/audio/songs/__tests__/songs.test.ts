@@ -25,6 +25,10 @@ describe('the registry and the catalogue', () => {
       expect(kindOf(e.id)).toBe(e.kind);
     }
   });
+
+  it('M6b ships the menu theme, Neon Bay and Orbital Ring', () => {
+    expect(Object.keys(SONGS).sort()).toEqual(expect.arrayContaining(['menu', 'neon-bay', 'orbital-ring']));
+  });
 });
 
 for (const [id, def] of Object.entries(SONGS) as Array<[MusicId, NonNullable<(typeof SONGS)[MusicId]>]>) {
