@@ -2004,6 +2004,38 @@ export interface SongDef {
 - Background the app mid-race and come back: the race is on the pause menu, and the sound fades in.
 - Menus by pad and by touch make the same sounds.
 
+**As built (2026-11-24, branch `v2/m6a-audio-graph`, PR #@@PR@@)** (read before M6b):
+- **Where things are.** `src/audio/`:
+  - `AudioSystem.ts` is the App's one audio object, a facade not in the file table above. It keeps v1's surface (`attach`, `detach`, `update`, `setVolumes(master, effects, music)`, `muted`, `setMuted`, `dispose`) and adds `setMono`, `onHidden`, `bindMenus`, `uiSound`, `test` (SOUND TEST), `startRendering` and `debug`. `App.audio` is public, for SOUND TEST.
+  - Beneath it: `AudioEngine` (the context and the graph), `SfxBank`, `RaceSounds`, `MenuSounds` and `render/RenderClient` with `render/audio.worker.ts`.
+  - `game/AudioSystem.ts` is deleted and `game/index.ts` exports nothing audio.
+- **The golden log** (`audio/__tests__/v1-golden.json`, about 2,270 lines) was recorded on v1's code in the first commit, before anything moved.
+  - The script: 40 frames, every v1 event, a burst past the 28-voice cap, levels, mute, hide and show.
+  - It plays against `new AudioSystem({ modern: false })` (`goldenSubjects.ts`); v1's class was a second subject until step 4 deleted it.
+  - It has never been re-recorded.
+- **Decision F as built.** `RaceSounds` queues `{ type, e, prio }` per event and drains the queue at the top of `update`, before v1's own checks, so with `music` off the Web Audio calls come in v1's order. A test proves that an emit builds no node.
+- **Presets.**
+  - `sfx/presetMeta.ts` holds the ids and playback levels, the only preset data the page carries. `sfx/presets.ts` holds the recipes, which only the Worker and the main-thread fallback (a lazy chunk, `import('../sfx/presets')`) load. A test checks that both files name the same presets.
+  - There are 30 presets, rendered at 44.1 kHz in 355 ms in Node and about 350 ms in the Worker in headless Chromium, 2.86 MB in all (under the 3 MB budget only after the envelopes were cut to §M6.2's lengths: the first pass was 3.63 MB).
+  - The four continuous voices (`ice.crackle` and the three telegraphs) are loops folded with an 80 ms crossfade.
+- **Telegraphs.** They are on/off-flagged voices (an `AudioParam.value` read never reaches 0 after `setTargetAtTime`), and each start records its id in `played`.
+- **Menu sounds.**
+  - `ui/uiSounds.ts` ignores `.mz-touch-layer` (the doc said `.mz-touch`; that class is set on `<html>` after a touch).
+  - "A confirm inside 40 ms of a move replaces it" is built as: the confirm (or back, or tab) still plays, and the move tick (about 20 ms) is not cut.
+  - `results:open` is emitted by the results screen on mount, and by the App for the HUD results panel (the no-menu flows).
+- **The EMP warning.** `ItemSystem.incomingAtPlayer()`; `HUD.setItems(view, incoming = view?.incoming ?? 0)`, so older callers still work.
+- **FrameContext.telegraphScale** is required, since only `RaceSession` and the golden test build a `FrameContext`.
+- **SOUND TEST:**
+  - It is route `{ name: 'soundtest', back }` (`App.openSoundTest` / `closeSoundTest`), and lists `SOUND_GROUPS` (`soundTable.ts`), which a test holds to every sound in the table.
+  - `?jukebox=1` (`UrlFlags.jukebox`) opens it once a profile is active.
+  - MONO and the SOUND TEST button sit in Settings → Sound, behind `music`.
+- **Not built here.** The perf overlay's `audio` line (§M6.5) is not among M6a's steps; it goes to M6b, where `MusicPlayer.tick` joins the measured work.
+- **API facts** (Context7 was not available in this session either; web search):
+  - `StereoPannerNode` is in Safari from 14.1 (iOS 14.5); `channelCountMode` and `WaveShaperNode.oversample` from Safari 6–7.
+  - The default `audioSession` type behaves as `ambient` on iOS, so the explicit `ambient` changes nothing by default and keeps the ringer switch obeyed if the default changes.
+  - A WebKit report says WKWebView loads no *service* workers from a custom URL scheme (`capacitor://`). Whether dedicated module workers are affected is not documented, so the iOS device check reads `presetsBy` in SOUND TEST ("background" or "main thread"); either way the sounds play.
+- **Size:** app JS @@SIZE@@.
+
 ---
 
 ### M6b — The synthesiser, the render Worker, the music player, and the first three songs (style approval)
