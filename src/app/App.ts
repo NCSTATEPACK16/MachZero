@@ -18,6 +18,7 @@ import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
 import { AudioSystem } from '../audio/AudioSystem';
+import { bindUiSounds } from '../ui/uiSounds';
 import { localRecordStore, type RecordStore } from '../game';
 import { cupGridOrder, cupWorld, newCup, type CupAward, type CupState } from '../game/modes/GrandPrix';
 import { Rumble } from '../game/Rumble';
@@ -27,7 +28,7 @@ import { AssetLoader } from '../assets/AssetLoader';
 import { TRACK_DEFS } from '../content/tracks';
 import { WORLDS, worldById, worldsFor, type WorldDef, type WorldId } from '../content/worlds';
 import { bookTourRace, tourWorlds, worldUnlocked, type TourResult } from '../game/modes/WorldTour';
-import { raceTally, winnerQuote, type RaceResult } from '../game/modes/raceResult';
+import { raceTally, resultsOpenOf, winnerQuote, type RaceResult } from '../game/modes/raceResult';
 import { bookTrial, medalTally, medalTimes } from '../game/modes/TimeTrial';
 import type { GhostData } from '../game/ghost/ghostCodec';
 import { loadDevGhost } from '../game/ghost/devGhosts';
@@ -187,6 +188,7 @@ export class App {
     this.graphics = new GraphicsSystem(els.app);
     // Audio (IMPLEMENTATION §M6a): the menu bus's sounds, and a hidden page pauses a running race (both with `music`).
     this.audio.bindMenus(this.events);
+    if (this.audio.modern) for (const root of [els.ui, els.hud]) bindUiSounds(root, (kind, value) => this.audio.uiSound(kind, value));
     this.audio.onHidden(() => {
       const r = this.session;
       if (r && (r.state === 'racing' || r.state === 'countdown')) r.pause(true);
@@ -659,12 +661,14 @@ export class App {
   buyPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): PurchaseResult {
     let result: PurchaseResult = 'invalid';
     this.updateProfile((p) => (result = buyPart(p, slot, tier, variant)), () => result === 'bought');
+    this.shopSound(result, slot);
     return result;
   }
 
   equipPart(slot: PartSlot, tier: PartTier, variant: PartVariant = 'a'): boolean {
     let ok = false;
     this.updateProfile((p) => (ok = equipPart(p, slot, tier, variant)), () => ok);
+    if (ok) this.events.emit('shop:equip', { slot });
     return ok;
   }
 
@@ -680,7 +684,14 @@ export class App {
   buyItem(kind: ItemKind): ItemPurchase {
     let result: ItemPurchase = 'short';
     this.updateProfile((p) => (result = buyItem(p, kind)), () => result === 'bought');
+    this.shopSound(result, 'item');
     return result;
+  }
+
+  /** The shop's sound hooks (IMPLEMENTATION §M6a): a purchase, or a refusal for want of credits. */
+  private shopSound(result: string, slot: PartSlot | 'item'): void {
+    if (result === 'bought') this.events.emit('shop:buy', { slot });
+    else if (result === 'short') this.events.emit('shop:deny', {});
   }
 
   /** CPU difficulty for the active profile's next race. */
@@ -999,6 +1010,14 @@ export class App {
     }
   }
 
+  /** The HUD's results panel (the no-menu flows) has no screen to emit the `results:open` sound hook, so the App does. */
+  private bindResultsPanel(s: RaceSession): void {
+    if (this.resultsScreen) return;
+    s.bus.on('race:results', ({ standings }) => {
+      this.events.emit('results:open', resultsOpenOf({ mode: 'tour', standings, playerId: s.player.def.id }));
+    });
+  }
+
   /** Per race: restart the run stats at GO; at the results, log the race's frame summary. */
   private bindPerf(s: RaceSession): void {
     s.bus.on('race:countdown', ({ value }) => {
@@ -1110,6 +1129,7 @@ export class App {
       this.session = null;
       next.attachView({ graphics: this.graphics, audio: this.audio, hudRoot: this.els.hud, actions: this.hudActions(), showTitle: !this.menus, results: !this.resultsScreen, rumble: this.rumble, touch: this.touchRig });
       this.bindStats(next);
+      this.bindResultsPanel(next);
       this.bindPerf(next);
       if (isNativeApp()) bindHaptics(next.bus, next.player.def.id); // the race's bus is cleared on dispose
       this.session = next;

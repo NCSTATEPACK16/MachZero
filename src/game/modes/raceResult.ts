@@ -54,6 +54,13 @@ export interface RaceResult {
  * The tally for a race: the position's payout, the tier's extra (Pilot ×1.3 and up), the first-clear bonus and the
  * cup bonus. The lines add up to what `settleRace` paid plus the bonuses. No standing → no lines.
  */
+/** The `results:open` sound hook (IMPLEMENTATION §M6a): what the result's stinger is picked from (M6c). */
+export function resultsOpenOf(r: Pick<RaceResult, 'mode' | 'standings' | 'playerId' | 'trial'>): { mode: RaceResult['mode']; position: number | null; medal: Medal | null; previousMedal: Medal | null; best: boolean } {
+  const me = r.standings.find((s) => s.id === r.playerId);
+  const position = me && me.status !== 'retired' ? Math.floor(me.position) : null;
+  return { mode: r.mode, position, medal: r.trial?.reached ?? null, previousMedal: r.trial?.previous ?? null, best: r.trial?.best ?? false };
+}
+
 export function raceTally(me: RacerStanding | undefined, tier: AITier, bonuses: { firstClear?: number; cup?: number; champion?: number } = {}): TallyLine[] {
   const lines: TallyLine[] = [];
   if (me) {
