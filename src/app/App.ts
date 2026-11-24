@@ -335,11 +335,12 @@ export class App {
     const first = initialRoute(this.flags, this.save.value);
     if (this.flags.autopilot) setTimeout(() => this.session?.start(), 600);
     this.route.value = first;
-    // ?jukebox=1 (with `music`): SOUND TEST as soon as a profile is active.
+    // ?jukebox=1 (with `music`): SOUND TEST once a profile is active and the main menu shows. (Waiting for the menu
+    // matters for a new profile: creating one makes it active first and shows the menu after.)
     if (this.flags.jukebox && this.audio.modern && this.menus) {
       let opened = false;
       effect(() => {
-        if (opened || !this.activeProfile.value) return;
+        if (opened || !this.activeProfile.value || this.route.value.name !== 'menu') return;
         opened = true;
         untracked(() => (this.route.value = { name: 'soundtest', back: 'menu' }));
       });
