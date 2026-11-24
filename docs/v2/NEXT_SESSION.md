@@ -1,21 +1,87 @@
-# Next-session brief: MachZero (2.0 live, iOS 1.1.0, X7 merged; next: the M6 audio design session, and the X4–X6 world looks when their images arrive)
+# Next-session brief: MachZero (2.0 live, iOS 1.1.0, X7 merged; M6 audio designed; next: build M6a, and the X4–X6 world looks when their images arrive)
 
-**MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. The prompt at the bottom of this file continues the 2.1 expansion (the world looks and X7), and the M8d prompt below is kept for reference. Everything else is the context those prompts rely on.
+**MachZero 2.0 is live** (#50 merged M8d into `main`; #51 set the iOS version to 1.1.0). M7, M8 and X7 are built; what is left of 2.0 is the owner's QA checklist. **M6 (audio) is designed** (2026-11-24): build it from IMPLEMENTATION §M6 with the M6a prompt below. The 2.1 prompt at the bottom of this file continues the world looks. Everything else is the context those prompts rely on.
 
-## Next: M6 (audio) design session
+## M6 (audio) designed (2026-11-24)
 
-- **M6 is the next milestone, and it needs a design session first.** Everything else in the 2.0 and 2.1 plans is
-  built, except the X4–X6 world looks, which wait for the owner's `chosen.jpg` images.
-- **The prompt is `docs/v2/FABLE_PROMPT_M6.md`:** Claude Fable 5.2 at high effort, design and spec only, with a
-  grilling interview.
-  - It covers the audio graph, the music sequencer and the 8 world songs, the full event-to-sound table, iOS
-    audio, accessibility, budgets, tests, a jukebox for the owner's listening approvals, and the PR split.
-  - It ends with a docs PR and a build prompt for M6a.
-- **What M6 inherits:**
-  - the `music` flag (off);
-  - the saved `musicVolume`, whose slider is hidden behind the flag;
-  - the 9 `MenuEvents` sound hooks that nothing plays;
-  - hazard events with no sound of their own (lightning; geysers and jets reuse the mine's sound).
+- **The design is agreed with the owner:** 35 decisions in two rounds and a summary. Read SPEC §8 (what and why; changes from the original §8 are marked) and IMPLEMENTATION §M6 (the facts and experiments, the milestone decisions, the audio graph, the event-to-sound table, the song table and format, budgets, warning twins, and M6a–M6d with build steps, "done when" and device gates). It is written to be built with no further questions.
+- **The docs PR** is "M6 design docs (audio)" on `claude/zen-knuth-uw6y2i` (base `main`). The owner merges it.
+- **The decisions in one line each:** the music is rendered by a pure-TypeScript synthesiser in a Web Worker into looping buffers (not live nodes, not AudioWorklet); four buses (music, sfx, ui, ambience) with a limiter at −3 dBFS and three sliders plus MONO; ducking under the countdown, stingers and warnings; the music plays on, muffled, in the pause menu; 8 world songs, a menu theme with the MachZero motif, a results theme and 10 stingers (the off-podium one warm, never sad); a final-lap lift layer; v1's sounds unchanged, new sounds as jsfxr-style presets; no CC0 samples; StereoPanner for rivals, two rival engine voices; an engine voice per class; ambience per world, the crowd, an echo in the pipe and on the Spine; the ringer switch respected (`audioSession` ambient); the race pauses when the app or tab is hidden; SOUND TEST stays in the game.
+- **Experiments** (headless Chromium on a cloud Xeon; no device was available): live native-node music 6.8–9% of a core and 0.9–1.4 ms of main thread per busy step; pure-JS synthesis 1% for 16 voices; a looping buffer 0.12%; 20 jsfxr presets 215–257 ms; PannerNode 4× the cost of StereoPanner. IMPLEMENTATION §M6 "Facts" has the table.
+- **Not verified in the design session** (Context7 was not available; web search instead): the iOS facts about `navigator.audioSession`, AudioWorklet and module Workers in WKWebView. M6a re-checks them with Context7 first.
+- **Build order, one stacked PR each:**
+
+  | # | PR | Branch | Flag | Needs from the owner |
+  |---|---|---|---|---|
+  | 1 | M6a: the audio graph and mixer, the move to `src/audio/`, the SFX bank, the event-to-sound table, menu, shop, results and hazard sounds, SOUND TEST (effects) | `v2/m6a-audio-graph` | behind `music` | The baseline fps (on today's `main`), the new effects by ear, ringer switch, AirPods, background and resume |
+  | 2 | M6b: the synthesiser, the render Worker, the music player and director, the menu theme, Neon Bay, Orbital Ring | `v2/m6b-music-engine` | behind `music` | **The style approval** (blocks M6c); render times and fps |
+  | 3 | M6c: the other six world songs, the results theme, the stingers | `v2/m6c-songs` | behind `music` | Each song and stinger by ear |
+  | 4 | M6d: engine voices, rival engines, ambience, the crowd, the echo, the mix pass; `music` on, then the flag removed | `v2/m6d-mix-release` | `music` on; removed | The full device gate; the sound set as a whole; the merge |
+
+- **Found while designing:** the HUD's "⚠ EMP INCOMING" hides when the player carries no items, so the EMP alarm was then the only cue. M6a fixes it (not behind the flag).
+- **Correction to round 1:** loops are 60–80 s (24–40 bars by tempo), not "48–64 bars"; the seconds were what the memory budget assumed.
+
+### Paste this prompt: M6a
+
+```
+You are the Principal Engineer building MachZero, a Three.js + Rapier + Vite anti-gravity racer in
+/Users/johnbradner/Documents/ClaudeWork/MachZero. It is live at https://machzero.netlify.app (MachZero 2.0) and on
+TestFlight as an iOS app (Capacitor 8, version 1.1.0). The owner tests on an iPhone 18 Pro Max and an iPad Air 11"
+with an 8BitDo SN30 Pro pad in X-input mode, and by touch. Players are ages 7 to 70.
+
+READ FIRST, in this order, before writing any code:
+  1. docs/v2/NEXT_SESSION.md: current state, the M6 build order and the environment table. Trust the table.
+  2. docs/v2/SPEC.md §8 (and §2): what M6 is and why. Every decision is settled; do not re-open one.
+  3. docs/v2/IMPLEMENTATION.md §0 (operating rules), then §M6 in full: the facts, the milestone decisions (A–K),
+     §M6.1–§M6.6, then "M6a" closely. Skim M6b–M6d so M6a's files and seams fit them.
+  4. The code M6a changes: src/game/AudioSystem.ts and its test, src/app/App.ts (the audio, events and
+     applySettings parts), src/app/RaceSession.ts (attachView, frame, dispose), src/core/events.ts,
+     src/core/contracts.ts (FrameContext), src/ui/nav.ts, src/game/HUD.ts and ItemSystem.ts (the EMP warning),
+     src/save/schema.ts (sanitizeSettings), src/ui/screens/SettingsScreen.tsx, src/game/HazardCue.ts and
+     src/track/features/{lightning,geyser,jet,gate}.ts (the hazard timelines).
+
+GOAL: build M6a exactly as IMPLEMENTATION §M6a says: the audio graph and mixer, the move to src/audio/, the SFX
+bank, the event-to-sound table, the menu, shop, results and hazard sounds, the EMP warning fix, MONO and SOUND
+TEST (effects only). One PR on branch v2/m6a-audio-graph, based on main (or on claude/zen-knuth-uw6y2i while the
+M6 design-docs PR is open). Follow the build steps in order, tests first. **Step 1 (the fake context and the v1
+golden log, recorded on today's code before anything moves) comes first.** With `music` off the live game must
+sound exactly as today; the golden test proves it. Stop only for what the device check needs from the owner,
+and carry on meanwhile.
+
+HOW TO WORK (agreed with the owner; follow exactly):
+- You implement everything yourself, in order. Sub-agents only for read-only lookups.
+- Never merge a PR, push to main or enable auto-merge. The owner playtests each preview and merges.
+- main is live: everything new stays behind `music` (except the EMP warning fix). Every existing test passes
+  unchanged unless a step says to update one.
+- Audio never builds or schedules a node inside the physics step (decision F), and the game loop never waits on
+  audio. No console.error from audio code (one console.warn per failure).
+- Before every push: npm run typecheck && npm test && npm run build && npm run size && npm run smoke.
+  On this shared Mac use npm test -- --maxWorkers=3 and npm run smoke -- --workers=1. Fix red CI before
+  moving on. Never loosen an assertion to go green; find the root cause.
+- Confirm current APIs with Context7 before relying on them: Web Audio (DynamicsCompressor, WaveShaper,
+  StereoPanner, channelCount), module Workers in Vite and in WKWebView (capacitor:// scheme),
+  navigator.audioSession on iOS, Playwright and audio. Record what you checked, and any difference from
+  IMPLEMENTATION §M6's facts, in the PR. Use jCodemunch for code navigation.
+- Local dev server: npm run dev -- --port 5180.
+- Never commit ios/App/App.xcodeproj/project.pbxproj. Leave docs/v2/FABLE_PROMPT*.md alone.
+- No session IDs or attribution lines in commits or PR bodies. Run npm run codebase at the end of the PR.
+
+AT THE PR: the body holds what shipped, the "done when" list from IMPLEMENTATION ticked or explained, test
+counts, sizes from npm run size, any change nobody asked for, and the device check: first the baseline fps on
+today's main (Jade Ruins and Orbital Ring, 8 ships, both devices, perf overlay p95), then a listening checklist
+of the new effects (one line per sound id of §M6.2's M6 rows), the ringer switch, AirPods, background and
+resume, and menus by pad and by touch. End the hand-off with the preview URL
+(https://deploy-preview-<PR#>--machzero.netlify.app, add ?features=music,expansion; SOUND TEST is
+?features=music&jukebox=1) and the iOS build command for the PR's branch:
+git fetch && git checkout <branch> && npm ci && VITE_FEATURES=music,expansion npm run ios:sync && npm run ios:open
+
+AT THE END OF THE SESSION: report the PR (link and preview URL), what the device check needs from the owner, any
+deviation from the spec with its reason, and update IMPLEMENTATION.md (mark M6a built, add its "As built" notes)
+and this file so the M6b session can resume from the docs alone.
+
+Start now: list the open PRs (gh api repos/NCSTATEPACK16/MachZero/pulls), read the files above, then write
+M6a step 1 (the fake context and the golden log on today's code).
+```
 
 ## X7 built (2026-11-23)
 
@@ -110,7 +176,7 @@
 - **The world looks (X4–X6) and X7 fit in whenever their images or approvals arrive.** They block nothing, and M7 and M8 do not wait for them. `expansion` stays off until each world's look is approved (the owner's answer to the open question on #39).
 - **Found while designing (IMPLEMENTATION §M7 has the details):** the four assists do nothing in the live game today, although the Rookie preset promises them. M7a repairs that first, with no flag.
 - **Waiting on the owner in M7 and M8:** the device gate of each PR; the default air-brake style at the M7b gate; the look of the world map and the results screen (M8a); the merge of every PR.
-- **M6 (audio) is still not designed.** M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
+- **M6 (audio)** was designed on 2026-11-24 (see the top of this file). M7 and M8 add no sounds: they emit named bus events (IMPLEMENTATION §M8a step 8) for M6 to use.
 
 ### Paste this prompt: M8d (done; kept for reference)
 
@@ -257,7 +323,7 @@ Stack each branch on the previous PR if that PR is still open (write "stacked on
   - The player's ship always uses LOD0, cheaper rival materials on Low, the Garage always at High, right-stick orbit in the Garage, rumble only where supported.
   - V1 COMET ✅ (gate passed 2026-11-08). **V2 parts + V3 the other 5 chassis are next: one session, two stacked PRs, per §V.7.**
   - It needs the user's Gemini concepts first: `assets/reference/ships/<id>/chosen.jpg` (prompts in `docs/v2/VEHICLE_CONCEPTS.md`). Don't model a chassis without one.
-- **M6, audio (#10):** music sequencer, 7 songs, SFX bank. Needs a design session first.
+- **M6, audio (#10):** designed 2026-11-24 (SPEC §8, IMPLEMENTATION §M6). Ready to build: see the top of this file.
 - **M7, touch and comfort (#11):** designed 2026-11-16 (SPEC §11, IMPLEMENTATION §M7). Ready to build: see the top of this file.
 - **M8, modes and polish (#12):** designed 2026-11-16 (SPEC §12, IMPLEMENTATION §M8). Ready to build after M7.
 - **Smaller ideas worth raising with the user:**
