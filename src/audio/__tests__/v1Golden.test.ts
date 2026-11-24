@@ -54,7 +54,7 @@ function play(subject: GoldenSubject): string[] {
     ships,
     wrongWay: false,
   } as unknown as RaceSnapshot;
-  const ctx: FrameContext = { dt: 1 / 60, alpha: 1, time: 0, hazardTime: 0, ships, player, track, race, mines: [mine(0, 50), mine(1, 30)] };
+  const ctx: FrameContext = { dt: 1 / 60, alpha: 1, time: 0, hazardTime: 0, telegraphScale: 1, ships, player, track, race, mines: [mine(0, 50), mine(1, 30)] };
 
   const bus = new EventBus<GameEvents>();
   const audio = subject.create();

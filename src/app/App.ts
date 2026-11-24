@@ -17,7 +17,8 @@ import { EventBus, type MenuEvents } from '../core/events';
 import { buildRaceField, defaultLoadout } from '../content/pilots';
 import { buyPart, equipPart, selectChassis, settleRace, type PurchaseResult } from '../content/economy';
 import { buyItem, emptyBag, type ItemKind, type ItemPurchase } from '../content/items';
-import { AudioSystem, localRecordStore, type RecordStore } from '../game';
+import { AudioSystem } from '../audio/AudioSystem';
+import { localRecordStore, type RecordStore } from '../game';
 import { cupGridOrder, cupWorld, newCup, type CupAward, type CupState } from '../game/modes/GrandPrix';
 import { Rumble } from '../game/Rumble';
 import { GraphicsSystem } from '../graphics';
@@ -144,6 +145,7 @@ export class App {
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
   private readonly audio = new AudioSystem();
+  private audioRendering = false;
   /** Touch controls (IMPLEMENTATION §M7b). */
   private readonly touchRig = new TouchRig(new TouchInput());
   private readonly input = new InputManager(window, this.touchRig.input);
@@ -183,6 +185,12 @@ export class App {
     if (pendingFallback) this.toast(FALLBACK_TEXT[pendingFallback], 'warn', 9);
 
     this.graphics = new GraphicsSystem(els.app);
+    // Audio (IMPLEMENTATION §M6a): the menu bus's sounds, and a hidden page pauses a running race (both with `music`).
+    this.audio.bindMenus(this.events);
+    this.audio.onHidden(() => {
+      const r = this.session;
+      if (r && (r.state === 'racing' || r.state === 'countdown')) r.pause(true);
+    });
     this.input.onDeviceChange = (d) => this.setInputDevice(d);
     this.input.onPadChange = (connected) => this.padChanged(connected);
     this.applySettings(this.settings.snapshot());
@@ -238,6 +246,11 @@ export class App {
         const t1 = performance.now();
         this.graphics.render();
         const t2 = performance.now();
+        // The render Worker starts after the first rendered frame, so nothing new runs before it (§M6.5 boot).
+        if (!this.audioRendering) {
+          this.audioRendering = true;
+          this.audio.startRendering();
+        }
         if (this.bench) this.benchFrame(dt);
         this.afterFrame(this.loop.rawDt * 1000, t1 - t0, t2 - t1);
       },
@@ -294,6 +307,8 @@ export class App {
         ghosts: () => app.session?.shownGhosts.map((g) => ({ ...g })) ?? [],
         /** The tutorial prompt showing now, and whether the race runs the tutorial (e2e). */
         tutorial: () => ({ prompt: app.session?.tutorialPrompt ?? null, active: app.session?.tutorialActive ?? false }),
+        /** The audio's state, node count, voices, buffers and the last sounds played (audio e2e, §M6a step 11). */
+        audio: () => app.audio.debug(),
         /** Ghost meshes drawn in the last frame (one draw call each). */
         ghostsDrawn: () => app.graphics.ghostsDrawn,
         /** Add credits to the active profile (tests). */
@@ -1340,7 +1355,7 @@ export class App {
       this.perf.dispose();
       this.perf = null;
     }
-    this.audio.setVolumes(s.masterVolume, s.sfxVolume);
+    this.audio.setVolumes(s.masterVolume, s.sfxVolume, s.musicVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
     this.graphics.setColorBlind(s.colorBlind);

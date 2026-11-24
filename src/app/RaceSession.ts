@@ -11,7 +11,8 @@ import type { Assists, ControlInput, FrameContext, GhostFrame, HudActions, ShipD
 import { neutralControls } from '../core/controls';
 import { EventBus, type GameBus, type GameEvents } from '../core/events';
 import { HAZARDS_NORMAL, type HazardPolicy } from '../core/hazards';
-import { AIDriver, HUD, RaceManager, type AudioSystem, type RecordStore } from '../game';
+import type { AudioSystem } from '../audio/AudioSystem';
+import { AIDriver, HUD, RaceManager, type RecordStore } from '../game';
 import { ItemSystem, type PlayerItems } from '../game/ItemSystem';
 import { GhostCapture } from '../game/ghost/GhostCapture';
 import type { GhostData } from '../game/ghost/ghostCodec';
@@ -283,6 +284,7 @@ export class RaceSession {
       alpha,
       time,
       hazardTime: this.physics.hazardTime,
+      telegraphScale: this.setup.hazards?.telegraphScale ?? 1,
       ...(this.physics.mines.length > 0 ? { mines: this.physics.mines } : {}),
       ships: this.ships,
       player: this.player,
