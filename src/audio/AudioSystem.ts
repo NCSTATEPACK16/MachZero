@@ -239,6 +239,11 @@ export class AudioSystem implements IAudioSystem {
     };
   }
 
+  /** SOUND TEST: a rendered song's render time, bytes, loudness, true peak and loop length (null until rendered). */
+  songStats(id: MusicId): { renderMs: number; bytes: number; lufs: number; truePeakDb: number; seconds: number } | null {
+    return this.player?.stats(id) ?? null;
+  }
+
   /** Where songs render now (SOUND TEST). */
   get renderedBy(): 'worker' | 'main' | null {
     return this.render ? (this.render.fallback ? 'main' : 'worker') : null;
