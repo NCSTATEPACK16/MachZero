@@ -72,6 +72,7 @@ export class PerfOverlay {
       `${extras.preset.toUpperCase()}  res ×${extras.pixelRatio.toFixed(2)}  dyn ${Math.round(extras.dynScale * 100)}%\n` +
       `frame p50 ${s.p50.toFixed(1)}  p95 ${s.p95.toFixed(1)}  p99 ${s.p99.toFixed(1)} ms\n` +
       `cpu  sim ${s.simMs.toFixed(1)}  upd ${s.updateMs.toFixed(1)}  draw ${s.renderMs.toFixed(1)} ms\n` +
+      (s.audioMs !== null ? `audio ${s.audioMs.toFixed(2)}  p95 ${(s.audioP95 ?? 0).toFixed(2)} ms\n` : '') +
       `${extras.calls} calls  ${(extras.triangles / 1000).toFixed(0)}k tris\n` +
       `this race ${formatSummary(s)}` +
       (this.lastRace ? `\n${this.lastRace}` : '');
@@ -109,5 +110,6 @@ export class PerfOverlay {
 }
 
 export function formatSummary(s: FrameSummary): string {
-  return `${s.fps.toFixed(0)} fps  missed ${(s.missed * 100).toFixed(1)}%  hitches ${s.hitches}  worst ${s.worst.toFixed(0)} ms`;
+  const audio = s.audioP95 !== null ? `  audio p95 ${s.audioP95.toFixed(2)} ms` : '';
+  return `${s.fps.toFixed(0)} fps  missed ${(s.missed * 100).toFixed(1)}%  hitches ${s.hitches}  worst ${s.worst.toFixed(0)} ms${audio}`;
 }

@@ -254,6 +254,7 @@ export class App {
           this.audioRendering = true;
           this.audio.startRendering();
         }
+        if (this.audio.modern) this.musicFrame();
         if (this.bench) this.benchFrame(dt);
         this.afterFrame(this.loop.rawDt * 1000, t1 - t0, t2 - t1);
       },
@@ -1010,7 +1011,7 @@ export class App {
   private afterFrame(frameMs: number, updateMs: number, renderMs: number): void {
     const s = this.session;
     const racing = this.route.value.name === 'race' && s !== null && (s.state === 'racing' || s.state === 'countdown');
-    if (racing) this.frameStats.push({ frameMs, simMs: this.simMs, updateMs, renderMs });
+    if (racing) this.frameStats.push({ frameMs, simMs: this.simMs, updateMs, renderMs, audioMs: this.audio.modern ? this.audio.audioMs : undefined });
     this.simMs = 0;
     if (this.dynres) {
       if (racing && !this.bench) {
@@ -1036,6 +1037,26 @@ export class App {
     if (this.resultsScreen) return;
     s.bus.on('race:results', ({ standings }) => {
       this.events.emit('results:open', resultsOpenOf({ mode: 'tour', standings, playerId: s.player.def.id }));
+    });
+  }
+
+  /**
+   * The music's view of the game, once per frame (IMPLEMENTATION §M6b step 7). It is polled rather than an effect:
+   * the race's state changes inside the fixed step, not through a signal.
+   */
+  private musicFrame(): void {
+    const s = this.session;
+    const r = this.route.value;
+    if (!s) this.audio.tick();
+    this.audio.setScene({
+      route: r.name,
+      overRace: (r.name === 'settings' || r.name === 'soundtest') && r.back === 'pause',
+      worldId: s ? (s.setup.worldId as WorldId) : null,
+      race: s ? s.state : null,
+      intro: this.introUntil > 0,
+      run: s?.restarts ?? 0,
+      resultsOpen: !this.resultsScreen && s?.state === 'results',
+      stinger: false,
     });
   }
 

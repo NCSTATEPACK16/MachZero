@@ -305,7 +305,11 @@ export class RaceSession {
     if (this.race.state === 'title') this.race.start();
   }
 
+  /** Restarts so far (the music starts the world song again from its intro on each). */
+  restarts = 0;
+
   restart(): void {
+    this.restarts++;
     this.resetToGrid();
     this.race.start();
   }

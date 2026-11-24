@@ -100,6 +100,14 @@ describe('MusicDirector: the scene changes of §E', () => {
     expect(d.update(base({ route: 'race', race: 'title', intro: true, run: 1 }))).toMatchObject({ song: 'neon-bay', fromIntro: true, restart: true });
   });
 
+  it('RACE AGAIN’s grid card plays the world song though the race is still on its results (it resets at GO)', () => {
+    toRace();
+    d.update(base({ route: 'results', race: 'results', playerFinished: true }));
+    d.update(base({ route: 'loading', race: 'results', playerFinished: true }));
+    expect(d.update(base({ route: 'race', race: 'results', intro: true, playerFinished: true }))).toMatchObject({ song: 'neon-bay', fromIntro: true, restart: true });
+    expect(d.update(base({ route: 'race', race: 'countdown', playerFinished: false })).changed).toBe(false);
+  });
+
   it('a restart from pause: the song fades out over 0.5 s and starts again from its intro', () => {
     toRace();
     d.update(base({ route: 'race', race: 'paused' }));

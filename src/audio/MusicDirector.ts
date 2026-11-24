@@ -136,13 +136,18 @@ export class MusicDirector {
     }
     const overRace = i.route === 'race' || (i.overRace && i.race === 'paused');
     if (overRace) {
+      const world = (): Target => {
+        const song = i.worldId ? this.ok(i.worldId) : null;
+        if (!song) return NONE;
+        const racing = i.race === 'racing' || i.race === 'paused';
+        return { song, key: `${song}#${i.run}`, fromIntro: true, lift: racing && i.playerLap >= CONFIG.TOTAL_LAPS - 1, muffle: i.race === 'paused', why: 'none' };
+      };
+      // The grid card comes first: after RACE AGAIN the race is still on its results until GO resets it.
+      if (i.intro) return world();
       if (i.race === 'results' || i.resultsOpen) return results();
-      if (i.race === 'title' && !i.intro) return menu();
+      if (i.race === 'title') return menu();
       if (i.playerFinished) return { ...NONE, why: 'finish' };
-      const song = i.worldId ? this.ok(i.worldId) : null;
-      if (!song) return NONE;
-      const racing = i.race === 'racing' || i.race === 'paused';
-      return { song, key: `${song}#${i.run}`, fromIntro: true, lift: racing && i.playerLap >= CONFIG.TOTAL_LAPS - 1, muffle: i.race === 'paused', why: 'none' };
+      return world();
     }
     if (i.route === 'results') return results();
     if (i.route === 'cup' && this.target.song === 'results') return this.target;

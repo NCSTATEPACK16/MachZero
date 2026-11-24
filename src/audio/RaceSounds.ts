@@ -40,6 +40,14 @@ const TELEGRAPH_RANGE = 80;
 const GATE_RANGE = 80;
 const BOLT_RANGE = 120;
 const BLAST_RANGE = 100;
+/** A sounding telegraph holds the music's warning duck this long past each update. */
+const TELEGRAPH_DUCK = 0.15;
+
+/** What the music needs from the race (§M6b): the countdown, the player's laps and finish, the warnings. */
+export interface RaceMusicHooks {
+  countdown(value: number): void;
+  warning(seconds?: number): void;
+}
 
 type Osc = OscillatorType;
 
@@ -109,6 +117,11 @@ export class RaceSounds {
   private readonly queue: Queued[] = [];
   private timelines: Timelines | null = null;
   private paused = false;
+  /** The music's hooks (modern only). */
+  music: RaceMusicHooks | null = null;
+  /** Laps the player has completed, and whether the player has finished (the music director reads them). */
+  playerLap = 0;
+  playerFinished = false;
 
   constructor(
     private readonly engine: AudioEngine,
@@ -180,6 +193,8 @@ export class RaceSounds {
     this.timelines = null;
     this.paused = false;
     this.iceOn = false;
+    this.playerLap = 0;
+    this.playerFinished = false;
     const ac = this.engine.ac;
     if (!ac) return;
     const t = ac.currentTime;
@@ -284,6 +299,11 @@ export class RaceSounds {
   private handle(item: Queued): void {
     switch (item.type) {
       case 'race:countdown':
+        if (item.e.value === 3) {
+          this.playerLap = 0;
+          this.playerFinished = false;
+        }
+        this.music?.countdown(item.e.value);
         this.play(item.e.value > 0 ? 'countdown.beep' : 'countdown.go', { priority: 0 });
         break;
       case 'ship:boost':
@@ -341,11 +361,14 @@ export class RaceSounds {
         break;
       case 'race:lap':
         if (!this.isPlayer(item.e.shipId)) break;
+        this.playerLap = item.e.lap;
         if (item.e.lap === CONFIG.TOTAL_LAPS - 1) this.play('lap.final', { priority: 1 });
         else this.play('lap.chime', { priority: 1, x: item.e.isRecord ? 1 : 0 });
         break;
       case 'race:finish':
-        if (this.isPlayer(item.e.shipId)) this.play('finish.fanfare', { priority: 1, x: item.e.position === 1 ? 1 : 0 });
+        if (!this.isPlayer(item.e.shipId)) break;
+        this.playerFinished = true;
+        this.play('finish.fanfare', { priority: 1, x: item.e.position === 1 ? 1 : 0 });
         break;
       // --- modern only (not subscribed with `modern` off) ---
       case 'ship:respawn':
@@ -619,6 +642,8 @@ export class RaceSounds {
     const level = racing ? best * v.level : 0;
     if (level > 0 && !v.on) this.bank.note(telegraphId);
     v.on = level > 0;
+    // A telegraph is a warning: the music ducks while it sounds (decision C).
+    if (v.on) this.music?.warning(TELEGRAPH_DUCK);
     v.gain.gain.setTargetAtTime(level, t, 0.05);
     v.src.playbackRate.setTargetAtTime(0.8 + 0.6 * best, t, 0.05);
   }

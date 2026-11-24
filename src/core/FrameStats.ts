@@ -18,6 +18,8 @@ export interface FrameSample {
   updateMs: number;
   /** Render submission (CPU side of the GPU work). */
   renderMs: number;
+  /** Audio work on the main thread (with `music`, §M6.5): RaceSounds.update, its queue, MusicPlayer.tick. */
+  audioMs?: number;
 }
 
 export interface FrameSummary {
@@ -33,11 +35,18 @@ export interface FrameSummary {
   simMs: number;
   updateMs: number;
   renderMs: number;
+  /** Audio work per frame (null without `music`): the recent average and p95. */
+  audioMs: number | null;
+  audioP95: number | null;
 }
 
 export class FrameStats {
   /** Recent frame times, oldest first from `head` (exposed for the graph). */
   readonly ring: Float32Array;
+  /** Recent audio times, in step with `ring` (NaN when a frame had none). */
+  private readonly audioRing: Float32Array;
+  private audioCount = 0;
+  private audio = 0;
   private head = 0;
   private count = 0;
   private readonly sorted: Float32Array;
@@ -54,6 +63,7 @@ export class FrameStats {
 
   constructor(readonly capacity = 240) {
     this.ring = new Float32Array(capacity);
+    this.audioRing = new Float32Array(capacity).fill(NaN);
     this.sorted = new Float32Array(capacity);
   }
 
@@ -68,6 +78,11 @@ export class FrameStats {
 
   push(s: FrameSample): void {
     this.ring[this.head] = s.frameMs;
+    this.audioRing[this.head] = s.audioMs ?? NaN;
+    if (s.audioMs !== undefined) {
+      this.audio += (s.audioMs - this.audio) * (this.audioCount === 0 ? 1 : 0.05);
+      this.audioCount++;
+    }
     this.head = (this.head + 1) % this.capacity;
     if (this.count < this.capacity) this.count++;
     const k = this.runFrames === 0 ? 1 : 0.05;
@@ -84,6 +99,14 @@ export class FrameStats {
   /** Start a new run (a race); the recent window is kept for the graph. */
   resetRun(): void {
     this.runFrames = this.runTime = this.runMissed = this.runHitches = this.runWorst = 0;
+  }
+
+  private audioP95(): number {
+    const vals: number[] = [];
+    for (let i = 0; i < this.count; i++) if (!Number.isNaN(this.audioRing[i])) vals.push(this.audioRing[i]);
+    if (vals.length === 0) return 0;
+    vals.sort((a, b) => a - b);
+    return vals[Math.min(vals.length - 1, Math.floor(0.95 * vals.length))];
   }
 
   /** Percentiles over the recent window; fps, missed, hitches and worst over the run. */
@@ -104,6 +127,8 @@ export class FrameStats {
       simMs: this.sim,
       updateMs: this.update,
       renderMs: this.render,
+      audioMs: this.audioCount ? this.audio : null,
+      audioP95: this.audioCount ? this.audioP95() : null,
     };
   }
 }
