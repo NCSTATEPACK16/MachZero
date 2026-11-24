@@ -47,8 +47,10 @@ type Queued = { [K in keyof GameEvents]: { type: K; e: GameEvents[K]; prio: Prio
 interface Telegraph {
   src: AudioBufferSourceNode;
   gain: GainNode;
-  /** Base playback rate (pitch rises with the warning). */
+  /** Its level at full warning. */
   level: number;
+  /** Audible now (the edge records the sound id in `played`). */
+  on: boolean;
 }
 
 type TelegraphId = 'lightning.charge' | 'geyser.rumble' | 'jet.hiss';
@@ -474,8 +476,11 @@ export class RaceSounds {
   }
 
   private silenceModern(t: number, tau: number): void {
-    this.ice?.gain.gain.setTargetAtTime(0, t, tau);
-    for (const v of this.telegraphs.values()) v.gain.gain.setTargetAtTime(0, t, tau);
+    for (const v of [this.ice, ...this.telegraphs.values()]) {
+      if (!v) continue;
+      v.gain.gain.setTargetAtTime(0, t, tau);
+      v.on = false;
+    }
   }
 
   private setIce(on: boolean): void {
@@ -484,6 +489,8 @@ export class RaceSounds {
     if (!ac) return;
     const v = this.ice ?? (this.ice = this.loopVoice('ice.crackle'));
     if (!v) return;
+    if (on && !v.on) this.bank.note('ice.crackle');
+    v.on = on;
     // 80 ms in, 200 ms out.
     v.gain.gain.setTargetAtTime(on && !this.paused ? v.level : 0, ac.currentTime, on ? 0.08 / 3 : 0.2 / 3);
   }
@@ -504,7 +511,7 @@ export class RaceSounds {
     src.start();
     this.engine.made(2);
     const level = id === 'ice.crackle' ? 0.16 : id === 'lightning.charge' ? 0.2 : id === 'geyser.rumble' ? 0.32 : 0.22;
-    return { src, gain, level };
+    return { src, gain, level, on: false };
   }
 
   private telegraph(id: TelegraphId): Telegraph | null {
@@ -610,6 +617,8 @@ export class RaceSounds {
     const v = racing && best > 0 ? this.telegraph(telegraphId) : this.telegraphs.get(telegraphId) ?? null;
     if (!v) return;
     const level = racing ? best * v.level : 0;
+    if (level > 0 && !v.on) this.bank.note(telegraphId);
+    v.on = level > 0;
     v.gain.gain.setTargetAtTime(level, t, 0.05);
     v.src.playbackRate.setTargetAtTime(0.8 + 0.6 * best, t, 0.05);
   }

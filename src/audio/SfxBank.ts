@@ -104,7 +104,8 @@ export class SfxBank {
     return this.playPreset(id as PresetId, opts);
   }
 
-  private note(id: string): void {
+  /** Record a sound id as played (continuous voices call this as they start). */
+  note(id: string): void {
     this.played.push(id);
     if (this.played.length > PLAYED_KEEP) this.played.splice(0, this.played.length - PLAYED_KEEP);
   }
