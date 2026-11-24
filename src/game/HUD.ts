@@ -539,14 +539,17 @@ export class HUD implements IHUD {
     this.offs.push(bus.on('audio:mute', (e) => this.setMuted(e.muted)));
   }
 
-  /** The player's items (selected kind, counts, shield, incoming EMP), or null when they carry none (chip hidden). */
-  setItems(v: ItemView | null): void {
-    const key = v === null ? null : `${v.selected}|${v.counts.emp},${v.counts.shield},${v.counts.mine}|${v.shield > 0 ? Math.ceil(v.shield) : 0}|${v.incoming > 0 ? 1 : 0}`;
+  /**
+   * The player's items (selected kind, counts, shield), or null when they carry none (chip hidden), and the seconds
+   * until a CPU EMP lands on the player (`incoming`, 0 when none): the warning shows with or without items (§M6.6).
+   */
+  setItems(v: ItemView | null, incoming = v?.incoming ?? 0): void {
+    const key = `${v === null ? '-' : `${v.selected}|${v.counts.emp},${v.counts.shield},${v.counts.mine}|${v.shield > 0 ? Math.ceil(v.shield) : 0}`}|${incoming > 0 ? 1 : 0}`;
     if (key === this.shownItems) return;
     this.shownItems = key;
     this.touch?.setItems(v);
     this.itemsBox.hidden = v === null;
-    this.warnBox.hidden = v === null || v.incoming <= 0;
+    this.warnBox.hidden = incoming <= 0;
     if (v === null) return;
     const n = v.counts[v.selected];
     this.itemsName.set(`${ITEM_ICONS[v.selected]} ${ITEM_NAMES[v.selected]}`);

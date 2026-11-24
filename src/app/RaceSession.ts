@@ -293,7 +293,7 @@ export class RaceSession {
       ...(this.ghostFrames.length > 0 ? { ghosts: this.ghostFrames } : {}),
     };
     this.view.graphics.update(ctx);
-    this.hud?.setItems(this.items.playerView());
+    this.hud?.setItems(this.items.playerView(), this.items.incomingAtPlayer());
     if (this.tutorial) this.hud?.setTutorial(this.tutorialPrompt, this.tutorialEnded);
     this.hud?.update(ctx.race, dt, ctx.hazardTime, ctx.ghosts, ctx.ghosts ? this.view.graphics.ghostTag : null);
     this.view.audio.update(ctx);

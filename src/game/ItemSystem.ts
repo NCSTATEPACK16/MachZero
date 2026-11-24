@@ -147,9 +147,18 @@ export class ItemSystem {
     v.selected = this.selectedKind;
     v.counts = this.playerItems.counts();
     v.shield = this.host.player.shield;
-    v.incoming = 0;
-    for (const f of this.inFlight) if (f.target === this.host.player) v.incoming = Math.max(v.incoming, f.landsAt - this.clock);
+    v.incoming = this.incomingAtPlayer();
     return v;
+  }
+
+  /**
+   * Seconds until the nearest CPU EMP lands on the player, 0 when none is on its way. Separate from `playerView`, which
+   * is null when the player carries no items: the HUD's warning must show either way (IMPLEMENTATION §M6.6).
+   */
+  incomingAtPlayer(): number {
+    let incoming = 0;
+    for (const f of this.inFlight) if (f.target === this.host.player) incoming = Math.max(incoming, f.landsAt - this.clock);
+    return incoming;
   }
 
   /** Select the next (+1) or previous (−1) kind the player holds. */
