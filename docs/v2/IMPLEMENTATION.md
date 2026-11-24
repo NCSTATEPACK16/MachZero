@@ -2142,19 +2142,21 @@ export interface SongDef {
   - **Neon Bay's backbeat:** `snare-big` once every two bars (beat 3), as "good enough" allows; there is no regular snare in its instrument list. The style checklist asks the owner about it.
 - **Instruments tuned for these songs:** `saw-pad`, `saw-lead`, `pulse-lead`, `square-arp`, `saw-bass`, `fm-epiano`, `bell`, `sine-sub`, `kick`, `kick-soft`, `snare`, `snare-big`, `hat`, `hat-open`, `rim`. **First recipes, to be tuned in M6c by ear:** `fm-bass`, `tri-bass`, `pulse-chip`, `pluck`, `stab`, `breath-pad`, `flute`, `blip`, `kick-chip`, `snare-gated`, `snare-chip`, `clap`, `hat-chip`, `ride`, `crash`, `shaker`, `tom-lo`, `tom-mid`, `tom-hi`, `metal`, `anvil` (each renders its range cleanly; none has been heard in a song).
 - **The mix after measuring** (energy below 120 Hz was 59–74%, above 6 kHz under 0.5%): `saw-bass`'s second oscillator sat an octave below the note (a 22 Hz sub on F1, inaudible on a phone; now a detuned unison); a shorter kick; brighter lead, arpeggio and hats; lighter lift layers (the lift over the loop set the true peak). Now 52–61% below 120 Hz.
-- **The songs** (Node, this cloud Xeon; Chromium's Worker numbers are in the PR):
+- **The songs** (a shared 2.1 GHz cloud Xeon; headless Chromium for the Worker column):
 
-  | Song | Loop | Intro + run-on | LUFS | True peak | Voices | MB (intro, loop, lift) | Render (Node) |
-  |---|---|---|---|---|---|---|---|
-  | `menu` | 32 bars, 71.1 s | 2 bars + 4.7 s | −14.0 | −1.5 dBFS | 14 | 28.3 (no lift) | 1.6–2.5 s |
-  | `neon-bay` | 32 bars, 65.1 s | 4 bars + 5.0 s | −14.5 | −1.0 | 16 | 39.1 | 1.6–2.5 s |
-  | `orbital-ring` | 32 bars, 80.0 s | 4 bars + 7.8 s | −14.7 | −1.0 | 19 | 48.6 | 1.8–2.6 s |
+  | Song | Loop | Intro + run-on | LUFS | True peak | Voices | MiB (intro, loop, lift) | Render: Node | Render: Chromium Worker |
+  |---|---|---|---|---|---|---|---|---|
+  | `menu` | 32 bars, 71.1 s | 2 bars + 4.7 s | −14.0 | −1.5 dBFS | 14 | 27.0 (no lift) | 1.6–2.5 s | 1.68 s |
+  | `neon-bay` | 32 bars, 65.1 s | 4 bars + 5.0 s | −14.5 | −1.0 | 16 | 37.3 | 1.6–2.5 s | 1.95 s |
+  | `orbital-ring` | 32 bars, 80.0 s | 4 bars + 7.8 s | −14.7 | −1.0 | 19 | 46.4 | 1.8–2.6 s | 2.48 s |
 
   Neon Bay and Orbital Ring are held below −14 LUFS by the true-peak ceiling (the lift over the loop); both are inside ± 1 LU.
 - **Size:** app JS in play 386.0 → 403.3 KB gzip, **+17.3 KB for M6b** (the Worker 3.0 → 15.3 KB: the synthesiser about 8 KB, the three songs about 4 KB; the page +5.1 KB: the player, the director, the cache, the catalogue, the client's queue). **M6 so far: +28.3 KB of 45; left: 16.7 KB.** On demand: SOUND TEST 1.4 KB, the fallback 15.1 KB.
 - **The perf overlay's audio line:** `audio <avg> p95 <p95> ms` (RaceSounds.update, its queue and MusicPlayer.tick), and `audio p95` in the race summary, with `music` on.
 - **API facts** (Context7 was not available; web search): `AudioBufferSourceNode.start(when, offset)` starts a looping source at `offset` into its buffer and then loops the whole buffer (MDN); `cancelScheduledValues` removes a ramp that ends after the cancel time, so the player follows it at once with `setValueAtTime` of the level it computes itself (it never reads `AudioParam.value`); a WebKit list comment says Workers cannot be loaded from a custom URL scheme set with `setURLSchemeHandler` (Capacitor's `capacitor://`), which makes the sliced main-thread fallback likely on iOS.
-- **Tests:** unit TESTS_UNIT; e2e TESTS_E2E.
+- **The offline proxy** (`e2e/audio.perf.spec.ts`): 4.35% of real time. Its first version built all 360 one-shots up front, which kept every one in the graph for the whole render (10.1% alone, 13.6% under the smoke's load); it now builds each as it plays and lets it go as it ends, as the SFX bank does.
+- **Also found and fixed:** `?jukebox=1` with a new profile opened SOUND TEST and was then replaced by the main menu (creating a profile shows the menu after making it active); it now waits for the menu.
+- **Tests:** unit 113 files, 1,047 passed, 2 skipped (the export, opt-in, and one from before); e2e 40 passed (the 3 new music specs and the perf proxy among them).
 
 ---
 
