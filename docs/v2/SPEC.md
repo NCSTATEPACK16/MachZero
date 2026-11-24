@@ -254,7 +254,7 @@ One hand-designed track per world (3 laps, target lap time 30–45 s on Pilot), 
 
 ### 8.6 Accessibility, comfort and safe levels
 
-- **No information is carried by sound alone.** Every warning sound has a visual or haptic twin (IMPLEMENTATION §M6 lists them): the countdown numbers, the lightning circle, the geyser glow, the jet bubbles, the mines on the road, the low-energy flash, and an EMP warning on the HUD. **The EMP warning is new (M6a):** today a CPU's EMP on its way to the player has only an alarm and, in the iOS app, a haptic tap, so on the web it is told by sound alone.
+- **No information is carried by sound alone.** Every warning sound has a visual or haptic twin (IMPLEMENTATION §M6 lists them): the countdown numbers, the lightning circle, the geyser glow, the jet bubbles, the mines on the road, the low-energy flash, and the EMP warning on the HUD. **The EMP warning is fixed in M6a:** today the HUD's "⚠ EMP INCOMING" is hidden when the player carries no items, so a CPU's EMP on its way to that player is told only by the alarm (and, in the iOS app, a haptic tap). M6a shows it whenever an EMP is on its way.
 - **Sliders:** MASTER, MUSIC (shown once M6 is done) and EFFECTS (it sets the effects, the menu sounds and the ambience together), plus the mute. The defaults stay master 80%, music 70%, effects 100%. There is no "music off" default: the MUSIC slider at 0 does that.
 - **MONO** (new, Settings → Sound): every sound plays in the centre, for one earbud or one ear.
 - **Safe levels for children on headphones:** the mix is quieter than most games (−18 LUFS at the default volume), and a limiter stops any peak above −3 dBFS.
