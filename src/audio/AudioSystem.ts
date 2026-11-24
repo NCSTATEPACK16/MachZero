@@ -13,7 +13,7 @@ import { MenuSounds } from './MenuSounds';
 import { RaceSounds } from './RaceSounds';
 import { RenderClient, type RenderClientOptions } from './render/RenderClient';
 import { SfxBank } from './SfxBank';
-import { PRESET_IDS } from './sfx/presets';
+import { PRESET_IDS } from './sfx/presetMeta';
 import type { SoundId, UiSoundKind } from './soundTable';
 
 export interface AudioDebug {

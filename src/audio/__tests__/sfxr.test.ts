@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PRESET_IDS, PRESETS, renderPreset, type SfxPreset } from '../sfx/presets';
+import { PRESET_LEVELS } from '../sfx/presetMeta';
 import { renderSfxr, sfxrLength } from '../sfx/sfxr';
 
 const peakOf = (b: Float32Array) => b.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
@@ -9,6 +10,11 @@ describe('sfxr presets (§M6a step 2)', () => {
   const t0 = performance.now();
   for (const id of PRESET_IDS) rendered.set(id, renderPreset(PRESETS[id] as SfxPreset, 44100));
   const ms = performance.now() - t0;
+
+  it('names the same presets in the recipes and the playback levels', () => {
+    expect(Object.keys(PRESETS).sort()).toEqual(Object.keys(PRESET_LEVELS).sort());
+    for (const id of PRESET_IDS) expect(PRESET_LEVELS[id]).toBeGreaterThan(0);
+  });
 
   it('renders every preset non-silent, within ±1, with no NaN', () => {
     for (const id of PRESET_IDS) {

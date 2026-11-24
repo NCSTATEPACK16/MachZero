@@ -6,7 +6,7 @@
  * `music` on). Fallback: if `new Worker` throws, the Worker reports an error, or there is no answer within 10 s, the
  * presets render on the main thread, one preset per `setTimeout(0)` slice, with one `console.warn` (never an error).
  */
-import { PRESETS, renderPreset, type PresetId, type SfxPreset } from '../sfx/presets';
+import type { PresetId } from '../sfx/presetMeta';
 
 export interface RenderResult {
   samples: Map<string, Float32Array>;
@@ -132,8 +132,12 @@ export class RenderClient {
     }
   }
 
-  /** The fallback: one preset per timer slice, so no slice blocks a frame for long. */
-  private renderOnMain(ids: readonly PresetId[], sampleRate: number): Promise<RenderResult> {
+  /**
+   * The fallback: one preset per timer slice, so no slice blocks a frame for long. The recipes and the synthesiser
+   * load as their own chunk, only when the fallback runs.
+   */
+  private async renderOnMain(ids: readonly PresetId[], sampleRate: number): Promise<RenderResult> {
+    const { PRESETS, renderPreset } = await import('../sfx/presets');
     const samples = new Map<string, Float32Array>();
     const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     let busy = 0;
@@ -146,7 +150,7 @@ export class RenderClient {
         }
         const id = ids[i++];
         const s = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        samples.set(id, renderPreset(PRESETS[id] as SfxPreset, sampleRate));
+        samples.set(id, renderPreset(PRESETS[id], sampleRate));
         busy += (typeof performance !== 'undefined' ? performance.now() : Date.now()) - s;
         this.setTimer(step, 0);
       };

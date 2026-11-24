@@ -19,6 +19,7 @@ import { buildStrikes, STRIKE_TIME, STRIKE_WARNING, strikeActive, strikeWarning 
 import type { TimedPoint } from '../track/features/timedField';
 import type { AudioEngine } from './AudioEngine';
 import type { PlayOptions, SfxBank } from './SfxBank';
+import { PRESET_LEVELS } from './sfx/presetMeta';
 import type { SoundId } from './soundTable';
 import type { Priority } from './VoicePool';
 
@@ -510,8 +511,7 @@ export class RaceSounds {
     gain.connect(out);
     src.start();
     this.engine.made(2);
-    const level = id === 'ice.crackle' ? 0.16 : id === 'lightning.charge' ? 0.2 : id === 'geyser.rumble' ? 0.32 : 0.22;
-    return { src, gain, level, on: false };
+    return { src, gain, level: PRESET_LEVELS[id], on: false };
   }
 
   private telegraph(id: TelegraphId): Telegraph | null {

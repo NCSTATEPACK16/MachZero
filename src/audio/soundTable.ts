@@ -7,7 +7,7 @@
  * replaces the v1 row for it.
  */
 import type { GameEvents, MenuEvents } from '../core/events';
-import { PRESETS, type PresetId } from './sfx/presets';
+import { PRESET_LEVELS, type PresetId } from './sfx/presetMeta';
 import { V1_SOUNDS, type V1SoundId } from './sfx/v1Sounds';
 import type { Priority } from './VoicePool';
 
@@ -153,7 +153,7 @@ export const WARNING_TWINS: Readonly<Record<string, { visual: string; haptic?: s
 };
 
 export const isV1Sound = (id: string): id is V1SoundId => id in V1_SOUNDS;
-export const isPreset = (id: string): id is PresetId => id in PRESETS;
+export const isPreset = (id: string): id is PresetId => id in PRESET_LEVELS;
 
 /** The rule an event plays: the M6 row when `modern` (music on) and there is one, else the v1 row. */
 export function rulesFor(kind: SoundSource['kind'], event: string, modern: boolean): SoundRule[] {

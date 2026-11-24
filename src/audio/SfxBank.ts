@@ -7,7 +7,7 @@
  * dropped), a sound may be panned (decision G; MONO zeroes it), and sounds may go to the ui bus.
  */
 import type { AudioEngine } from './AudioEngine';
-import { PRESETS, type PresetId } from './sfx/presets';
+import { PRESET_LEVELS, type PresetId } from './sfx/presetMeta';
 import { V1_SOUNDS, type NoiseOptions, type SfxOut, type ToneOptions, type V1SoundId } from './sfx/v1Sounds';
 import type { SoundId } from './soundTable';
 import { VoicePool, type Priority } from './VoicePool';
@@ -154,9 +154,9 @@ export class SfxBank {
   private playPreset(id: PresetId, opts: PlayOptions): boolean {
     const ac = this.engine.ac;
     const buf = this.buffers.get(id);
-    const preset = PRESETS[id];
-    if (!ac || !buf || !preset) return false;
-    const level = preset.level * (opts.gain ?? 1);
+    const base = PRESET_LEVELS[id];
+    if (!ac || !buf || base === undefined) return false;
+    const level = base * (opts.gain ?? 1);
     if (level <= 0) return false;
     const claim = this.claim(opts.priority ?? 1);
     if (!claim) return false;

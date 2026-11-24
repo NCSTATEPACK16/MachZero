@@ -56,6 +56,22 @@ const flush = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
+/** Advance the fake clock in small steps, letting real tasks (the fallback's dynamic import) run, until `p` settles. */
+async function settle<T>(p: Promise<T>, timers: ReturnType<typeof fakeTimers>): Promise<T> {
+  let done = false;
+  let value: T | undefined;
+  void p.then((v) => {
+    done = true;
+    value = v;
+  });
+  for (let i = 0; i < 500 && !done; i++) {
+    timers.advance(5);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  if (!done) throw new Error('did not settle');
+  return value as T;
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('RenderClient: the Worker and its fallback', () => {
@@ -79,24 +95,19 @@ describe('RenderClient: the Worker and its fallback', () => {
     const timers = fakeTimers();
     const client = new RenderClient({ makeWorker: () => w, ...timers });
     let result: Awaited<ReturnType<RenderClient['renderPresets']>> | null = null;
-    void client.renderPresets(['ui.move', 'ui.tab'], 44100).then((r) => (result = r));
+    const p = client.renderPresets(['ui.move', 'ui.tab'], 44100);
+    void p.then((r) => (result = r));
     timers.advance(RENDER_TIMEOUT_MS - 1);
     await flush();
     expect(result).toBeNull();
-    timers.advance(1);
-    // One preset per slice.
-    timers.advance(0);
-    await flush();
-    timers.advance(10);
-    await flush();
-    expect(result).not.toBeNull();
-    expect(result!.by).toBe('main');
-    expect(result!.samples.get('ui.move')!.length).toBeGreaterThan(100);
+    expect(warn).not.toHaveBeenCalled();
+    const r = await settle(p, timers);
+    expect(r.by).toBe('main');
+    expect(r.samples.get('ui.move')!.length).toBeGreaterThan(100);
     expect(w.terminated).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
     // Later requests go straight to the main thread, with no new warning.
-    void client.renderPresets(['ui.back'], 44100);
-    timers.advance(10);
+    expect((await settle(client.renderPresets(['ui.back'], 44100), timers)).by).toBe('main');
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -109,9 +120,7 @@ describe('RenderClient: the Worker and its fallback', () => {
       },
       ...timers,
     });
-    const p = client.renderPresets(['ui.move'], 44100);
-    timers.advance(1);
-    const r = await p;
+    const r = await settle(client.renderPresets(['ui.move'], 44100), timers);
     expect(r.by).toBe('main');
     expect(client.fallback).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
@@ -124,8 +133,7 @@ describe('RenderClient: the Worker and its fallback', () => {
     const client = new RenderClient({ makeWorker: () => w, ...timers });
     const p = client.renderPresets(['ui.move'], 44100);
     w.onerror?.(new Event('error'));
-    timers.advance(1);
-    expect((await p).by).toBe('main');
+    expect((await settle(p, timers)).by).toBe('main');
   });
 
   it('is never created before startRendering, and only with music on', () => {
