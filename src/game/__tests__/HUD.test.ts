@@ -107,8 +107,8 @@ describe('HUD (fake DOM smoke test)', () => {
     const actions: HudActions = { onStart: () => undefined, onRestart: () => undefined, onResume: () => undefined, onToggleMute: () => undefined };
     const root = new FakeEl('div');
     const hud = new HUD(root as unknown as HTMLElement, bus, track, actions, { showTitle: false });
-    const warn = root.find('mz-emp-warn')!;
-    const items = root.find('mz-items')!;
+    const warn = root.find('mz-emp-warn')! as unknown as { hidden: boolean };
+    const items = root.find('mz-items')! as unknown as { hidden: boolean };
     hud.setItems(null, 0);
     expect(warn.hidden).toBe(true);
     // No items: the chip stays hidden, the warning shows.
