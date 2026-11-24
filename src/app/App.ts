@@ -145,7 +145,8 @@ export class App {
 
   private readonly store: SaveStore;
   private readonly graphics: GraphicsSystem;
-  private readonly audio = new AudioSystem();
+  /** The page's audio (public for SOUND TEST). */
+  readonly audio = new AudioSystem();
   private audioRendering = false;
   /** Touch controls (IMPLEMENTATION §M7b). */
   private readonly touchRig = new TouchRig(new TouchInput());
@@ -333,6 +334,15 @@ export class App {
     const first = initialRoute(this.flags, this.save.value);
     if (this.flags.autopilot) setTimeout(() => this.session?.start(), 600);
     this.route.value = first;
+    // ?jukebox=1 (with `music`): SOUND TEST as soon as a profile is active.
+    if (this.flags.jukebox && this.audio.modern && this.menus) {
+      let opened = false;
+      effect(() => {
+        if (opened || !this.activeProfile.value) return;
+        opened = true;
+        untracked(() => (this.route.value = { name: 'soundtest', back: 'menu' }));
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -547,6 +557,17 @@ export class App {
   openSettings(back: 'menu' | 'pause'): void {
     if (back === 'pause' && this.session?.state !== 'paused') this.session?.pause(true);
     this.route.value = { name: 'settings', back };
+  }
+
+  /** SOUND TEST, from Settings → Sound (with `music`). */
+  openSoundTest(): void {
+    const r = this.route.value;
+    this.route.value = { name: 'soundtest', back: r.name === 'settings' ? r.back : 'menu' };
+  }
+
+  closeSoundTest(): void {
+    const r = this.route.value;
+    this.route.value = { name: 'settings', back: r.name === 'soundtest' ? r.back : 'menu' };
   }
 
   closeSettings(): void {
@@ -1377,6 +1398,7 @@ export class App {
     }
     this.audio.setVolumes(s.masterVolume, s.sfxVolume, s.musicVolume);
     if (this.audio.muted !== s.muted) this.audio.setMuted(s.muted);
+    this.audio.setMono(s.mono);
     this.graphics.setComfort({ reducedMotion: s.reducedMotion });
     this.graphics.setColorBlind(s.colorBlind);
     setHapticsEnabled(s.haptics);

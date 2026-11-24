@@ -12,6 +12,7 @@ import { GrandPrix } from './screens/GrandPrix';
 import { MainMenu } from './screens/MainMenu';
 import { ProfileSelect } from './screens/ProfileSelect';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { SoundTest } from './screens/SoundTest';
 import { WorldMap } from './screens/WorldMap';
 import { TimeTrial } from './screens/TimeTrial';
 import { NAV_EVENT, Results } from './screens/Results';
@@ -57,6 +58,7 @@ function Root({ app }: { app: App }) {
   if (r.name === 'profiles') screen = <ProfileSelect app={app} />;
   else if (r.name === 'menu') screen = <MainMenu app={app} />;
   else if (r.name === 'settings') screen = <SettingsScreen app={app} />;
+  else if (r.name === 'soundtest') screen = <SoundTest app={app} />;
   else if (r.name === 'garage') screen = <Garage app={app} />;
   else if (r.name === 'tour') screen = <WorldMap app={app} />;
   else if (r.name === 'results') screen = <Results app={app} />;

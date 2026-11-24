@@ -9,6 +9,8 @@ export type Route =
   | { name: 'profiles' }
   | { name: 'menu' }
   | { name: 'settings'; back: 'menu' | 'pause' }
+  /** SOUND TEST (IMPLEMENTATION §M6a, with `music`): opened from Settings → Sound; back returns there. */
+  | { name: 'soundtest'; back: 'menu' | 'pause' }
   | { name: 'garage'; back?: 'menu' | 'cup' }
   | { name: 'gp' }
   | { name: 'cup' }

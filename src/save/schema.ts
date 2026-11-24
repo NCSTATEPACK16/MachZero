@@ -116,6 +116,8 @@ export interface SettingsData {
   musicVolume: number;
   sfxVolume: number;
   muted: boolean;
+  /** One channel to both speakers, every pan centred (IMPLEMENTATION §M6.1; shown with `music`). */
+  mono: boolean;
   reducedMotion: boolean;
   colorBlind: boolean;
   hudSize: HudSize;
@@ -193,6 +195,7 @@ export function defaultSettings(): SettingsData {
     musicVolume: 0.7,
     sfxVolume: 1,
     muted: false,
+    mono: false,
     reducedMotion: false,
     colorBlind: false,
     hudSize: 'normal',
@@ -484,6 +487,7 @@ export function sanitizeSettings(v: unknown): SettingsData {
     musicVolume: num(v.musicVolume, 0, 1, d.musicVolume),
     sfxVolume: num(v.sfxVolume, 0, 1, d.sfxVolume),
     muted: bool(v.muted, d.muted),
+    mono: bool(v.mono, d.mono),
     reducedMotion: bool(v.reducedMotion, d.reducedMotion),
     colorBlind: bool(v.colorBlind, d.colorBlind),
     hudSize: oneOf(v.hudSize, ['normal', 'large', 'xl'] as const, d.hudSize),

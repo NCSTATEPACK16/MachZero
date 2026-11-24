@@ -513,3 +513,17 @@ describe('Time Trial in the save (IMPLEMENTATION §M8b)', () => {
     expect(back.settings.ghosts).toEqual({ best: true, dev: true });
   });
 });
+
+describe('settings.mono (M6a, no save version)', () => {
+  it('loads a v9 save without `mono` with MONO off, and keeps it once set', () => {
+    expect(SAVE_VERSION).toBe(9);
+    const old = { ...emptySave(), settings: { ...defaultSettings() } } as Record<string, unknown>;
+    delete (old.settings as Record<string, unknown>).mono;
+    expect(sanitizeSave(old).settings.mono).toBe(false);
+    const on = { ...emptySave(), settings: { ...defaultSettings(), mono: true } };
+    expect(sanitizeSave(on).settings.mono).toBe(true);
+    const junk = { ...emptySave(), settings: { ...defaultSettings(), mono: 'yes' } };
+    expect(sanitizeSave(junk).settings.mono).toBe(false);
+  });
+});
+

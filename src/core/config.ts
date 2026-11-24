@@ -191,6 +191,8 @@ export interface UrlFlags {
   world: string | null;
   /** ?hazards=rookie forces the Rookie hazard policy for this page load (QA); not saved. */
   hazards: 'normal' | 'rookie' | null;
+  /** ?jukebox=1 opens SOUND TEST once a profile is active (with `music`; IMPLEMENTATION §M6a). */
+  jukebox: boolean;
 }
 
 export function readUrlFlags(search: string = typeof location !== 'undefined' ? location.search : ''): UrlFlags {
@@ -203,5 +205,5 @@ export function readUrlFlags(search: string = typeof location !== 'undefined' ? 
   const h = p.get('hazards');
   const hazards = h === 'rookie' || h === 'normal' ? h : null;
   const debug = p.get('debug') === '1';
-  return { autopilot: p.get('autopilot') === '1', debug, perf: debug || p.get('perf') === '1', dynres: p.get('dynres') !== '0', seed, quality, world: world || null, hazards };
+  return { autopilot: p.get('autopilot') === '1', debug, perf: debug || p.get('perf') === '1', dynres: p.get('dynres') !== '0', seed, quality, world: world || null, hazards, jukebox: p.get('jukebox') === '1' };
 }

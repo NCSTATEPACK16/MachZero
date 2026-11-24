@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameEvents, MenuEvents } from '../../core/events';
 import { PRESETS } from '../sfx/presets';
 import { V1_SOUNDS } from '../sfx/v1Sounds';
-import { SILENT_EVENTS, SOUND_RULES, TIMELINE_SOUNDS, WARNING_TWINS, rulesFor } from '../soundTable';
+import { SILENT_EVENTS, SOUND_GROUPS, SOUND_RULES, TIMELINE_SOUNDS, WARNING_TWINS, rulesFor } from '../soundTable';
 
 // Exhaustive by type: adding an event to GameEvents or MenuEvents fails the typecheck until it is listed here,
 // and then this test fails until the event is in the sound table or in SILENT_EVENTS.
@@ -92,5 +92,13 @@ describe('the event-to-sound table (§M6.2)', () => {
     expect(rulesFor('race', 'ship:jump', false)).toEqual([]);
     expect(rulesFor('race', 'ship:boost', true).map((r) => r.sound)).toEqual(['boost']);
     expect(rulesFor('menu', 'shop:deny', false)).toEqual([]);
+  });
+
+  it('lists every sound once in SOUND TEST', () => {
+    const listed = SOUND_GROUPS.flatMap((g) => g.sounds.map((x) => x.id));
+    expect(new Set(listed).size).toBe(listed.length);
+    const used = new Set([...SOUND_RULES.map((r) => r.sound).filter((x) => x !== null), ...TIMELINE_SOUNDS.map((t) => t.sound), 'ice.crackle']);
+    expect([...used].filter((id) => !listed.includes(id as never))).toEqual([]);
+    expect(listed.filter((id) => !(id in V1_SOUNDS) && !(id in PRESETS))).toEqual([]);
   });
 });
