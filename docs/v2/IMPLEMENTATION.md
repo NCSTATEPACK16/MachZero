@@ -1930,7 +1930,7 @@ export interface SongDef {
 
 ---
 
-### M6a — The audio graph and mixer, the SFX bank, the event-to-sound table, the menu and hazard sounds
+### M6a — The audio graph and mixer, the SFX bank, the event-to-sound table, the menu and hazard sounds — ✅ BUILT (PR #54, `v2/m6a-audio-graph`; waiting on the owner's device check and the size call)
 
 **Design decisions:**
 - **`src/audio/` replaces `src/game/AudioSystem.ts`.** The public surface the App and `RaceSession` use stays: `attach(bus)`, `detach()`, `update(ctx)`, `setVolumes(...)`, `muted`, `setMuted()`, `dispose()`. `game/index.ts` re-exports from `audio/` until every import has moved, then the re-export goes.
@@ -1988,13 +1988,13 @@ export interface SongDef {
     - `e2e/settings.spec.ts` (or the existing settings test): MONO and the three sliders persist across a reload.
 
 **Done when:**
-- [ ] The golden test passes: with `music` off the graph and every sound are v1's.
-- [ ] Every event is in the table or in `SILENT_EVENTS`; every sound id exists; every warning has its twin.
-- [ ] With `?features=music`: every sound in §M6.2 plays in SOUND TEST and in a race; geysers and jets have their own sounds; the three telegraphs follow the warnings; Rookie races telegraph twice as long.
-- [ ] The EMP warning shows with no items.
-- [ ] The Worker renders the presets after the first frame, with the fallback tested; nothing waits on it.
-- [ ] Ducking is not wired yet (no music); the duck table is tested.
-- [ ] App JS ≤ +8 KB gzip for this PR.
+- [x] The golden test passes: with `music` off the graph and every sound are v1's.
+- [x] Every event is in the table or in `SILENT_EVENTS`; every sound id exists; every warning has its twin.
+- [x] With `?features=music`: every sound in §M6.2 plays in SOUND TEST and in a race; geysers and jets have their own sounds; the three telegraphs follow the warnings; Rookie races telegraph twice as long.
+- [x] The EMP warning shows with no items.
+- [x] The Worker renders the presets after the first frame, with the fallback tested; nothing waits on it.
+- [x] Ducking is not wired yet (no music); the duck table is tested.
+- [ ] App JS ≤ +8 KB gzip for this PR. **Not met: +14.8 KB (see As built).**
 
 **Device check (the owner, both devices, `VITE_FEATURES=music,expansion`):**
 - **First, the baseline:** on the build before M6 (today's `main`), read the perf overlay's frame time p95 in an 8-ship race on Jade Ruins and on Orbital Ring, on each device, and post the four numbers on the PR. Every later gate compares with them.
@@ -2004,7 +2004,7 @@ export interface SongDef {
 - Background the app mid-race and come back: the race is on the pause menu, and the sound fades in.
 - Menus by pad and by touch make the same sounds.
 
-**As built (2026-11-24, branch `v2/m6a-audio-graph`, PR #@@PR@@)** (read before M6b):
+**As built (2026-11-24, branch `v2/m6a-audio-graph`, PR #54)** (read before M6b):
 - **Where things are.** `src/audio/`:
   - `AudioSystem.ts` is the App's one audio object, a facade not in the file table above. It keeps v1's surface (`attach`, `detach`, `update`, `setVolumes(master, effects, music)`, `muted`, `setMuted`, `dispose`) and adds `setMono`, `onHidden`, `bindMenus`, `uiSound`, `test` (SOUND TEST), `startRendering` and `debug`. `App.audio` is public, for SOUND TEST.
   - Beneath it: `AudioEngine` (the context and the graph), `SfxBank`, `RaceSounds`, `MenuSounds` and `render/RenderClient` with `render/audio.worker.ts`.
@@ -2034,7 +2034,16 @@ export interface SongDef {
   - `StereoPannerNode` is in Safari from 14.1 (iOS 14.5); `channelCountMode` and `WaveShaperNode.oversample` from Safari 6–7.
   - The default `audioSession` type behaves as `ambient` on iOS, so the explicit `ambient` changes nothing by default and keeps the ringer switch obeyed if the default changes.
   - A WebKit report says WKWebView loads no *service* workers from a custom URL scheme (`capacitor://`). Whether dedicated module workers are affected is not documented, so the iOS device check reads `presetsBy` in SOUND TEST ("background" or "main thread"); either way the sounds play.
-- **Size:** app JS @@SIZE@@.
+- **Size:** app JS (gzip) went from 375.0 to 389.8 KB, **+14.8 KB**:
+  - the main chunk +9.0;
+  - the Worker 3.0 (loaded only with `music`);
+  - the lazy fallback chunk 2.9 (loaded only if the Worker fails).
+
+  **That misses this PR's "≤ +8 KB" line.** The Worker and the fallback each carry the synthesiser and the recipes (decision A). The rest is the engine, the pool, the queue, the telegraphs, the menu layer and SOUND TEST. The PR asks the owner whether to raise the line or trim further. **What M6b–M6d have left of the 25 KB M6 budget: 10.2 KB.**
+- **Tests:**
+  - unit: 103 files, 916 passed, 1 skipped (as before);
+  - e2e: 36 passed, the 3 tests of `e2e/audio.spec.ts` among them;
+  - the other specs run with `music` off, unchanged.
 
 ---
 
