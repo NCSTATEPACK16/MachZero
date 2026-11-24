@@ -4,8 +4,8 @@ import { expect, test } from '@playwright/test';
  * The audio-thread proxy of IMPLEMENTATION §M6.5: 30 s of the race graph rendered in an OfflineAudioContext, timed
  * against real time. The graph: a looping song (stereo, 30 s) and its lift through the song chain (duck gain,
  * low-pass, EQ dip); v1's engine (three oscillators, a low-pass); two rival engines (a saw and a square, a low-pass,
- * a StereoPanner each); an ambience loop and a crowd loop; 12 one-shots a second; the master's compressor, limiter
- * and soft clip. The engine voices, ambience and crowd are M6d's; here they are stand-ins of the planned shape.
+ * a StereoPanner each); an ambience loop and a crowd loop; 12 one-shots a second, each built as it plays and let go
+ * as it ends (as the SFX bank does); the master's compressor, limiter and soft clip. The engine voices, ambience and crowd are M6d's; here they are stand-ins of the planned shape.
  * The ratio is printed for the PR; the test fails only above 10% (it catches a blow-up, not a device number).
  */
 test('the race graph renders 30 s offline at under 10% of real time', async ({ page }) => {
@@ -95,9 +95,12 @@ test('the race graph renders 30 s offline at under 10% of real time', async ({ p
       s.connect(amb);
       s.start(0);
     }
-    // 12 one-shots a second: buffer sources through a gain and a panner, as the SFX bank plays presets.
+    // 12 one-shots a second: buffer sources through a gain and a panner, as the SFX bank plays presets. As in the game,
+    // each is built when it plays and disconnected when it ends (the render suspends at each start to build it):
+    // building all 360 up front keeps every one alive in the graph for the whole render, which is not the game's cost.
     const shot = noise(0.4, 1);
-    for (let t = 0; t < SECONDS; t += 1 / 12) {
+    const STEP = 1 / 12;
+    const play = (t: number) => {
       const s = ac.createBufferSource();
       s.buffer = shot;
       const g = ac.createGain();
@@ -106,8 +109,21 @@ test('the race graph renders 30 s offline at under 10% of real time', async ({ p
       const p = ac.createStereoPanner();
       p.pan.value = Math.sin(t);
       s.connect(g).connect(p).connect(sfx);
+      s.onended = () => {
+        s.disconnect();
+        g.disconnect();
+        p.disconnect();
+      };
       s.start(t);
+    };
+    for (let k = 1; k * STEP < SECONDS; k++) {
+      const t = k * STEP;
+      void ac.suspend(t).then(() => {
+        play(ac.currentTime);
+        void ac.resume();
+      });
     }
+    play(0);
     const t0 = performance.now();
     await ac.startRendering();
     const ms = performance.now() - t0;
