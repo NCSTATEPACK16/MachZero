@@ -80,7 +80,9 @@ src/
   physics/        (v1) + ShipStatsResolver.ts, Drafting.ts, Hazards.ts, Assists.ts, TouchInput.ts
   graphics/       (v1) + themes/{neonBay,sunsetMesa,cryoStation,jadeRuins,orbitalRing}.ts, ShipAssembly.ts, Ghosts.ts
   game/           (v1) + modes/{WorldTour,GrandPrix,TimeTrial}.ts, GhostRecorder.ts, Tiers.ts
-  audio/          (moved from game) AudioSystem.ts, MusicSequencer.ts, songs/*.ts, SfxBank.ts, sfxPresets.ts
+  audio/          (moved from game; §M6) AudioEngine.ts, RaceSounds.ts, MenuSounds.ts, SfxBank.ts, VoicePool.ts, duck.ts,
+                  soundTable.ts, BufferCache.ts, MusicDirector.ts, MusicPlayer.ts, sfx/{v1Sounds,sfxr,presets}.ts,
+                  dsp/*.ts (the synthesiser), songs/*.ts, render/{audio.worker,RenderClient}.ts
   ui/             Preact screens: Boot, ProfileSelect, MainMenu, WorldMap, Garage, LiveryEditor, TimeTrialSelect,
                   Settings, Pause, Results, CupStandings, components/*, ui.css
   sim/            headless sims (matrix), gimmick hold tests, balance tests
@@ -1587,19 +1589,564 @@ Reduced motion: no lightning flash, no camera shake from effects, weather streak
 
 ---
 
-## M6 — Audio: music sequencer + expanded SFX
+## M6 — Audio: music, sound effects, ambience, the mix — 📐 DESIGNED (2026-11-24; ready to build)
 
-- Move `game/AudioSystem.ts` → `audio/AudioSystem.ts` (keep its bus subscriptions).
-- Add a routing graph: master → (music bus, sfx bus, ui bus), with compressor and limiter, and ducking of music under countdown and stingers.
-- **`MusicSequencer`:**
-  - Pattern-based: tempo, 16-step patterns, song order.
-  - Instruments: saw/square/triangle, PWM, noise drums, simple FM bass, with ADSR, filter envelope, delay and chorus sends.
-  - Scheduled with the look-ahead scheduler pattern (Web Audio clock, 100 ms horizon), not `setInterval` timing.
-  - Songs live in `audio/songs/<world>.ts` as data: 7 songs (5 worlds, menu, results), each 60–90 s looping, each in a distinct mode and tempo (e.g. Neon Bay 118 BPM minor synthwave; Orbital Ring 96 BPM ambient arpeggios).
-- **`SfxBank`:** jsfxr-style parameter presets (`sfxPresets.ts`), rendered once through `OfflineAudioContext` into buffers at boot, idle-time and lazily. Presets cover the full SPEC §8 list, plus a per-class engine voice (Light: higher and thinner; Heavy: low, with more sub).
-- **CC0 samples:** at most 5 small OGG and M4A files for explosion and impacts under `public/game/audio/` (keep a CREDITS.md). iOS needs M4A/AAC or MP3 as a fallback for OGG.
-- **iOS audio unlock:** resume the AudioContext inside the first touchend. Handle the ringer silent switch by documenting it (Web Audio respects it on iOS).
-- **Tests:** the sequencer schedules the right note count for a pattern (fake AudioContext), and the SFX presets render non-silent buffers (OfflineAudioContext polyfill, or skip in node).
+SPEC §8 says what and why. This section is the how. **Design decisions (design interview with the owner, 2026-11-24, 35 questions in two rounds and a summary; settled, don't re-open)** are listed below, first for the whole milestone, then per PR. M6 gives MachZero its soundtrack (8 world songs, a menu theme, a results theme, 8 stingers), the sounds v1 never had (menus, the shop, the results, the road, the 2.1 hazards), an engine voice per class, ambience, and a mix that is safe for children.
+
+**Four PRs, in build order, each stacked on the one before (M6a on `main`, or on the M6 design-docs branch while that PR is open):**
+
+| # | PR | Branch | Save | Flag | Needs from the owner |
+|---|---|---|---|---|---|
+| M6a | The audio graph and mixer, the move to `src/audio/`, the SFX bank, the event-to-sound table, the menu, shop, results and hazard sounds, SOUND TEST (effects only) | `v2/m6a-audio-graph` | — (`settings.mono` through the sanitizer) | behind `music` | The baseline fps readings; listening to the new effects; the ringer switch, AirPods, background and resume |
+| M6b | The synthesiser (`audio/dsp/`), the render Worker, the music player and director, songs in SOUND TEST, the menu theme, Neon Bay and Orbital Ring | `v2/m6b-music-engine` | — | behind `music` | **The style approval** of the three songs (blocks M6c); render times and fps on both devices |
+| M6c | The other six world songs, the results theme, the 8 stingers | `v2/m6c-songs` | — | behind `music` | The listening approval of each song and stinger |
+| M6d | Engine voices, rival engines, ambience, the crowd, the echo, positional sound, the mix pass; `music` on, then the flag and the v1 graph removed | `v2/m6d-mix-release` | — | `music` → on; removed | The full device gate; the approval of the sound set as a whole; the merge |
+
+**Release order (agreed):** M6a → M6b → (owner's style approval) → M6c → M6d. **The style approval in M6b comes before a note of the other six songs is written.** The world looks (X4–X6) are independent of M6: the 2.1 worlds' songs are written regardless, and they play whenever `expansion` shows those worlds.
+
+**Facts checked on 2026-11-24 (`main` at `23285af` plus the M6 prompt commit):**
+- **The code M6 starts from:**
+  - `src/game/AudioSystem.ts` (651 lines): a master gain → one `DynamicsCompressor` (threshold −16, knee 18, ratio 5, attack 4 ms, release 200 ms) → destination; one sfx gain under the master; persistent voices (engine: 3 oscillators through a low-pass; a boost saw; wind, scrape and the pit hum); one-shots through `tone()` and `noise()`, at most 28 at once (`MAX_ONE_SHOTS`); a 2 s white-noise buffer; `HEARING_RANGE` 60 m with `nearness()` = (1 − d/60)² × 0.85; parameters refreshed at 40 Hz (`UPDATE_INTERVAL`); the mine proximity beep within 70 m ahead.
+  - The App owns one `AudioSystem` (`App.ts:146`). Each `RaceSession` calls `audio.attach(bus)` in `attachView` and `audio.detach()` in `dispose`, and `audio.update(ctx)` at the end of `frame()`. `App.applySettings` calls `setVolumes(master, sfx)` and `setMuted`.
+  - **The race bus's handlers run inside `PhysicsSystem.step`** (physics emits synchronously), so v1 builds one-shot nodes from inside the fixed step. M6a moves that out (rule F below).
+  - **The menu backdrop is a real race** in `title` state (`App.ensureSession`), on the world the profile has selected. The engine and wind are silent in `title` (`live` is false).
+  - `MenuEvents` on `App.events` (M8a): `results:tally`, `results:total`, `results:unlock`, `results:trophy`, `results:medal`, `results:champion`, `ui:locked`, `tutorial:step`, `tutorial:done`. Nothing plays them.
+  - Race events with no sound: `ship:jump`, `ship:land`, `ship:ice`, `ship:wind`, `ship:respawn`, `hazard:gate`, `hazard:debris`, `hazard:lightning`. `hazard:geyser` and `hazard:jet` play the mine's sound.
+  - **The hazard timelines are pure functions** of the track and the hazard clock: `buildStrikes`/`strikeWarning` (`track/features/lightning.ts`), `buildGeysers`/`geyserWarning`, `buildJets`/`jetWarning`, `gateWarning` (`track/features/gate.ts`); `game/HazardCue.ts` already uses them per frame. The warning time is scaled by `HazardPolicy.telegraphScale` (1, or 2 in Rookie races); `FrameContext` does not carry it yet.
+  - `TrackData.pipes` and `TrackData.spines` give the pipe and Spine extents in u (`uClosedStart..uClosedEnd`).
+  - **The HUD's "⚠ EMP INCOMING"** (`HUD.ts:370`) is shown from `ItemSystem.playerView().incoming`, but `playerView()` returns null when the player carries no items, so the warning hides. The EMP alarm is then the only cue on the web. M6a fixes this (a warning must never be told by sound alone).
+  - Settings save `masterVolume` 0.8, `musicVolume` 0.7, `sfxVolume` 1, `muted`; `sanitizeSettings` fills a missing field with its default, so a new field needs no save version.
+  - The ships face −Z; +X is the ship's right (`ChaseCamera`). A ship's class comes from `chassisById(def.loadout.chassisId).class` (`content/ships.ts`); a ship with no loadout (the v1 roster) is Balanced.
+  - `CONFIG.RESULTS_DELAY` is 3 s (finish → results). `CONFIG.EMP_WARN_TIME` is 0.5 s. `CONFIG.TOTAL_LAPS` is 3.
+- **Experiments (headless Chromium 153 on a 2.1 GHz cloud Xeon, 4 cores; throwaway code, not committed).** The owner's devices were not available to the design session, so every device number is a gate in the PRs below.
+
+  | Approach (a dense Neon Bay arrangement, ~100 s of audio, 48 kHz) | Audio-thread CPU | Main thread | Memory | Load |
+  |---|---|---|---|---|
+  | Live notes from native Web Audio nodes, created 100 ms ahead (the look-ahead scheduler) | 6.8% of a core (9.0% with a 1.2 s convolver reverb) | 0.9 ms on a busy step (p95 1.4 ms); 4.6 ms per full bar | small | none |
+  | The same, every note created up front in one context | 105–127% | — | — | — |
+  | The same, nodes not disconnected when a note ends | 10.8% (16–26% with reverb) | — | — | — |
+  | Each distinct bar of each track pre-rendered once (22 buffers), then scheduled | 4.1% | ~0 | 14.9 MB mono | 1.05 s |
+  | **Pure-JS synthesis** (polyBLEP oscillators, a TPT state-variable filter, per 128-sample block) | **1.0% for 16 voices** (0.55% for 8, 2.1% for 32) | **0** (off the main thread) | — | — |
+  | **Playing one looping AudioBuffer** | **0.12%** | 0 | 31.8 MB per 90 s stereo at 44.1 kHz | — |
+
+  - Per layer, native nodes: pads (3 notes × 3 oscillators) 2.8%, lead 1.9%, arpeggio 1.6%, drums 1.3%, bass 1.2%; the bus with a compressor and a delay loop 0.6%.
+  - **jsfxr-style presets:** 20 random presets (13.3 s of audio) render in 215–257 ms of plain JS with sfxr's 8× oversampling, or 37–69 ms as Web Audio graphs in `OfflineAudioContext`. None was silent.
+  - **Positional cost, 8 engine voices for 30 s:** no panner 1.7%; `StereoPannerNode` 2.4%; `PannerNode` equal-power 10.2%; `PannerNode` HRTF 11.4%.
+  - **Main-thread stalls** against a 100 ms look-ahead scheduler (a stall every 600 ms, 25 steps): 0 late notes up to a 50 ms stall; 2 at 90 ms; 4 at 150 ms; 5 at 250 ms.
+  - **iOS facts (web search; Context7 was not available in the design session):** Web Audio on iOS follows the ringer switch by default: the default `navigator.audioSession.type` (`auto`) behaves as `ambient`, which obeys the switch and mixes with other apps' audio. `playback` ignores the switch. `navigator.audioSession` exists from Safari 16.4 and is still experimental; WebKit bugs report differences between iOS versions for the `transient` types ([MDN](https://developer.mozilla.org/docs/Web/API/AudioSession/type), [WebKit 237322](https://bugs.webkit.org/show_bug.cgi?id=237322), [WebKit 264473](https://bugs.webkit.org/show_bug.cgi?id=264473)). AudioWorklet exists in WebKit since iOS 14.5, but there are open reports of glitches on iOS ([WebKit 226240](https://bugs.webkit.org/show_bug.cgi?id=226240), [Apple forum 768347](https://developer.apple.com/forums/thread/768347)) and of `addModule` not rejecting when a module throws ([WebKit 250485](https://bugs.webkit.org/show_bug.cgi?id=250485)). **Re-check each of these with Context7 at the start of M6a** and note any difference in the PR.
+  - **A style sketch** (16 bars of Neon Bay in native nodes, 35 s) was sent to the owner as an M4A. The owner accepted the style family (decision 8).
+- **Correction made while writing (2026-11-24):** round 1 called the loop "48–64 bars (60–80 s)". At these tempos 48–64 bars last 82–160 s, which breaks the memory budget the owner accepted. **The seconds are the decision:** each loop lasts 60–80 s, which is 24–40 bars depending on the tempo (the song table).
+
+**Design decisions for the whole milestone (settled, don't re-open):**
+
+- **A. The engine (decisions 1, 2).**
+  - **The music is rendered, not played live.** A synthesiser written in plain TypeScript (`src/audio/dsp/`, no Web Audio nodes) renders each song in a Web Worker into Float32Arrays: an intro, a seamless loop and a mono lift layer. The main thread turns them into `AudioBuffer`s and plays them with `AudioBufferSourceNode`s. The same code renders in Node, so the unit tests hear real output.
+  - **Not adopted:** live notes from native nodes (the main-thread spikes alone break the frame budget); a look-ahead scheduler (no notes are scheduled live at all); AudioWorklet (the iOS glitch reports). AudioWorklet stays a possible later change: the DSP is host-independent, so a worklet host would reuse it unchanged.
+  - **The new effects (jsfxr-style presets), the ambience loops and the crowd** render in the same Worker.
+  - **v1's sounds stay procedural** (oscillators and noise built per sound), moved into the SFX bank with the same parameters.
+  - **A race never waits for audio.** Nothing awaits audio before the first frame or before a race starts. A song that is not ready starts when it is, with a fade.
+  - **When the Worker or a render fails**, the music stays silent and the effects still play (presets then render on the main thread in slices of one preset, see M6a). There is one `console.warn` per failure, never a `console.error` (the smoke tests fail on errors).
+- **B. The graph (decision 3).** §M6.1 has the diagram and the levels. Four buses under the master: **music** (songs and stingers), **sfx** (race sounds), **ui** (menu sounds), **ambience** (world loops and the crowd). On the master: a compressor, a limiter and a soft clipper with a ceiling of −3 dBFS. **Three sliders:** MASTER → master; MUSIC → music; EFFECTS → sfx, ui and ambience together.
+- **C. Ducking (decisions 4, 5, 11).** Only the songs are ducked (not the stingers). The deepest active duck wins; ducks do not add up.
+
+  | Source | Music level | Attack | Release | Held |
+  |---|---|---|---|---|
+  | Countdown | −8 dB | 50 ms | 600 ms | from `race:countdown` 3 until 0.6 s after 0 (GO) |
+  | A stinger | −10 dB | 30 ms | 400 ms | the stinger's length |
+  | A warning sound (priority 0, §M6.2) | −4 dB | 20 ms | 300 ms | the warning's length (a telegraph: while it sounds) |
+  | Pause | −12 dB **and** a low-pass at 1,200 Hz | 150 ms | 300 ms | while the race is paused |
+
+  - **The music never covers information:** the music bus has a fixed trim of −6 dB against the effects, and a peaking filter of −4 dB at 1,500 Hz (Q 1) where the warning beeps sit (1.2–1.8 kHz).
+- **D. Pause (decision 5).** Race sounds (engine, boost, wind, scrape, hum, rival engines, ambience, telegraphs) fade to silence in 80 ms. One-shots already playing finish. The song keeps playing, muffled (C). Menu sounds keep working. **[changed]** SPEC §8 said "the music pauses with the game".
+- **E. Scene changes (decision 6).** Every level change is a gain ramp (`setTargetAtTime` or a linear ramp), never a jump, so nothing clicks. Each voice has exactly one owner (the music player, `RaceSounds` or `MenuSounds`), so nothing plays twice.
+
+  | Moment | Music | Race sounds |
+  |---|---|---|
+  | Boot, first menu | The menu theme fades in over 1.5 s once it is rendered and the context is unlocked | — |
+  | A world is selected (the backdrop session is built) | The world's song renders in the background | silent (`title`) |
+  | RACE pressed (the loading screen) | The menu theme fades out over 1.0 s | — |
+  | The grid card, or the countdown when there is no card | The world song's intro starts (fade-in 0.3 s), then its loop | live from the countdown, as v1 |
+  | The player starts the final lap | The lift layer fades in over one bar, from the next bar line | v1's final-lap fanfare |
+  | The player finishes | v1's finish fanfare plays at once (an effect, as today); the song fades out over 1.5 s | the engine winds down as v1 |
+  | The results screen opens (or the HUD results panel) | The result's stinger, then the results theme fades in (0.5 s) when the stinger ends | detached at the session's dispose |
+  | Results → RACE AGAIN, or a restart from pause | The results theme (or the song) fades out over 0.5 s; the world song restarts from its intro at the grid | reset, as v1 |
+  | Results or pause → the menus | A 1.0 s crossfade to the menu theme | fade 80 ms |
+  | The cup standings | The results theme keeps playing | — |
+  | App or tab hidden | The race pauses; the context suspends | — |
+  | Back | The context resumes and the master rises from silence over 0.5 s; the game stays on the pause menu | — |
+
+- **F. The loop and the physics step.** **Audio never builds or schedules a node from inside the physics step, and the game loop never waits on audio.** `RaceSounds` handlers only push `{ sound, shipId, intensity, point }` onto a queue (at most 64 entries; on overflow the lowest priority is dropped). `RaceSounds.update(ctx)` drains the queue once per rendered frame, after physics. A sound can therefore start up to one frame (≤ 16.7 ms) later than in v1; that is the only accepted difference from v1.
+- **G. Positional sound (decision 7).** With `music` on: a sound from another ship goes through a `StereoPannerNode` with `pan = clamp(dot(ship.position − player.position, playerRight) / 30, −0.8, 0.8)`, where `playerRight` is the player's +X axis (`(1,0,0).applyQuaternion(player.quaternion)`). Its gain keeps v1's `nearness()`. No `PannerNode` (4× the cost). Two pooled rival engine voices (§M6d). **MONO** (§M6.1) overrides every pan.
+- **H. Priorities (decision 16).** §M6.2 gives each sound one of four priorities: **0 critical** (warnings, the countdown: never dropped), **1** the player's own physical sounds, **2** other ships' sounds, **3** decoration. The pool keeps 28 one-shot voices. A new sound takes a free voice; when none is free, it takes the oldest voice of the lowest priority below its own; when there is none, it is dropped. Priority 0 may take any voice except another priority 0.
+- **I. Platforms (decisions 20–23).**
+  - **The ringer switch is respected.** Before the context is created: `if ('audioSession' in navigator) navigator.audioSession.type = 'ambient'` (in a try/catch). No Capacitor plugin. The ambient type also lets the player's own music app keep playing.
+  - **App or tab hidden:** the race pauses (`RaceSession.pause(true)` when its state is `racing` or `countdown`; new) and the context suspends (as v1). Visible again: `resume()`, then the master ramps from 0 to its level over 0.5 s. If the context is still not `running` after `resume()` (iOS can leave it `interrupted`), the first-input unlock listeners are added again.
+  - **Bluetooth:** no latency correction.
+  - **The unlock:** v1's listeners (`pointerdown`, `keydown`, `touchstart`) plus `touchend`; the context is created on the first one and resumed on every later one until it runs.
+  - **The pad:** menu sounds come from the UI layer's own events, so the pad, the keyboard and touch sound the same.
+- **J. Accessibility (decision 24).** Every warning sound has a visual or haptic twin (§M6.6). Defaults unchanged (master 0.8, music 0.7, effects 1). **MONO** in Settings → Sound (`settings.mono`, default false). **Loudness:** songs and stingers are normalised in the render to −14 LUFS (integrated, BS.1770 K-weighting) with peaks ≤ −1 dBFS; the mix at the default sliders measures −18 ± 2 LUFS over a race (the M6d meter); the master limiter's ceiling is −3 dBFS.
+- **K. The flag.** Everything new is behind `music` until M6d. **With `music` off the live game sounds as it does today:** the same graph (master → v1 compressor → destination), the same sounds with the same parameters, and the same events; a golden test (M6a step 1) proves it. The only difference is decision F (up to one frame later). With `music` off: no new buses, no ducking, no limiter, no panning, no new sounds, no `audioSession`, no pause on hidden, no Worker.
+
+**Rules for every M6 PR** (in addition to §0):
+- **Budgets** (§M6.5). App JS ≤ 600 KB gzip in total, and M6 adds **≤ 25 KB gzip** counting the Worker chunk. `public/game` does not grow (no audio files). Device gates: 60 fps at the device's own preset, with p95 no more than 1 ms above the baseline read in M6a.
+- **Tests first.** The DSP, the song data, the event-to-sound table, the voice pool, the ducking, the buffer cache and the music director are pure and tested in Node. Web Audio itself is tested through `audio/__tests__/fakeAudio.ts` (M6a step 1) and the Playwright specs. Never loosen an assertion.
+- **Every PR's hand-off** lists what the owner listens to, with the preview URL (`?features=music`, plus `&expansion` for the 2.1 worlds; SOUND TEST is `?features=music&jukebox=1`) and the iOS command `VITE_FEATURES=music,expansion npm run ios:sync`. Listen on the iPhone with the ringer switch on sound.
+- **Library facts** (Web Audio, Workers in WKWebView, `navigator.audioSession`, Playwright's audio handling): confirm with Context7 before relying on them, and record what was checked in the PR.
+- **No sound is the only carrier of information.** A new warning sound ships with its twin in the same PR.
+- **The headless sims are untouched** (no audio in `src/sim`).
+
+---
+
+### M6.1 The audio graph
+
+```
+                       ┌ songs (intro, loop, lift) → duck gain → pause low-pass → EQ dip 1.5 kHz ┐
+ music bus ────────────┤                                                                           ├→ music trim (−6 dB) ┐
+ (MUSIC slider)        └ stingers ─────────────────────────────────────────────────────────────────┘                     │
+ sfx bus (EFFECTS) ─── one-shot pool (28) · engine · boost · wind · scrape · hum · rival engines (2) · telegraphs          ├→ master (MASTER × mute)
+     └→ echo send (delay 90 ms, feedback 0.35, low-pass 2.5 kHz) → sfx bus                                                 │     → compressor → limiter
+ ui bus (EFFECTS) ──── menu sounds                                                                                         │     → soft clip (−3 dBFS)
+ ambience bus (EFFECTS × speed fade) ── world loop · crowd loop                                                            ┘     → mono node (MONO) → destination
+```
+
+- **Master compressor** (glue): threshold −16 dB, knee 18, ratio 5, attack 4 ms, release 200 ms (v1's values).
+- **Limiter:** a second `DynamicsCompressorNode`: threshold −4 dB, knee 0, ratio 20, attack 1 ms, release 100 ms.
+- **Soft clip:** a `WaveShaperNode` with a 2,048-point tanh curve scaled so that the output never exceeds 0.708 (−3 dBFS), `oversample: '2x'`. It is the guaranteed ceiling; the limiter keeps it from working hard.
+- **Mono node:** a `GainNode` with `channelCount: 1`, `channelCountMode: 'explicit'`, `channelInterpretation: 'speakers'`, inserted between the soft clip and the destination only while MONO is on (the destination spreads the mono signal to both speakers). MONO also sets every `StereoPannerNode` to 0.
+- **Base levels:** master = `MASTER × 0.8` (v1's `MASTER_LEVEL`) or 0 when muted; music = `MUSIC × 0.5` (the −6 dB trim); sfx = `EFFECTS`; ui = `EFFECTS × 0.7`; ambience = `EFFECTS × 0.35 × speedFade` (§M6d).
+- **Slider changes** ramp with a 20 ms time constant (as v1).
+- **Nodes:** the graph's fixed nodes are counted by `AudioEngine.nodeCount` with every voice's nodes (§M6.5).
+- **With `music` off** the graph is v1's exactly: master (`MASTER × 0.8`) → compressor → destination, and sfx under the master.
+
+### M6.2 The event-to-sound table
+
+The table is data (`src/audio/soundTable.ts`, M6a). **Who:** `player` = only when the event's ship is the player; `near` = the player or any ship within 60 m (v1's `nearness()`, panned per G). **Prio:** H. **Since:** `v1` rules play with the flag off and on; `M6` rules only with `music` on, and an `M6` rule for an event replaces the `v1` rule for it. **Bus:** all race sounds are on `sfx`; menu sounds on `ui`; stingers on `music`.
+
+**Race events (`GameEvents`, `RaceSounds`):**
+
+| Event | Sound id | Who | Prio | Since | What it sounds like |
+|---|---|---|---|---|---|
+| `race:countdown` 3, 2, 1 | `countdown.beep` | player | 0 | v1 | v1: 330 Hz square + 165 Hz sine, 0.28 s |
+| `race:countdown` 0 | `countdown.go` | player | 0 | v1 | v1: three-tone GO chord |
+| `race:lap` (not the final lap) | `lap.chime` | player | 1 | v1 | v1 chime; the record flourish when `isRecord` |
+| `race:lap` (the final lap begins) | `lap.final` | player | 1 | v1 | v1 fanfare; the music's lift starts (E) |
+| `race:finish` | `finish.fanfare` | player | 1 | v1 | v1: the win variant for position 1 |
+| `ship:boost` | `boost` | near | 1/2 | v1 | v1 noise sweep + rising saw |
+| `ship:dash` | `dash` | near | 1/2 | v1 | v1 |
+| `ship:draft` (active) | `draft.whoosh` | player | 3 | v1 | v1 band-pass whoosh |
+| `ship:railHit` | `hit.rail` | near | 1/2 | v1 | v1 scrape level and impact thud (> 0.35, 0.15 s apart per ship) |
+| `ship:shipHit` | `hit.ship` | near | 1/2 | v1 | v1 |
+| `ship:pit` (active) | `pit.enter` | player | 1 | v1 | v1 two-tone; the hum is a continuous voice |
+| `ship:lowEnergy` (and every 1.1 s below the threshold) | `alarm.energy` | player | 0 | v1 | v1 three 1,200 Hz pips |
+| `ship:destroyed` | `ko` | near | 1/2 | v1 | v1 explosion |
+| `ship:respawn` | `respawn` | player | 1 | M6 | a rising shimmer, 0.6 s (preset) |
+| `ship:jump` | `jump.launch` | near | 1/2 | M6 | an air whoosh up, level × intensity (preset) |
+| `ship:land` (intensity ≥ 0.15) | `jump.land` | near | 1/2 | M6 | a low thump with a short metal ring, level × intensity (preset) |
+| `ship:ice` (active / inactive) | `ice.crackle` (continuous) | player | — | M6 | a crackling loop while the player is on ice, fade 80 ms in and 200 ms out |
+| `ship:wind` (active) | `wind.gust` | player | 1 | M6 | a 1.2 s whoosh panned to `dir` (pan ±0.6) |
+| `hazard:gate` | `gate.hit` | near | 1/2 | M6 | a stone crunch (preset) |
+| `hazard:debris` | `debris.hit` | near | 1/2 | M6 | a metal clang (preset) |
+| `hazard:mine` | `mine.blast` | near | 1/2 | v1 | v1 crack and boom |
+| `hazard:lightning` | `lightning.hit` | near | 1/2 | M6 | an electric zap and crackle on the ship (preset) |
+| `hazard:geyser` | `geyser.hit` | near | 1/2 | M6 (v1: `mine.blast`) | a scalding hiss and a thud (preset) |
+| `hazard:jet` | `jet.hit` | near | 1/2 | M6 (v1: `mine.blast`) | a water blast and a knock (preset) |
+| `item:use` shield / mine | `shield.up` / `mine.drop` | near | 1/2 | v1 | v1 |
+| `item:emp` | `emp.fire` (at the firer), `emp.hit` (at the target) | near | 1/2 | v1 | v1 |
+| `item:shield` | `shield.block` | near | 1/2 | v1 | v1 glassy crack |
+| `item:warn` (target = player) | `alarm.emp` | player | 0 | v1 | v1 three fast pips |
+| `item:fail` | `item.fail` | player | 1 | v1 | v1 buzz |
+| `race:state` → `paused` / back | — | — | — | M6 | race sounds fade (D); the music muffles (C) |
+
+**Sounds from the hazard timelines (no event; `RaceSounds.update` reads the built timelines at the hazard clock, like `HazardCue`):**
+
+| Sound id | When | Who | Prio | What it sounds like |
+|---|---|---|---|---|
+| `mine.beep` | v1: the nearest armed mine within 70 m ahead; faster as it closes | player | 0 | v1 1,760 Hz pip |
+| `gate.rumble` | a stone gate within 80 m ahead starts its closing warning (`gateWarning` > 0 after being 0) | player | 0 | a low stone grind, 1.2 s, panned to the gate's side |
+| `lightning.charge` | the nearest strike point within 80 m ahead is in its warning (`strikeWarning` > 0, warning × `telegraphScale`) | player | 0 | a crackle that rises in pitch and level with the warning value (continuous voice) |
+| `lightning.bolt` | any strike point within 120 m starts its strike | near (by distance) | 1 | a thunder crack, 1.5 s |
+| `geyser.rumble` | the nearest vent within 80 m ahead is in its warning | player | 0 | a rising rumble (continuous voice) |
+| `geyser.erupt` | a vent within 100 m starts its eruption | near | 1 | a roar, 1.2 s |
+| `jet.hiss` | the nearest vent within 80 m ahead is in its warning | player | 0 | a building hiss (continuous voice) |
+| `jet.fire` | a vent within 100 m fires | near | 1 | a whoomp, 0.8 s |
+
+"Ahead" is `dot(point − player.position, player.velocity) > 0`, as v1's mine beep. The three telegraph voices are continuous voices (not in the pool) whose level and pitch follow the warning value 0..1 and stop at 0.
+
+**Menu events (`MenuEvents` on `App.events` and the UI layer's events, `MenuSounds`, bus `ui` unless noted):**
+
+| Event | Sound id | Prio | Since | What it sounds like |
+|---|---|---|---|---|
+| UI `move` (focus moved by `ui/nav.ts`) | `ui.move` | 3 | M6 | a soft short tick |
+| UI `confirm` (a button clicked, by any input) | `ui.confirm` | 3 | M6 | a bright two-step blip |
+| UI `back` (a `[data-back]` button) | `ui.back` | 3 | M6 | the confirm blip, falling |
+| UI `slider` (a range input changed; at most every 60 ms) | `ui.slider` | 3 | M6 | a tick whose pitch follows the value |
+| UI `tab` (a `[role="tab"]` clicked) | `ui.tab` | 3 | M6 | a paper-like swish |
+| `ui:locked` | `ui.locked` | 3 | M6 | a dull double thunk |
+| `shop:buy` (new) | `ui.buy` | 1 | M6 | a coin chime and a register ding |
+| `shop:equip` (new) | `ui.equip` | 1 | M6 | a mechanical clunk-click |
+| `shop:deny` (new) | `ui.deny` | 1 | M6 | a low soft buzz |
+| `results:open` (new) | the result's stinger (§M6.3) on `music` | — | M6 | win / podium / finish / record / medal |
+| `results:tally` | `ui.tally` | 1 | M6 | a tick, a little higher per line |
+| `results:total` | `ui.coin` | 1 | M6 | a coin-shower chime |
+| `results:unlock` | stinger `unlock` (queued) | — | M6 | |
+| `results:trophy` | stinger `trophy` (queued; once per results screen) | — | M6 | |
+| `results:medal` | stinger `medal-<medal>` (queued; replaces the finish stinger in a trial) | — | M6 | |
+| `results:champion` | stinger `champion` (queued; first in the queue) | — | M6 | |
+| `tutorial:step` | `ui.tutorial` | 1 | M6 | a soft two-note chime |
+| `tutorial:done` | `ui.sparkle` | 1 | M6 | a short sparkle |
+
+- **The stinger queue:** at most two stingers per results screen. The first is the one `results:open` picks; one more from unlock > trophy > medal, in that order (champion always goes first and pushes the position stinger out). A queued stinger starts 0.2 s after the one before ends. The results theme starts when the queue is empty.
+- **UI sounds are rate-limited:** at most one UI sound per 40 ms; a confirm inside 40 ms of a move replaces it.
+- **The touch race buttons** (boost, brake, item, steer) make no UI sound: their action has its own sound, and they already have the haptic tick.
+
+### M6.3 The song table
+
+Bars: 16 steps of 16th notes, 4/4. Length = bars × 240 / BPM. Every world song: an intro played once, then a loop; the lift layer runs with the loop and is heard only on the final lap. Instruments are ids from the shared set (§M6b, `dsp/instruments.ts`).
+
+| Song id | Tempo, key | Intro + loop (bars → s) | Style; tracks and instruments | Final-lap lift (mono layer) |
+|---|---|---|---|---|
+| `neon-bay` | 118, A minor | 4 + 32 → 8.1 + 65.1 | Synthwave, as the sketch. Pads `saw-pad`; 16th arpeggio `square-arp`; octave 8th bass `saw-bass`; lead `saw-lead` with vibrato; drums `kick`, `snare-big` (long reverb), `hat`, `hat-open`. i–VI–III–VII (Am–F–C–G); sections A B A′ C (8 bars each) | A `pulse-lead` counter-melody an octave up; open hats on the off-beats |
+| `sunset-mesa` | 124, D Dorian | 4 + 40 → 7.7 + 77.4 | Outrun. A driving 16th `saw-bass` that ducks on the kick; `pulse-lead`; `snare-gated`; brass-like `stab`; `hat`, `kick`. Dm–G–Am–C (the Dorian major IV) | Off-beat `stab` chords; a `ride` |
+| `cryo-station` | 110, E minor | 4 + 32 → 8.7 + 69.8 | Chiptune-synth. `pulse-chip` leads (12.5% and 25% width); `tri-bass`; crushed noise drums (`kick-chip`, `snare-chip`, `hat-chip`); 32nd-note chip arpeggios on `pulse-chip`; `bell` sparkles on a long delay | A `pulse-chip` harmony a third above the lead; 16th `hat-chip` |
+| `jade-ruins` | 128, G Phrygian | 8 + 40 → 15.0 + 75.0 | Tribal-synth. `tom-lo`/`tom-mid`/`tom-hi` pattern; `shaker`; `fm-bass`; a `pluck` ostinato that leans on the flat second (A♭); `breath-pad`; a `saw-lead` melody in the Phrygian mode | Double-time toms; a high `pluck` line |
+| `orbital-ring` | 96, C Lydian | 4 + 32 → 10.0 + 80.0 | Ambient arpeggio. `kick-soft`; `rim`; no snare; slow `saw-pad` swells; a `bell` arpeggio on a long dotted delay; `sine-sub`; the Lydian ♯4 (F♯) in the arpeggio | A half-time `snare`; the `bell` arpeggio an octave up |
+| `tempest-spire` | 132, F♯ minor | 4 + 40 → 7.3 + 72.7 | Dark synth. A driven 16th `saw-bass`; minor `stab`s; `clap`; thunder toms (`tom-lo` with a long reverb); a gliding `saw-lead` (portamento 60 ms) | A tremolo `saw-pad`; a `crash` at each 8-bar phrase |
+| `cinder-forge` | 140, C Phrygian | 8 + 40 → 13.7 + 68.6 | Industrial synth. Driven `fm-bass`; metallic hits (`metal`); `anvil`; four-on-the-floor `kick`; a driven `saw-lead` | 16th `metal` ticks; the bass doubled an octave down |
+| `abyss-line` | 104, D Mixolydian | 4 + 32 → 9.2 + 73.8 | Dreamy synth. Chorused `fm-epiano`; warm `saw-pad`; `sine-sub` and `tri-bass`; soft drums (`kick-soft`, `rim`, `shaker`); `blip` bubbles (sine with a pitch drop); a breathy `flute` lead | A `blip` arpeggio; a `shaker` |
+| `menu` | 108, F major | 2 + 32 → 4.4 + 71.1 | Relaxed synthwave. It states **the MachZero motif** (below) in its first 4 loop bars. `saw-pad`, `fm-epiano`, `saw-bass`, `kick-soft`, `snare`, `hat`, `saw-lead` | none |
+| `results` | 112, C major | 0 + 16 → 0 + 34.3 | Upbeat and bright; the motif in the lead. `square-arp`, `saw-pad`, `saw-bass`, `kick`, `clap`, `hat`, `pulse-lead` | none |
+
+**The MachZero motif:** five notes, scale degrees 1 – 5 – 6 – 5 – 8, rhythm quarter, eighth, eighth, quarter, half (one 4/4 bar plus a held note). In F major: F4 C5 D5 C5 F5; in C major: C5 G5 A5 G5 C6.
+
+**Stingers** (no loop; stereo; C major, so they lead into the results theme):
+
+| Stinger id | Length | What it is |
+|---|---|---|
+| `win` | 3.0 s | The full motif on `saw-lead` and `pulse-lead` in octaves, a drum fill, a held C major chord with a `crash` |
+| `podium` | 2.5 s | The motif on `pulse-lead`, lighter drums, a held chord |
+| `finish` | 2.0 s | **Warm, never sad:** the motif slower on `fm-epiano`, ending on a bright C major add-9 chord. Plays for 4th place or lower, a KO, or a trial with no medal |
+| `record` | 1.2 s | A quick rising run, then the motif's last two notes (G5 C6) on `bell`. A trial with a new best time and no new medal |
+| `unlock` | 1.5 s | A rising `bell` arpeggio over two octaves and a shimmer |
+| `trophy` | 1.2 s | The motif's first three notes on `bell`, a held chord |
+| `medal-bronze` / `medal-silver` / `medal-gold` | 1.2 s each | The same figure starting on C5, E5 and G5, so the gold sounds highest |
+| `champion` | 4.0 s | The full motif with a drum build, a key lift to D major for the last bar, and a long chord |
+
+**Which stinger `results:open` picks** (`pickStinger(result: RaceResult)`, pure): a race: position 1 → `win`; 2–3 → `podium`; otherwise (or not finished) → `finish`. A trial: a medal reached that is better than the previous one → `medal-<medal>`, else a new best → `record`, else `finish`.
+
+**What "good enough" means for a song** (the composer checks this before asking the owner; the owner's ear decides):
+- The loop has a lead melody a child could hum: in at least half of its bars, within a range of 1.5 octaves, built from 2–4 bar phrases that repeat with variation.
+- Two contrasting sections at least (A and B), and the loop's last bar leads back into its first.
+- The world's feel in the first 8 bars (tempo, mode, its signature instrument).
+- The drums leave space for the effects: no `crash` or `snare-big` more often than once per 2 bars.
+- It passes the validator and the loudness test (M6b step 3).
+
+### M6.4 The song data format
+
+Songs are small TypeScript data files, one per song (`src/audio/songs/<id>.ts`), imported only by the Worker chunk.
+
+```ts
+// src/audio/songs/format.ts
+export type SongId = 'neon-bay' | 'sunset-mesa' | 'cryo-station' | 'jade-ruins' | 'orbital-ring' | 'tempest-spire' | 'cinder-forge' | 'abyss-line' | 'menu' | 'results';
+export type StingerId = 'win' | 'podium' | 'finish' | 'record' | 'unlock' | 'trophy' | 'medal-bronze' | 'medal-silver' | 'medal-gold' | 'champion';
+
+export interface TrackDef {
+  /** An instrument id from dsp/instruments.ts, with optional overrides of its parameters. */
+  instrument: InstrumentId;
+  params?: Partial<InstrumentParams>;
+  gain: number;            // 0..1, linear
+  pan?: number;            // −1..1 (the lift layer ignores it: mono)
+  delay?: number;          // send 0..1
+  reverb?: number;         // send 0..1
+  /** Duck this track's gain on every hit of the named drum track (a sidechain pump): depth 0..1, release in s. */
+  pump?: { by: string; depth: number; release: number };
+  /** Rendered into the mono lift layer instead of the main mix. */
+  lift?: boolean;
+}
+
+/**
+ * A step string: one token per 16th note, separated by spaces; 16 tokens per bar; a pattern's tracks all have
+ * the same number of bars. Tokens:
+ *   .        rest (a held note keeps sounding through a rest only if followed by '-')
+ *   -        hold: the previous note is still held through this step
+ *   A3  C#4  a note (sharps only, C0..B8), velocity 0.8
+ *   A3!      the same note accented (velocity 1)
+ *   A3+C4+E4 a chord (at most 4 notes)
+ *   x  X     a drum hit / an accented drum hit (drum instruments only)
+ * Example (one bar): 'A3 - - - C4 - E4 . A4! . . . E4 - . .'
+ */
+export type StepString = string;
+
+export interface SongDef {
+  id: SongId | StingerId;
+  title: string;           // shown in SOUND TEST, e.g. 'NEON BAY — "GRID RUNNER"'
+  bpm: number;             // 80..160
+  key: string;             // for people only, e.g. 'A minor'
+  swing?: number;          // 0..0.3: the off-beat 16ths are delayed by swing × one step
+  tracks: Record<string, TrackDef>;
+  patterns: Record<string, Partial<Record<string, StepString>>>; // pattern name → track name → steps; a missing track rests
+  intro: readonly string[]; // pattern names, played once (a stinger has only an intro)
+  loop: readonly string[];  // pattern names, looped; [] for a stinger
+  fx: {
+    delay: { beats: number; feedback: number; tone: number }; // beats: 0.75 = a dotted 8th; tone: low-pass Hz
+    reverb: { size: number; damp: number };                    // 0..1 each
+  };
+}
+```
+
+- **The validator** (`validateSong(def): string[]`, empty when valid) checks: every token parses; every note is inside its instrument's range (`InstrumentDef.range`, MIDI); drum tracks use only `x`, `X`, `.` and `-`; every pattern name in `intro` and `loop` exists; every track named in a pattern exists in `tracks`; within a pattern all tracks have the same number of bars; `bpm` in 80–160; a world song's loop lasts 60–80 s and its intro ≤ 8 bars; `results` loops 16 bars; a stinger lasts its table length ± 0.25 s; at most 24 voices sound at once (counted from each note's start to the end of its release); the song has at least one `lift: true` track when it is a world song and none otherwise.
+- **The registry** `src/audio/songs/index.ts` maps each id to its def (Worker side). A small catalogue `src/audio/songs/catalog.ts` (`{ id, title, bpm, key, kind: 'world' | 'menu' | 'results' | 'stinger', worldId? }[]`, no notes) is the only song data in the main chunk.
+
+### M6.5 Budgets
+
+| What | Budget | How it is checked |
+|---|---|---|
+| Frame time | 60 fps at the device's preset; p95 ≤ baseline + 1 ms (Jade Ruins and Orbital Ring, 8 ships, every sound and the music on) | Device gates (M6b, M6d), the perf overlay (`?perf=1`) |
+| Main-thread audio work | ≤ 0.3 ms p95 per frame (`RaceSounds.update` + queue drain + `MusicPlayer.tick`) | The perf overlay's new `audio` line; an e2e asserts p95 ≤ 1 ms on CI (SwiftShader) |
+| Audio-thread work | ≤ 3% of one core on the devices | Proxy: `e2e/audio.perf.spec.ts` renders 30 s of the race graph (the song loop, the engine, 2 rival engines, ambience, crowd, 12 one-shots per s) in an `OfflineAudioContext` and reports the ratio in the PR; it fails above 10% on CI (that only catches a blow-up). On the devices: no crackle and the fps gate |
+| Audio nodes alive | ≤ 150 | `AudioEngine.nodeCount` (every node created by audio code is counted and uncounted at `disconnect`); e2e reads it from `__machzero.audio()` in a race with every sound |
+| Audio buffers held | ≤ 100 MB | `BufferCache` byte budget with LRU eviction (§M6b); e2e plays every song in SOUND TEST and reads the peak |
+| Render time per song | ≤ 3 s on the iPhone and the iPad (in the Worker); ≤ 10 s on CI | SOUND TEST shows each render's time; a Node test renders every song and reports the time |
+| SFX presets, ambience and crowd | ≤ 400 ms of Worker time on the devices; ≤ 3 MB for the presets; ambience and crowd mono, ≤ 12 s each | SOUND TEST shows it; Node test |
+| Boot | Nothing new before the first frame: the Worker is created after the first rendered frame; the context still waits for the first input | Code review; a unit test that `new AudioEngine()` creates no Worker and no context |
+| App JS | ≤ 25 KB gzip added by M6 in total, the Worker chunk included | `npm run size` (extend `check-size.mjs` to count the Worker chunk in app JS) |
+| `public/game` | + 0 | `npm run size` |
+| One-shot voices | 28 (v1) | The pool's test |
+
+**Memory per song** (44.1 kHz, Float32): a loop of 80 s in stereo is 28.2 MB, its mono lift 14.1 MB, an intro of 15 s 5.3 MB. The cache holds at most: the playing song, the song being prepared, the results theme and the queued stingers while results are near, and the menu theme; anything else is evicted.
+
+### M6.6 Warnings and their twins
+
+| Warning sound | Visual twin | Haptic twin |
+|---|---|---|
+| `countdown.beep`, `countdown.go` | The 3-2-1-GO numbers | — |
+| `alarm.emp` | "⚠ EMP INCOMING" on the HUD (**fixed in M6a**: shown even when the player carries no items) | iOS heavy tap (exists) |
+| `alarm.energy` | The energy bar's low-energy flash (exists, `HUD.ts`) | — |
+| `mine.beep` | The mine on the road; the hazard cue in colour-blind mode | — |
+| `gate.rumble` | The gate closing; the hazard cue | — |
+| `lightning.charge` | The glowing circle on the deck (X4); the hazard cue | — |
+| `geyser.rumble` | The vent's glow (X5); the hazard cue | — |
+| `jet.hiss` | The bubble stream (X6); the hazard cue | — |
+| `item.fail` | The item chip (empty) | — |
+
+---
+
+### M6a — The audio graph and mixer, the SFX bank, the event-to-sound table, the menu and hazard sounds
+
+**Design decisions:**
+- **`src/audio/` replaces `src/game/AudioSystem.ts`.** The public surface the App and `RaceSession` use stays: `attach(bus)`, `detach()`, `update(ctx)`, `setVolumes(...)`, `muted`, `setMuted()`, `dispose()`. `game/index.ts` re-exports from `audio/` until every import has moved, then the re-export goes.
+- **The files:**
+
+  | File | What |
+  |---|---|
+  | `audio/AudioEngine.ts` | The context's life (create on first input, `audioSession`, unlock, suspend and resume with the 0.5 s fade, hidden → pause callback), the graph (§M6.1, or v1's graph with `music` off), the levels, mute, MONO, `nodeCount`, the duck (applied to the music bus from M6b). Owned by the App for the page's lifetime |
+  | `audio/duck.ts` | Pure: `duckTarget(active: readonly DuckSource[]): { db: number; lowpassHz: number | null }` and the attack and release per source (§C) |
+  | `audio/VoicePool.ts` | Pure allocation: `claim(priority, now): { slot } | { steal: slot } | null`, `release(slot)`; 28 slots |
+  | `audio/soundTable.ts` | §M6.2 as data: `SOUND_RULES: readonly SoundRule[]` and `TIMELINE_SOUNDS` |
+  | `audio/sfx/v1Sounds.ts` | v1's sound recipes moved verbatim: `tone()` and `noise()` calls per sound id, as functions `(out: SfxOut, g: number, …) => void` |
+  | `audio/sfx/sfxr.ts` | Pure: `renderSfxr(p: SfxrParams, sampleRate: number): Float32Array` (jsfxr's synthesis with 8× oversampling: square, saw, sine, noise; attack, sustain, punch, decay; frequency slide and its delta; vibrato; duty sweep; low-pass with resonance and sweep; high-pass and sweep; arpeggio; repeat) |
+  | `audio/sfx/presets.ts` | The M6 sounds as `SfxrParams` (or a small layered recipe of several sfxr layers), by sound id |
+  | `audio/SfxBank.ts` | `play(id, opts: { gain, pan?, priority, bus })`: a v1 recipe or a rendered preset buffer; holds the preset buffers |
+  | `audio/RaceSounds.ts` | Subscribes to one race's bus (the queue of decision F), the continuous voices (v1's engine, boost, wind, scrape, hum; the ice crackle; the three telegraphs), `update(ctx)` |
+  | `audio/MenuSounds.ts` | Subscribes to `App.events` and the UI layer's sound events |
+  | `audio/render/audio.worker.ts` | The Worker: renders the preset batch (M6b extends it to songs, stingers and ambience) |
+  | `audio/render/RenderClient.ts` | Main-thread side of the Worker: `request(kind, ids): Promise<Rendered>`; the main-thread fallback |
+  | `ui/uiSounds.ts` | Dispatches the UI sound events from the DOM (step 7) |
+  | `ui/screens/SoundTest.tsx` | SOUND TEST (effects only in M6a) |
+
+- **The Worker** is created with `new Worker(new URL('./audio.worker.ts', import.meta.url), { type: 'module' })` (Vite's pattern; it becomes its own chunk), after the first rendered frame, only with `music` on. It renders every preset once (44.1 kHz, mono) and posts the Float32Arrays back as transferables. **Fallback:** if `new Worker` throws, `error` fires, or there is no answer within 10 s, `RenderClient` renders the presets on the main thread, one preset per `setTimeout(0)` slice (each ≤ 20 ms on a phone), and warns once. A preset that is not rendered yet plays nothing.
+- **New `MenuEvents`:** `'shop:buy': { slot: PartSlot | 'item' }`, `'shop:equip': { slot: PartSlot }`, `'shop:deny': Record<string, never>`, `'results:open': { mode: 'tour' | 'cup' | 'trial'; position: number | null; medal: Medal | null; previousMedal: Medal | null; best: boolean }`. `App.buyPart` emits `shop:buy` on `'bought'` and `shop:deny` on `'short'`; `App.buyItem` the same on `'bought'` / `'short'`; `App.equipPart` emits `shop:equip` on success. The results screen (and the HUD results panel) emits `results:open` when it appears.
+- **`FrameContext.telegraphScale: number`** (new, from `RaceSession`'s `setup.hazards.telegraphScale`, 1 when absent).
+- **The EMP warning fix:** `ItemSystem` gains `incomingAtPlayer(): number` (seconds until the nearest CPU EMP lands on the player, 0 when none), and `HUD.setItems` takes it apart from the item view, so the warning shows even when `playerView()` is null.
+- **With `music` off** M6a changes nothing audible (K); the golden test proves it.
+
+**Build steps (tests first):**
+1. **The fake context and the golden test** (before any code moves).
+   - `src/audio/__tests__/fakeAudio.ts`: a `FakeAudioContext` with the subset audio code uses (`createGain`, `createOscillator`, `createBiquadFilter`, `createBufferSource`, `createBuffer`, `createDynamicsCompressor`, `createStereoPanner`, `createDelay`, `createWaveShaper`, `destination`, `currentTime` (settable), `state`, `resume`, `suspend`, `close`). Every node gets an id; the fake records every `create*`, `connect`, `disconnect`, property set, `AudioParam` call (with value and time), `start` and `stop` into a log. `onended` can be fired by the test.
+   - `src/audio/__tests__/v1Golden.test.ts`: a scripted race against v1's `AudioSystem` (a minimal `window` stub provides `AudioContext = FakeAudioContext` and captures the unlock handler; `Math.random` is a seeded LCG): unlock; 40 `update()` frames with set speeds, throttle, boost, the pit, low energy and two armed mines; then every v1 event once (countdown 3–0, boost, dash, draft, rail hits at 0.2 and 0.8, a ship hit, an EMP, a mine, a geyser, a jet, shield up, mine drop, a shield block, a warn, a fail, the pit, low energy, a KO, a lap, the final lap, a winning finish), each followed by one `update()`; then `detach()`. Record the log to `v1-golden.json` (`UPDATE_GOLDEN=1`) **on today's code**, and commit it.
+   - The same test then runs against the new `AudioEngine` + `RaceSounds` with `music` off and expects the same log. It must pass at every later step.
+2. **Pure parts, tests first:**
+   - `duck.test.ts`: each source alone gives its row of §C; countdown and pause together give −12 dB and the low-pass (the deepest wins); none gives 0 dB and no low-pass.
+   - `VoicePool.test.ts`: 28 claims succeed; the 29th at priority 1 steals the oldest priority-3 voice; with all 28 at priority 0 a priority-0 claim fails; a release frees the slot; ties steal the oldest.
+   - `soundTable.test.ts`: every `GameEvents` key and every `MenuEvents` key is either in the table or in the explicit `SILENT_EVENTS` list (`race:state`, `race:results`, `economy:credits`, `audio:mute`), so a new event cannot be forgotten; every sound id in the table exists in `v1Sounds` or `presets`; every priority-0 sound has a row in §M6.6's twin table (`WARNING_TWINS` in the same file).
+   - `sfxr.test.ts`: every preset renders a non-silent buffer (peak > 0.05), peak ≤ 1, its length matches its envelope, and no NaN; the same params give the same samples (the noise is seeded); the whole batch renders in ≤ 2 s in Node (it reports the time).
+3. **`AudioEngine`** with the graph of §M6.1 and v1's graph for `music` off (tests against the fake: the node chain, the levels per slider, mute, MONO inserts and removes the mono node and zeroes the pans, a slider change ramps with τ = 20 ms, `nodeCount` rises and falls). The platform rules of I: `audioSession` set before the context with `music` on; hidden → the pause callback (the App passes `() => session.pause(true)` when racing or counting down) and `suspend`; visible → `resume` and the 0.5 s master ramp; still not running → the unlock listeners return.
+4. **The move:** `RaceSounds` and `SfxBank` take v1's code (the golden test stays green); `App` and `RaceSession` import from `audio/`; `game/AudioSystem.ts` is deleted, `game/index.ts` re-exports nothing audio. The queue of decision F lands here.
+5. **The new race sounds** (behind `music`): the M6 rows of §M6.2, the timeline sounds (tests with a fake track and clock: a strike point 60 m ahead in its warning starts `lightning.charge`; behind the player, nothing; at 90 m, nothing; the voice follows the warning value; `telegraphScale` 2 doubles the warning window), the panning of G for one-shots (a ship 15 m to the right gives pan 0.5; MONO gives 0), the priorities.
+6. **Presets:** write the M6 sounds in `presets.ts`; the Worker and `RenderClient` with the fallback (a unit test with a fake Worker that never answers falls back after 10 s of fake time; one that throws falls back at once).
+7. **Menu sounds:**
+   - `ui/nav.ts`'s `move()` dispatches `new CustomEvent('mz-ui-sound', { bubbles: true, detail: { kind: 'move' } })` on the newly focused element when focus changes.
+   - `ui/uiSounds.ts` (`bindUiSounds(root: HTMLElement, emit: (kind: UiSoundKind) => void): () => void`), bound by the App on `els.ui` and `els.hud`: `mz-ui-sound` → its kind; a `click` on a `button` → `back` if it is `[data-back]` or inside one, `tab` if `[role="tab"]`, else `confirm`; `input` on `input[type=range]` → `slider` (60 ms apart); elements inside `.mz-touch` (the race buttons) are ignored. The rate limit of §M6.2.
+   - `MenuSounds` plays them, plus the menu events, `shop:*`, the results ticks and the tutorial chimes. The stingers of `results:open` and the queue arrive in M6c (M6a's `results:open` plays nothing yet).
+   - Tests: `uiSounds.test.ts` with a small DOM stub (or happy-dom if already a dependency; otherwise the stub style of `nav.test.ts`): a click on a `[data-back]` gives `back`; a move gives `move`; a slider dragged through 10 values in 100 ms gives at most 2 sounds.
+8. **The EMP warning fix** (not behind the flag: it is a HUD fix): `ItemSystem.incomingAtPlayer()`, `HUD.setItems(view, incoming)`; tests in `ItemSystem.test.ts` and `HUD.test.ts` (no bag, a CPU EMP in flight → the warning shows; it hides when it lands).
+9. **Settings:** `settings.mono` (default false) in `schema.ts` and `sanitizeSettings` (a test: a v9 save without `mono` loads with false); Settings → Sound gains MONO (behind `music`) and SOUND TEST (behind `music`).
+10. **SOUND TEST** (`ui/screens/SoundTest.tsx`, route `{ name: 'soundtest' }`, back → Settings): sections RACE, HAZARDS, MENUS (every sound id of §M6.2 with its name and a PLAY button), and the preset render time and size. `?jukebox=1` (read in `readUrlFlags`) opens it as soon as a profile is active; before the context runs it shows "TAP TO START SOUND". Pad, keyboard and touch (the 44-point rule).
+11. **The debug hook:** `__machzero.audio()` returns `{ state, nodes, voices, bufferBytes, presetsMs, played: string[] }` (`played`: the last 64 sound ids, for the e2e).
+12. **e2e:**
+    - `e2e/audio.spec.ts` (`?features=music&debug=1`, Playwright clicks once to unlock): menus by keyboard play `ui.move` and `ui.confirm` (read from `played`); a purchase with too few credits plays `ui.deny`; an autopilot race on Tempest Spire (`?features=music,expansion`) plays `lightning.charge` and `lightning.bolt`; no console errors and no `pageerror`; `nodes` stays ≤ 150.
+    - The existing specs run unchanged (they run with `music` off).
+    - `e2e/settings.spec.ts` (or the existing settings test): MONO and the three sliders persist across a reload.
+
+**Done when:**
+- [ ] The golden test passes: with `music` off the graph and every sound are v1's.
+- [ ] Every event is in the table or in `SILENT_EVENTS`; every sound id exists; every warning has its twin.
+- [ ] With `?features=music`: every sound in §M6.2 plays in SOUND TEST and in a race; geysers and jets have their own sounds; the three telegraphs follow the warnings; Rookie races telegraph twice as long.
+- [ ] The EMP warning shows with no items.
+- [ ] The Worker renders the presets after the first frame, with the fallback tested; nothing waits on it.
+- [ ] Ducking is not wired yet (no music); the duck table is tested.
+- [ ] App JS ≤ +8 KB gzip for this PR.
+
+**Device check (the owner, both devices, `VITE_FEATURES=music,expansion`):**
+- **First, the baseline:** on the build before M6 (today's `main`), read the perf overlay's frame time p95 in an 8-ship race on Jade Ruins and on Orbital Ring, on each device, and post the four numbers on the PR. Every later gate compares with them.
+- Listen to the new effects in SOUND TEST and in races on Tempest Spire, Cinder Forge and Abyss Line; say which (if any) to rework.
+- The ringer switch on silent: no sound. On sound: sound.
+- AirPods: sound follows them; disconnecting them mid-race does not stop the sound.
+- Background the app mid-race and come back: the race is on the pause menu, and the sound fades in.
+- Menus by pad and by touch make the same sounds.
+
+---
+
+### M6b — The synthesiser, the render Worker, the music player, and the first three songs (style approval)
+
+**Design decisions:**
+- **The DSP** (`src/audio/dsp/`, pure TypeScript, no DOM, no Web Audio): all processing in blocks of 128 samples at 44.1 kHz, Float32. Noise comes from a seeded generator (the song id is the seed), so a render is deterministic.
+
+  | File | What |
+  |---|---|
+  | `dsp/osc.ts` | polyBLEP saw and pulse (width 0.05–0.95, PWM by an LFO), triangle (integrated pulse), sine, white and pink noise |
+  | `dsp/filter.ts` | TPT state-variable filter (low-pass, band-pass, high-pass; cutoff and resonance per block, smoothed) |
+  | `dsp/env.ts` | ADSR with linear attack and exponential decay and release; a pitch envelope |
+  | `dsp/fm.ts` | two-operator FM (ratio, index with its own envelope) |
+  | `dsp/drums.ts` | kick (sine with a pitch drop and a click), snares (noise + body tone), clap (3 noise bursts + a tail), hats (6 square partials + high-pass, as the 808), toms, rim, shaker, ride and crash (FM metal + noise), `metal` and `anvil` (inharmonic FM), the `-chip` variants (a bit crusher on the drum) |
+  | `dsp/effects.ts` | a stereo tempo-synced delay with feedback and a low-pass in the loop; a reverb (4 parallel combs and 2 all-passes per channel, Freeverb-style, with size and damping); chorus (two modulated short delays); drive (tanh with a gain); bit crush (bits and a sample-hold rate); the sidechain pump |
+  | `dsp/instruments.ts` | `INSTRUMENTS: Record<InstrumentId, InstrumentDef>`: each instrument's voice recipe, its parameters (`InstrumentParams`) and its MIDI `range`. Ids: `saw-pad`, `saw-lead`, `pulse-lead`, `square-arp`, `saw-bass`, `fm-bass`, `tri-bass`, `pulse-chip`, `bell`, `fm-epiano`, `pluck`, `stab`, `breath-pad`, `flute`, `sine-sub`, `blip`, and the drums `kick`, `kick-soft`, `kick-chip`, `snare`, `snare-big`, `snare-gated`, `snare-chip`, `clap`, `hat`, `hat-open`, `hat-chip`, `ride`, `crash`, `rim`, `shaker`, `tom-lo`, `tom-mid`, `tom-hi`, `metal`, `anvil` |
+  | `dsp/sequence.ts` | Parses step strings into note events (`{ time, midi, velocity, length, track }`), applies swing, counts voices |
+  | `dsp/render.ts` | `renderSong(def: SongDef): RenderedSong` |
+  | `dsp/loudness.ts` | BS.1770 integrated loudness (K-weighting, 400 ms blocks, the −70 LUFS absolute and −10 LU relative gates) and the true-peak estimate (4× oversampled) |
+
+- **`renderSong`** returns `{ intro: [L, R] | null, loop: [L, R], lift: Float32Array | null, bpm, introBars, loopBars, renderMs }`:
+  - It renders the intro, then the loop, then 4 s more of the loop's tails (notes still ringing, delay and reverb). The tail past the loop's end is **added onto the loop's start**, so the loop is seamless (the delay and reverb are linear, and every non-linear step — drive, crush — is inside a voice, so this is exact).
+  - The intro's own tail runs into the loop's first seconds (the loop buffer starts right after the intro at playback).
+  - `lift: true` tracks go to a separate mono accumulator with their own delay and reverb sends (mono), folded the same way.
+  - Normalisation: one gain for intro, loop and lift together, so that the loop measures −14 LUFS and no sample exceeds −1 dBFS (if the peak limits it, the loudness may end lower; the test allows −14 ± 1 LUFS).
+  - A stinger renders only its intro plus a 2 s tail, normalised the same way.
+- **The Worker** (`audio/render/audio.worker.ts`, M6a's Worker grown): requests `{ id, kind: 'song' | 'stinger' | 'presets' | 'ambience', ids }`; answers with transferable Float32Arrays, or `{ id, ok: false, error }`. One request at a time; a newer song request for the same purpose cancels a queued one.
+- **`BufferCache`** (`audio/BufferCache.ts`, pure bookkeeping plus `AudioBuffer` creation): entries by id with their bytes; `pin(id)` and `unpin(id)`; `put` evicts the least recently used unpinned entries until the total fits 100 MB.
+- **`MusicDirector`** (`audio/MusicDirector.ts`, pure): input `{ route: Route['name']; worldId: WorldId | null; race: RaceState | null; intro: boolean; playerLap: number; playerFinished: boolean; resultsOpen: boolean; paused: boolean }` → output `{ song: SongId | null; fromIntro: boolean; lift: boolean; muffle: boolean; fadeOut: number; fadeIn: number }`. Its tests are the rows of §E's table.
+- **`MusicPlayer`** (`audio/MusicPlayer.ts`): applies the director's output.
+  - `play(song)`: the intro source starts at `t0 = ac.currentTime + 0.05` and the loop source (`loop = true`) and the lift source (gain 0) both start exactly at `t0 + introSeconds`, so they stay sample-locked (same length).
+  - `setLift(true)`: the next bar line is `tLoop + ceil((now − tLoop) / bar) × bar`; the lift's gain ramps from 0 to 1 linearly over one bar from there.
+  - Crossfade: the old song's gain ramps to 0 over `fadeOut`, then its sources stop and disconnect; the new one rises over `fadeIn`.
+  - The duck and the pause muffle (§C) act on the song gain and the music low-pass.
+  - A song not yet in the cache: request it; play when it lands, if still wanted.
+  - **Prefetch:** when the backdrop session's world changes, prepare that world's song; at the player's final lap, prepare `results` and the stingers that `pickStinger` may need (all ten are small: render them together, 21 s of audio); when the results screen closes toward the menus, prepare `menu` if it was evicted.
+- **SOUND TEST** gains SONGS (each with PLAY, STOP, LIFT on or off, JUMP TO LOOP; it shows the tempo, key, length, render time, MB and the loudness measured live) and STINGERS (PLAY). Playing a song from SOUND TEST stops the menu theme; leaving SOUND TEST gives it back.
+- **The first three songs:** `menu`, `neon-bay`, `orbital-ring` (§M6.3). Their PR body asks the owner for **the style approval**: the sound of the instruments, the mix, and the songs. M6c starts only after it.
+
+**Build steps (tests first):**
+1. **DSP unit tests** (`audio/dsp/__tests__/`): a 440 Hz saw has its fundamental at 440 Hz (zero crossings over 1 s, ±1 Hz) and less aliasing than a naive saw (energy above 15 kHz at least 20 dB lower for a 3 kHz saw); the SVF low-pass at 1 kHz passes 100 Hz within 0.5 dB and cuts 10 kHz by more than 30 dB; an ADSR reaches its sustain level and ends at 0 after its release; the delay repeats an impulse at the beat time with the feedback ratio; the reverb's tail decays below −60 dB within 3 s at size 0.5; a drum hit is non-silent and ends within its length; every instrument renders its range's lowest and highest notes without NaN or a peak above 1.
+2. **Sequence tests:** a one-bar string with 4 notes gives 4 events at the right times at 120 BPM (step 0.125 s); `-` extends a note's length; a chord gives 3 events; swing 0.2 moves only the odd 16ths, by 0.2 steps; an accent gives velocity 1; a bad token is an error naming the pattern, track and step.
+3. **Song tests** (`audio/songs/__tests__/songs.test.ts`, every song and stinger in the registry): `validateSong` returns no errors; `renderSong` gives non-silent audio; the loop measures −14 ± 1 LUFS and peaks ≤ −1 dBFS; **the loop is seamless** (render the loop twice in a row as one buffer; the folded loop equals the second pass within 1e-4); the lift is silent outside lift tracks and non-silent on world songs; two renders give identical samples; each render's time is printed, and each is ≤ 10 s on CI.
+4. **`BufferCache` tests:** put 3 songs of 40 MB → the oldest unpinned is evicted; a pinned entry is never evicted; the total never exceeds 100 MB after a put.
+5. **`MusicDirector` tests:** one per row of §E (menu → menu theme; race with the grid card → the world song from its intro; final lap → lift; finish → fade out 1.5 s; results open → song null until the stingers end, then `results`; pause → muffle; back to menus → `menu` with a 1.0 s crossfade; a restart → the world song from its intro).
+6. **`MusicPlayer` against the fake context:** the three sources start at the right times; `setLift` starts its ramp on the next bar line; a crossfade ramps both gains and stops the old sources after the fade; the duck values reach the song gain.
+7. **The App wiring:** an `effect()` over the route, the session state, the profile's world and the results screen feeds the director; `RaceSounds` forwards the player's lap and finish to it; the music bus is used only with `music` on.
+8. **The three songs**, composed to §M6.3 and the "good enough" rules, each passing step 3.
+9. **SOUND TEST's SONGS and STINGERS sections** (stingers empty until M6c except as placeholders).
+10. **e2e** (`e2e/audio.spec.ts` grows; `?features=music&debug=1`): the menu theme starts after the first click (`__machzero.audio().song === 'menu'`); a race on Neon Bay switches to `neon-bay`, and the final lap sets `lift` (autopilot); SOUND TEST plays each of the three songs; `bufferBytes` ≤ 100 MB throughout; no console errors.
+11. **`e2e/audio.perf.spec.ts`:** the offline proxy of §M6.5, with the result printed.
+
+**Done when:**
+- [ ] The three songs render, pass every song test, and play in SOUND TEST and in the game, with the lift on the final lap.
+- [ ] Every scene change of §E behaves as its row (director tests and e2e), with no click (no gain jump in the fake's log).
+- [ ] Render times printed on CI; memory ≤ 100 MB.
+- [ ] App JS ≤ +12 KB gzip for this PR (the songs are in the Worker chunk, which counts).
+
+**Device check (both devices, `VITE_FEATURES=music`):**
+- The render time of each of the three songs, as SOUND TEST shows it: ≤ 3 s.
+- Frame time p95 in an 8-ship race on Neon Bay and on Orbital Ring with the music: ≤ baseline + 1 ms.
+- No crackle during a race, in the menus or in SOUND TEST.
+- **The style approval:** listen to `menu`, `neon-bay` and `orbital-ring` in SOUND TEST (with and without the lift) and in a race. Tick each line of the PR's checklist, or write REWORK and what to change. A rejected song is reworked in a follow-up commit on the same PR; a rejected *style* (the instruments or the mix) is reworked before M6c.
+
+---
+
+### M6c — The other six world songs, the results theme and the stingers
+
+**Design decisions:**
+- **The songs:** `sunset-mesa`, `cryo-station`, `jade-ruins`, `tempest-spire`, `cinder-forge`, `abyss-line`, and `results` (§M6.3), in the style the owner approved in M6b, with any change the approval asked for applied to every song.
+- **The stingers** (§M6.3) and `pickStinger`; the stinger queue of §M6.2 in `MenuSounds`; the stinger duck (§C).
+- **The 2.1 worlds' songs play only when `expansion` shows those worlds**; SOUND TEST lists all ten songs regardless.
+
+**Build steps (tests first):**
+1. `pickStinger` tests (every case of §M6.3) and stinger-queue tests (a win with an unlock and a trophy → `win`, then `unlock`; a champion → `champion` first; a trial with a gold medal → `medal-gold`; a trial with a new best and no new medal → `record`).
+2. The six world songs and `results`, each passing the song tests (M6b step 3).
+3. The ten stingers, each passing the song tests (stinger length ± 0.25 s).
+4. The results flow: `results:open` plays the stinger; the queue; the results theme after the queue (director and e2e).
+5. e2e: an autopilot World Tour race to the results with `?features=music` plays a stinger, then `results`; SOUND TEST plays all ten songs and ten stingers with `bufferBytes` ≤ 100 MB.
+
+**Done when:**
+- [ ] All ten songs and ten stingers pass the song tests and play in SOUND TEST.
+- [ ] Every results screen (Tour, cup, trial, the season's end) plays the right stinger, then the results theme.
+- [ ] App JS ≤ +4 KB gzip for this PR.
+
+**Owner:** listen to each song (and its lift) and each stinger on the iPhone; tick each line of the PR's checklist or write REWORK. Render times of the six new songs on both devices, from SOUND TEST (≤ 3 s each).
+
+---
+
+### M6d — Engine voices, rival engines, ambience, the crowd, the echo, the mix pass; `music` on
+
+**Design decisions:**
+- **Engine voices per class** (the player's engine; v1's voice is Balanced, exactly):
+
+  | Class | Pitch | Layers | Filter | Other |
+  |---|---|---|---|---|
+  | Light | v1's frequency × 1.335 (+5 semitones) | two saws (0 and +14 cents); no sub square | v1's cutoff × 1.15; Q 5 | — |
+  | Balanced | v1 | v1 (saw 0.5, saw +14 c 0.4, square −1 octave 0.32) | v1 (Q 3.5) | — |
+  | Heavy | v1's frequency × 0.794 (−4 semitones) | v1's two saws, the sub square at 0.55 | v1's cutoff × 0.9; Q 3 | a `WaveShaper` drive (tanh, gain 2) after the filter |
+
+  Boost keeps v1's octave saw on every class. The Aero slot changes no sound.
+- **Rival engines:** two pooled voices (each: a saw, a square −1 octave, a low-pass, a gain, a `StereoPannerNode`) for the two nearest rivals within 60 m (not ghosts). Pitch from the rival's speed and class as above; gain `nearness() × 0.6`; pan per G; a Doppler shift of `1 + clamp(closingSpeed / 340, −0.06, 0.06)`. When the nearest pair changes, the voice that changes ship fades out in 150 ms and in again on the new ship.
+- **Ambience** (rendered in the Worker when the world is selected; mono, 8–12 s, seamless by the same fold as the songs; the M6b synthesiser):
+
+  | World | Ambience |
+  |---|---|
+  | Neon Bay | A low city hum and slow sea waves (filtered noise swells, 8 s) |
+  | Sunset Mesa | Desert wind (band-passed noise sweeping slowly) |
+  | Cryo Station | The station's hum (60 Hz and harmonics) and an icy whistle |
+  | Jade Ruins | Insects (amplitude-modulated noise bands) and sparse bird chirps |
+  | Orbital Ring | A very low drone and soft radio blips |
+  | Tempest Spire | Rain (high-passed noise) and distant thunder rolls |
+  | Cinder Forge | A lava rumble (noise low-passed at 150 Hz), crackles, far metal clanks |
+  | Abyss Line | Underwater (noise low-passed at 400 Hz), slow swells, bubbles |
+
+  - Level: the ambience bus × `speedFade`, which is 1 up to 100 km/h (27.8 m/s) and falls linearly in dB to −12 dB at `CONFIG.TOP_SPEED`; time constant 0.3 s. Off in the menus (`title`) and while paused; on from the countdown.
+- **The crowd:** a mono loop (many band-passed noise voices with slow random swells), gain by the player's distance along the track to the start line: 1 within 30 m, falling to 0 at 150 m. A cheer (+6 dB over 1 s, back over 2 s) at GO and when the player finishes.
+- **The echo:** while the player is inside a closed pipe or Spine stretch (`track.pipes` / `track.spines`, `uClosedStart..uClosedEnd`), the echo send (§M6.1) rises to 0.35 over 0.2 s; it falls over 0.4 s on the way out. The player's engine and the one-shots feed it.
+- **The mix pass:** the levels of every sound against the music at the default sliders, on both devices' speakers and on AirPods; the loudness meter (below) reads −18 ± 2 LUFS over a race on Neon Bay at the default sliders.
+- **The loudness meter:** with `?perf=1` the perf overlay shows short-term loudness (3 s) and the race's integrated loudness, from a tap on the master (a high-shelf of +4 dB at 1.5 kHz and a high-pass at 38 Hz approximate the K-weighting; an `AnalyserNode` gives the RMS). It is created only with the perf overlay.
+- **`music` turns on in its own commit**, so it can be reverted alone. **A second commit removes the flag** (`FEATURE_NAMES` becomes `expansion`; an old link with `music` still loads) **and v1's graph path**; the golden test is then deleted (its job is done), and the SOUND TEST and MONO settings lose their flag checks. SOUND TEST stays in the game.
+
+**Build steps (tests first):**
+1. Engine voice tests against the fake (each class's frequencies and layers at a set speed; Balanced's log equals v1's).
+2. Rival voice tests: the two nearest within 60 m get the voices; a ghost never does; the hand-over fades; pan and Doppler values.
+3. Ambience tests: each world's loop renders non-silent, ≤ 12 s, seamless; `speedFade` at 0, 27.8 m/s and top speed gives 0, 0 and −12 dB.
+4. Crowd and echo tests (distance gains; the echo send inside a pipe stretch of a fake track).
+5. The mix pass (levels in `audio/mixLevels.ts`, one table, so later tuning is one file).
+6. `music` on; then the flag and the v1 path removed; `npm run codebase`; README and TDD §8 audio notes updated.
+7. e2e: an 8-ship autopilot race on Jade Ruins and one on Orbital Ring with every sound: `nodes` ≤ 150; the `audio` line's p95 ≤ 1 ms on CI; no console errors.
+
+**Done when:**
+- [ ] The three engine voices and the rival voices play; ambience on all 8 worlds; the crowd; the echo.
+- [ ] The full SPEC §8.7 list holds.
+- [ ] `music` is on, then removed as a flag; every existing test passes.
+- [ ] App JS: M6 in total ≤ +25 KB gzip; `public/game` + 0.
+
+**The device gate (both devices, `VITE_FEATURES=expansion`):**
+- **fps:** an 8-ship race on Jade Ruins and on Orbital Ring at the device's preset, with the music and every sound: 60 fps, p95 ≤ the M6a baseline + 1 ms.
+- **The ringer switch**, **AirPods**, **background and resume**, as in M6a.
+- **A race by pad only** and **a race by touch only**: every menu sound, the race sounds, the results stinger.
+- **The listening approval of the sound set as a whole:** the engine voices (a race in each class), the ambience of each world, the crowd, the echo, and the mix of music and effects on the speakers and on AirPods. Say what to change; a change is a follow-up commit before the merge.
+- **The merge.**
 
 ---
 
@@ -2565,6 +3112,8 @@ Prices: 0 / 600 / 1500 / 3200 credits. Rival fits:
 | Save migrations + corrupt data | `save/__tests__` | safe defaults |
 | Size budget | `npm run size` | app JS ≤ 600 KB gz; Rapier ≤ 1.7 MB gz; `public/game` ≤ 15 MB |
 | Smoke (Playwright, SwiftShader) | `e2e/smoke.spec.ts` | boots, races 10 s, zero console errors |
+| Audio: v1 golden, sound table, pool, duck, DSP, songs (valid, −14 LUFS, seamless, deterministic) (§M6) | `audio/**/__tests__` | v1 unchanged with `music` off; every event mapped; every song valid |
+| Audio e2e and the offline CPU proxy (§M6) | `e2e/audio.spec.ts`, `e2e/audio.perf.spec.ts` | sounds played by id; nodes ≤ 150; buffers ≤ 100 MB; no console errors |
 
 ## Appendix D — Risks and mitigations
 

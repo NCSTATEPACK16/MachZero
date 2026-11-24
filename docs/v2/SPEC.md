@@ -197,23 +197,78 @@ One hand-designed track per world (3 laps, target lap time 30–45 s on Pilot), 
 
 ## 8. Audio
 
-- **Music:** a procedural sequencer (a small tracker in code), with **one original retro synthwave/chiptune song per world** plus menu and results themes. Download size is close to zero. The music ducks under countdown beeps and pauses with the game.
-- **SFX:** synthesised at startup (jsfxr-style presets rendered into audio buffers) plus a few short CC0 samples for explosions and impacts. New sounds on top of v1's:
-  - UI move, confirm and back
-  - Purchase and part equip
-  - Credit tally
-  - Medal and trophy stingers
-  - Drafting whoosh
-  - Jump launch and landing thump
-  - Pipe echo reverb
-  - Ice crackle
-  - Stone-gate rumble
-  - Mine proximity beep and blast
-  - Shield impact
-  - Crowd and stadium ambience near the start line
-  - A per-world ambience loop
-  - Each ship class's own engine voice
-- There is no voice or announcer. Text and icons carry all information.
+> Status: **agreed** (design interview, 2026-11-24, two rounds and a summary). [`IMPLEMENTATION.md`](IMPLEMENTATION.md) §M6 has the build plan. The original 2.0 intent (first agreed 2026-09-29) still holds: a procedural soundtrack, one song per world, an expanded effects bank, no voice. **Changes from the original §8** are marked **[changed]** with the reason.
+
+### 8.1 What M6 adds, and why
+
+| Area | What | Why |
+|---|---|---|
+| **Music** | One original song per world (8), a menu theme, a results theme and 8 short stingers, all generated in code | Pillar 4 (retro-futurism): synthwave is half of the look. Download size stays close to zero |
+| **Sound effects** | Sounds for every event that has none today (hazards, jumps, menus, the shop, the results), on top of v1's sounds | Every action gets an answer, and the hazards of the 2.1 worlds are heard before they hit |
+| **Engine voices and ambience** | An engine voice per weight class, rivals you hear passing, one ambience per world, the crowd at the start | Speed you can feel (pillar 1): the sound changes with the ship, the world and the field |
+| **A proper mix** | Buses, ducking, a limiter, safe levels | The music must never cover a sound that carries information, and the game must be safe for children on headphones |
+
+### 8.2 Music
+
+- **One original retro synthwave song per world, plus a menu theme and a results theme.** Each world song has its own tempo, mode and instruments (IMPLEMENTATION §M6, the song table). They come from one family: analog-style saw pads, pulse and square leads, arpeggios, drum machines, delay and reverb.
+- **The menu theme introduces a short MachZero motif.** The stingers reuse it, so the game has a sound of its own.
+- **Structure:** a short intro (4–8 bars) played once from the grid card, then a loop of 60–80 s. **On the final lap a lift layer** (a counter-melody and brighter drums) fades in at the next bar. There is no key change.
+- **Time Trial plays the world's song**, with the same final-lap lift.
+- **Stingers** (1–4 s): win, podium, finish off the podium, unlock, trophy, medal (bronze, silver and gold climb higher each time), champion, new record. **The off-podium stinger is warm and encouraging, never sad.** Children play this game.
+- **Where each piece plays:** the menu theme on every menu screen (the garage and the world map too); the world song in the race; the results theme on every results screen and the cup standings. A KO or a respawn does not change the music.
+- **[changed] Pause:** the music keeps playing, muffled (quieter and dull), under the pause menu. The race sounds stop. Menu sounds keep working. *Was:* "the music pauses with the game". *Why:* a silent pause menu feels broken to a child, and the muffled music tells the player the race is waiting.
+- **Ducking:** the music gets quieter under the countdown, under a stinger and under every warning sound, and it sits below the effects at all times. It also has a dip at the pitch of the warning beeps, so they always cut through.
+- **[changed] How the music is made:** a small synthesiser written in TypeScript renders each song into a looping buffer in a background thread (a Web Worker) while the track loads. The game then plays the buffer. *Was:* a sequencer playing notes live on the audio clock. *Why:* the experiment (IMPLEMENTATION §M6, "Facts") showed that live notes cost the main thread up to 1.4 ms on a busy step, more than the frame-time budget allows. The same synthesiser in plain code is about 7 times cheaper than the browser's built-in nodes, and it runs in the unit tests. A race never waits for its song: when the song is not ready, the race starts and the song fades in.
+- **Claude composes every note; the owner approves every song by ear** in a preview, through a jukebox (8.6). A rejected song is reworked in a follow-up commit, as a rejected world look is.
+
+### 8.3 Sound effects
+
+- **v1's sounds stay as they are** (engine, boost, wind, rail scrape, pit hum, the countdown, hits, the dash, the items, mines, the KO, the lap chimes and the fanfares). They move into the new effects bank with the same parameters.
+- **New sounds** (jsfxr-style presets, rendered in the background after boot):
+  - **Menus:** move, confirm, back, locked, slider step, tab change. The same for the pad, the keyboard and touch.
+  - **The shop:** purchase, equip, not enough credits.
+  - **The results:** a tick for each tally line, a coin chime at the total.
+  - **The tutorial:** a soft chime for each prompt, a sparkle at the end.
+  - **The road:** jump launch and landing thump, ice crackle, stone-gate rumble and hit, debris hit, respawn.
+  - **The 2.1 hazards, each with its own sound:** lightning (a crackle that builds through the warning, then a thunder crack), lava geysers (a rumble, then the eruption), pressure jets (a building hiss, then the blast), crosswind gusts (a whoosh from the side that pushes).
+  - v1 already plays the drafting whoosh, the mine proximity beep and blast, and the shield impact; they stay.
+- **[changed] No CC0 samples in M6.** Every sound, the crowd included, is generated in code. *Was:* "a few short CC0 samples for explosions and impacts". *Why:* v1's procedural explosions and impacts already work, and samples bring licence work and a second audio format for iOS. The allowance of at most 5 small CC0 samples stays: a sample replaces a sound only if the owner rejects that sound at the listening approval.
+- **Who hears what:** only the player hears the menu sounds, the stingers, the chimes and the warnings. Physical sounds (hits, boosts, blasts) play for every ship within 60 m of the player, quieter with distance and panned to its side.
+- **When too many sounds play at once,** warnings are never dropped, the player's own sounds come next, then the rivals', then sounds that are only decoration.
+
+### 8.4 Engine voices and ambience
+
+- **Each weight class has its own engine voice:** Light is higher and thinner; Balanced is v1's engine exactly; Heavy is lower, with more rumble. Boost keeps v1's bright layer. The Aero slot changes no sound.
+- **Rivals:** the two nearest rivals within 60 m have their own engine voices, panned to their side, so you hear being passed.
+- **Ambience:** each world has a quiet background loop (city hum, desert wind, the station's hum, the jungle, space, rain and thunder, the foundry, the deep sea). It fades as the ship speeds up, so it never fights the engine. The crowd is heard near the start line. Inside Cryo Station's pipe and on Abyss Line's Spine, the sounds get an echo.
+
+### 8.5 Platforms
+
+- **iOS:**
+  - **The game respects the ringer switch,** as most games do: with the switch on silent, the game is silent. The player's own music app can keep playing under the game.
+  - **The app going to the background pauses the race.** Coming back, the race waits on the pause menu, and the sound fades in from silence (it never blasts).
+  - **AirPods and other Bluetooth headphones** add a short delay (about 0.2 s). Nothing in the game needs exact timing, so there is no correction.
+  - No Capacitor plugin is needed.
+- **The web:** sound starts on the first tap, click or key (the browser's autoplay rule). **A tab hidden mid-race pauses the race** (new: today only the sound stops).
+- **The pad:** the menu sounds play for the d-pad and Ⓐ / Ⓑ exactly as for the keyboard and touch.
+
+### 8.6 Accessibility, comfort and safe levels
+
+- **No information is carried by sound alone.** Every warning sound has a visual or haptic twin (IMPLEMENTATION §M6 lists them): the countdown numbers, the lightning circle, the geyser glow, the jet bubbles, the mines on the road, the low-energy flash, and the EMP warning on the HUD. **The EMP warning is fixed in M6a:** today the HUD's "⚠ EMP INCOMING" is hidden when the player carries no items, so a CPU's EMP on its way to that player is told only by the alarm (and, in the iOS app, a haptic tap). M6a shows it whenever an EMP is on its way.
+- **Sliders:** MASTER, MUSIC (shown once M6 is done) and EFFECTS (it sets the effects, the menu sounds and the ambience together), plus the mute. The defaults stay master 80%, music 70%, effects 100%. There is no "music off" default: the MUSIC slider at 0 does that.
+- **MONO** (new, Settings → Sound): every sound plays in the centre, for one earbud or one ear.
+- **Safe levels for children on headphones:** the mix is quieter than most games (−18 LUFS at the default volume), and a limiter stops any peak above −3 dBFS.
+- **SOUND TEST:** the jukebox stays in the game as Settings → Sound → SOUND TEST. It plays every song, stinger and sound by name.
+- **There is no voice and no announcer.** Text and icons carry all information.
+
+### 8.7 Success criteria (M6 done)
+
+- Every world has its song, and the owner has approved each song, each stinger and the sound set as a whole by ear.
+- Every event in the event-to-sound table (IMPLEMENTATION §M6) makes its sound, and every warning has its twin.
+- **60 fps on both devices at their own preset,** with the music and every sound playing in an 8-ship race on Jade Ruins and on Orbital Ring. The frame time p95 is no more than 1 ms above the build before M6.
+- The ringer switch, AirPods, the background and the return, a race by pad only and a race by touch only all work on the iPhone and the iPad.
+- App JS grows by no more than 25 KB gzip. `public/game` does not grow.
+- With the `music` flag off (every M6 PR before the last), the live game sounds exactly as it does today.
 
 ## 9. Success criteria (2.0 done)
 
