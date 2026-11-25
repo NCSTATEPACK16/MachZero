@@ -45,6 +45,8 @@ export class SfxBank {
   readonly played: string[] = [];
   /** Bytes of rendered preset samples held. */
   bufferBytes = 0;
+  /** Modern: a warning (priority 0) is about to play; the music ducks under it (decision C). */
+  onWarning: (() => void) | null = null;
 
   constructor(
     private readonly engine: AudioEngine,
@@ -94,6 +96,7 @@ export class SfxBank {
     const ac = this.engine.ac;
     if (!ac) return false;
     this.note(id);
+    if (this.modern && opts.priority === 0) this.onWarning?.();
     if (id in V1_SOUNDS) {
       const out = this.output(opts);
       if (!out) return false;

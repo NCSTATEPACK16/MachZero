@@ -10,7 +10,11 @@ import type { FrameContext, IAudioSystem } from '../core/contracts';
 import type { EventBus, GameBus, MenuEvents } from '../core/events';
 import { AudioEngine } from './AudioEngine';
 import { MenuSounds } from './MenuSounds';
+import { MusicDirector, type JukeboxPick, type MusicInput } from './MusicDirector';
+import { MusicPlayer } from './MusicPlayer';
 import { RaceSounds } from './RaceSounds';
+import { catalogEntry } from './songs/catalog';
+import type { MusicId } from './songs/format';
 import { RenderClient, type RenderClientOptions } from './render/RenderClient';
 import { SfxBank } from './SfxBank';
 import { PRESET_IDS } from './sfx/presetMeta';
@@ -27,12 +31,24 @@ export interface AudioDebug {
   presetsBy: 'worker' | 'main' | null;
   /** The last 64 sound ids played. */
   played: string[];
+  /** The music (modern): the song playing, the lift, the pause muffle, the duck (dB). */
+  song: MusicId | null;
+  lift: boolean;
+  muffle: boolean;
+  duckDb: number;
+  /** ms of the last frame's audio work (RaceSounds.update, its queue, MusicPlayer.tick). */
+  audioMs: number;
 }
+
+/** What the App tells the music each frame; the race's own part (the player's laps) comes from RaceSounds. */
+export type MusicScene = Omit<MusicInput, 'playerLap' | 'playerFinished' | 'jukebox'>;
 
 export interface AudioSystemOptions {
   /** The `music` flag (default: the page's flag). */
   modern?: boolean;
   render?: RenderClientOptions;
+  /** Whether a song is written (default: the catalogue's `ready`); tests set it. */
+  songReady?: (id: MusicId) => boolean;
 }
 
 export class AudioSystem implements IAudioSystem {
@@ -41,6 +57,15 @@ export class AudioSystem implements IAudioSystem {
   readonly bank: SfxBank;
   readonly race: RaceSounds;
   readonly menu: MenuSounds;
+  /** The music player (modern only). */
+  readonly player: MusicPlayer | null;
+  private readonly director: MusicDirector | null;
+  private lastPrepare = '';
+  /** SOUND TEST's song. */
+  private jukeboxPick: JukeboxPick | null = null;
+  private jukeboxSeq = 0;
+  /** ms of the last `update`'s work. */
+  audioMs = 0;
   private readonly renderOptions: RenderClientOptions;
   private render: RenderClient | null = null;
   private bus: GameBus | null = null;
@@ -62,6 +87,16 @@ export class AudioSystem implements IAudioSystem {
     this.race = new RaceSounds(this.engine, this.bank, this.modern);
     this.menu = new MenuSounds(this.engine, this.bank, this.modern);
     this.engine.onContext(() => this.bank.flushPending());
+    if (this.modern) {
+      const music = new MusicPlayer(this.engine, { request: (id, purpose) => this.render?.renderSong(id, purpose) ?? Promise.resolve(null) });
+      this.player = music;
+      this.director = new MusicDirector(opts.songReady ?? ((id) => catalogEntry(id)?.ready ?? false));
+      this.bank.onWarning = () => music.warning();
+      this.race.music = music;
+    } else {
+      this.player = null;
+      this.director = null;
+    }
     if (bus) this.attach(bus);
   }
 
@@ -78,7 +113,52 @@ export class AudioSystem implements IAudioSystem {
   }
 
   update(ctx: FrameContext): void {
+    if (!this.player) {
+      this.race.update(ctx);
+      return;
+    }
+    const t0 = now();
     this.race.update(ctx);
+    this.player.tick();
+    this.audioMs = now() - t0;
+  }
+
+  /** A frame with no race to update (the music still ticks). */
+  tick(): void {
+    if (!this.player) return;
+    const t0 = now();
+    this.player.tick();
+    this.audioMs = now() - t0;
+  }
+
+  /**
+   * The music's view of the game, once per frame (modern; nothing happens before the render Worker starts after
+   * the first frame). The director answers a cue, which the player applies when anything changed.
+   */
+  setScene(scene: MusicScene): void {
+    const director = this.director;
+    if (!director || !this.player || !this.render) return;
+    const cue = director.update({ ...scene, playerLap: this.race.playerLap, playerFinished: this.race.playerFinished, jukebox: scene.route === 'soundtest' ? this.jukeboxPick : null });
+    const prepare = cue.prepare.join();
+    if (cue.changed || prepare !== this.lastPrepare) {
+      this.lastPrepare = prepare;
+      if (cue.restart && cue.song !== null && scene.race !== 'countdown') this.player.resetRace();
+      this.player.apply(cue);
+    }
+  }
+
+  /** SOUND TEST: play a song (from its intro, or straight into its loop), set its lift, or stop it. */
+  jukebox(cmd: { play: MusicId; fromIntro?: boolean; lift?: boolean } | { lift: boolean } | 'stop'): void {
+    if (!this.player) return;
+    if (this.engine.ac?.state !== 'running') this.engine.unlock();
+    if (cmd === 'stop') this.jukeboxPick = null;
+    else if ('play' in cmd) this.jukeboxPick = { id: cmd.play, fromIntro: cmd.fromIntro ?? true, lift: cmd.lift ?? this.jukeboxPick?.lift ?? false, seq: ++this.jukeboxSeq };
+    else if (this.jukeboxPick) this.jukeboxPick = { ...this.jukeboxPick, lift: cmd.lift };
+  }
+
+  /** SOUND TEST's song now. */
+  get jukeboxSong(): JukeboxPick | null {
+    return this.jukeboxPick;
   }
 
   /** Settings volumes, 0..1: MASTER, EFFECTS (sfx, ui and ambience) and MUSIC. */
@@ -142,19 +222,36 @@ export class AudioSystem implements IAudioSystem {
   }
 
   debug(): AudioDebug {
+    const m = this.player?.debug();
     return {
       state: this.engine.state,
       nodes: this.engine.nodeCount,
       voices: this.bank.activeVoices,
-      bufferBytes: this.bank.bufferBytes,
+      bufferBytes: this.bank.bufferBytes + (m?.bufferBytes ?? 0),
       presetsMs: this.presetsMs,
       presetsBy: this.presetsBy,
       played: [...this.bank.played],
+      song: m?.song ?? null,
+      lift: m?.lift ?? false,
+      muffle: m?.muffle ?? false,
+      duckDb: m?.duckDb ?? 0,
+      audioMs: this.audioMs,
     };
+  }
+
+  /** SOUND TEST: a rendered song's render time, bytes, loudness, true peak and loop length (null until rendered). */
+  songStats(id: MusicId): { renderMs: number; bytes: number; lufs: number; truePeakDb: number; seconds: number } | null {
+    return this.player?.stats(id) ?? null;
+  }
+
+  /** Where songs render now (SOUND TEST). */
+  get renderedBy(): 'worker' | 'main' | null {
+    return this.render ? (this.render.fallback ? 'main' : 'worker') : null;
   }
 
   dispose(): void {
     this.detach();
+    this.player?.dispose();
     this.menu.dispose();
     this.render?.dispose();
     this.engine.dispose();
@@ -164,3 +261,5 @@ export class AudioSystem implements IAudioSystem {
     this.engine.setLevels({ master: this.master, music: this.music, effects: this.effects, muted: this._muted });
   }
 }
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());

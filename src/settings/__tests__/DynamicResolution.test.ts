@@ -63,6 +63,16 @@ describe('DynamicResolution', () => {
 });
 
 describe('FrameStats', () => {
+  it('reports the audio work (§M6.5): none without music, else its average and p95 over the window', () => {
+    const off = new FrameStats(100);
+    off.push({ frameMs: 16, simMs: 1, updateMs: 2, renderMs: 3 });
+    expect(off.summary()).toMatchObject({ audioMs: null, audioP95: null });
+    const on = new FrameStats(100);
+    for (let i = 0; i < 100; i++) on.push({ frameMs: 16, simMs: 1, updateMs: 2, renderMs: 3, audioMs: i < 90 ? 0.1 : 0.9 });
+    expect(on.summary().audioP95).toBeCloseTo(0.9);
+    expect(on.summary().audioMs).toBeGreaterThan(0.1);
+  });
+
   it('summarises percentiles over the window and misses over the run', () => {
     const s = new FrameStats(100);
     for (let i = 0; i < 200; i++) s.push({ frameMs: i % 10 === 0 ? 40 : 16, simMs: 1, updateMs: 2, renderMs: 3 });

@@ -20,7 +20,8 @@
     "ios:sync": "node scripts/ios-sync.mjs",
     "ios:open": "npx cap open ios",
     "ios:art": "node scripts/ios-art.mjs",
-    "ghosts:bake": "BAKE_GHOSTS=1 vitest run src/sim/ghostBake.sim.test.ts"
+    "ghosts:bake": "BAKE_GHOSTS=1 vitest run src/sim/ghostBake.sim.test.ts",
+    "songs:export": "EXPORT_SONGS=1 vitest run src/audio/songs/__tests__/export.test.ts --silent=false"
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",

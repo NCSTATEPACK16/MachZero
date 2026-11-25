@@ -1688,7 +1688,7 @@ SPEC §8 says what and why. This section is the how. **Design decisions (design 
 - **K. The flag.** Everything new is behind `music` until M6d. **With `music` off the live game sounds as it does today:** the same graph (master → v1 compressor → destination), the same sounds with the same parameters, and the same events; a golden test (M6a step 1) proves it. The only difference is decision F (up to one frame later). With `music` off: no new buses, no ducking, no limiter, no panning, no new sounds, no `audioSession`, no pause on hidden, no Worker.
 
 **Rules for every M6 PR** (in addition to §0):
-- **Budgets** (§M6.5). App JS ≤ 600 KB gzip in total, and M6 adds **≤ 25 KB gzip** counting the Worker chunk. `public/game` does not grow (no audio files). Device gates: 60 fps at the device's own preset, with p95 no more than 1 ms above the baseline read in M6a.
+- **Budgets** (§M6.5). App JS ≤ 600 KB gzip in total, and M6 adds **≤ 45 KB gzip** counting the Worker chunk (**raised from 25 KB by the owner on M6b**, once the synthesiser and the first songs were measured; chunks loaded only on demand, SOUND TEST and the render fallback, are reported apart and not counted against it). `public/game` does not grow (no audio files). Device gates: 60 fps at the device's own preset, with p95 no more than 1 ms above the baseline read in M6a.
 - **Tests first.** The DSP, the song data, the event-to-sound table, the voice pool, the ducking, the buffer cache and the music director are pure and tested in Node. Web Audio itself is tested through `audio/__tests__/fakeAudio.ts` (M6a step 1) and the Playwright specs. Never loosen an assertion.
 - **Every PR's hand-off** lists what the owner listens to, with the preview URL (`?features=music`, plus `&expansion` for the 2.1 worlds; SOUND TEST is `?features=music&jukebox=1`) and the iOS command `VITE_FEATURES=music,expansion npm run ios:sync`. Listen on the iPhone with the ringer switch on sound.
 - **Library facts** (Web Audio, Workers in WKWebView, `navigator.audioSession`, Playwright's audio handling): confirm with Context7 before relying on them, and record what was checked in the PR.
@@ -1908,7 +1908,7 @@ export interface SongDef {
 | Render time per song | ≤ 3 s on the iPhone and the iPad (in the Worker); ≤ 10 s on CI | SOUND TEST shows each render's time; a Node test renders every song and reports the time |
 | SFX presets, ambience and crowd | ≤ 400 ms of Worker time on the devices; ≤ 3 MB for the presets; ambience and crowd mono, ≤ 12 s each | SOUND TEST shows it; Node test |
 | Boot | Nothing new before the first frame: the Worker is created after the first rendered frame; the context still waits for the first input | Code review; a unit test that `new AudioEngine()` creates no Worker and no context |
-| App JS | ≤ 25 KB gzip added by M6 in total, the Worker chunk included | `npm run size` (extend `check-size.mjs` to count the Worker chunk in app JS) |
+| App JS | ≤ 45 KB gzip added by M6 in total, the Worker chunk included (25 KB until M6b; on-demand chunks reported apart) | `npm run size` (extend `check-size.mjs` to count the Worker chunk in app JS) |
 | `public/game` | + 0 | `npm run size` |
 | One-shot voices | 28 (v1) | The pool's test |
 
@@ -2039,7 +2039,7 @@ export interface SongDef {
   - the Worker 3.0 (loaded only with `music`);
   - the lazy fallback chunk 2.9 (loaded only if the Worker fails).
 
-  **That misses this PR's "≤ +8 KB" line.** The Worker and the fallback each carry the synthesiser and the recipes (decision A). The rest is the engine, the pool, the queue, the telegraphs, the menu layer and SOUND TEST. The PR asks the owner whether to raise the line or trim further. **What M6b–M6d have left of the 25 KB M6 budget: 10.2 KB.**
+  **That misses this PR's "≤ +8 KB" line.** The Worker and the fallback each carry the synthesiser and the recipes (decision A). The rest is the engine, the pool, the queue, the telegraphs, the menu layer and SOUND TEST. The PR asks the owner whether to raise the line or trim further. **What M6b–M6d have left of the 25 KB M6 budget: 10.2 KB.** (Settled in M6b: the owner chose to trim M6a first, SOUND TEST became a lazy chunk and on-demand chunks stopped counting, which left 14.0 KB; then, with the synthesiser measured, the owner raised the M6 line to 45 KB.)
 - **Tests:**
   - unit: 103 files, 916 passed, 1 skipped (as before);
   - e2e: 36 passed, the 3 tests of `e2e/audio.spec.ts` among them;
@@ -2047,7 +2047,7 @@ export interface SongDef {
 
 ---
 
-### M6b — The synthesiser, the render Worker, the music player, and the first three songs (style approval)
+### M6b — The synthesiser, the render Worker, the music player, and the first three songs (style approval) — ✅ BUILT (PR #PRNUM, `v2/m6b-music-engine`; waiting on the owner's style approval and device check)
 
 **Design decisions:**
 - **The DSP** (`src/audio/dsp/`, pure TypeScript, no DOM, no Web Audio): all processing in blocks of 128 samples at 44.1 kHz, Float32. Noise comes from a seeded generator (the song id is the seed), so a render is deterministic.
@@ -2109,6 +2109,55 @@ export interface SongDef {
 - No crackle during a race, in the menus or in SOUND TEST.
 - **The style approval:** listen to `menu`, `neon-bay` and `orbital-ring` in SOUND TEST (with and without the lift) and in a race. Tick each line of the PR's checklist, or write REWORK and what to change. A rejected song is reworked in a follow-up commit on the same PR; a rejected *style* (the instruments or the mix) is reworked before M6c.
 
+**As built (2026-11-24, branch `v2/m6b-music-engine`, PR #PRNUM)** (read before M6c):
+- **Owner input at the start.** Size: trim M6a first (done: SOUND TEST is a lazy chunk; `check-size.mjs` reports on-demand chunks, SOUND TEST and the render fallback, apart and does not count them against the M6 line), then, with the synthesiser measured, **the M6 line raised to 45 KB**. Baseline fps: not measured yet (the device check asks for it). iOS Worker: not checked yet, so the sliced main-thread song path is built and tested as a requirement. Effects to rework: none.
+- **Where things are.**
+
+  | File | What |
+  |---|---|
+  | `audio/dsp/osc.ts`, `filter.ts`, `env.ts`, `fm.ts`, `drums.ts`, `effects.ts` | The DSP of the table above |
+  | `audio/dsp/instruments.ts` | `INSTRUMENTS` (36 ids, ranges), `resolveInstrument`, `renderNote` (a note rendered whole, controls per 128-sample block) |
+  | `audio/dsp/sequence.ts` | `noteToMidi`, `parseSteps`, `sequence(def, 'intro' \| 'loop')`, `countVoices` |
+  | `audio/dsp/render.ts` | `SongRender` (resumable, `step(ms)`), `renderSong`, `songBytes` |
+  | `audio/dsp/loudness.ts` | `LoudnessMeter`, `TruePeakMeter` (incremental), `lufs`, `truePeak` |
+  | `audio/songs/format.ts`, `validate.ts`, `catalog.ts`, `index.ts`, `build.ts` | §M6.4's format; `validateSong`; the page's catalogue (`ready` per piece); the Worker's registry; writing helpers (`line`, `hits`, `arp`, `up`, `rest`, `rep`) |
+  | `audio/songs/menu.ts`, `neon-bay.ts`, `orbital-ring.ts` | The three songs |
+  | `audio/BufferCache.ts`, `MusicDirector.ts`, `MusicPlayer.ts` | Steps 4–6 |
+  | `audio/render/protocol.ts`, `fallback.ts` | The Worker's messages (so the Worker bundles none of the client); the main-thread fallback chunk |
+  | `audio/songs/__tests__/export.test.ts` | `npm run songs:export`: listening WAVs (and M4A with ffmpeg) into git-ignored `.song-exports/` |
+
+- **Deviations from the design, each with its reason:**
+  - **The tail is not "4 s".** A part's tail runs until its output stays below 1e-6 for max(0.5 s, the delay time + 0.1 s), at most 20 s (and at most one loop). Orbital Ring's dotted delay (feedback 0.55) rings for about 8 s; a 4 s cut breaks the seam.
+  - **The intro runs on into the loop's first pass** (`RenderedSong.loopOffset`, 5–8 s). The folded loop's start holds the tail of its own last bar, which is right from the second pass on but not after the intro: measured, the join jumped by 0.16–0.19 with ghosts of the loop's last chord. The intro buffer now holds the intro and the loop's first `loopOffset` samples; the player starts the loop and the lift there with `start(when, offset)`, where both buffers hold the same samples. Bar lines still count from the loop's first bar. A render test plays this against one continuous render (≤ 1e-4).
+  - **4-point BLEP oscillators** (integrated cubic B-spline, two samples of delay), not 2-point polyBLEP: the 2-point one cut aliases above 15 kHz by only 13 dB at 3 kHz. The aliasing test measures the alias bins (a 3 kHz saw has true harmonics at 15, 18, 21 kHz that any oscillator keeps); it reads 23 dB.
+  - **K-weighting as libebur128 derives it** for any rate (the RBJ shelf with BS.1770's prototype values is 0.26 dB off). BS.1770 references pass: a full-scale 997 Hz sine reads −3.01 LUFS in one channel, 0 in two.
+  - **Notes are seeded by what they are, not when** (track, pitch, velocity): a drum hit at a velocity is the same every time, like a drum machine, which also makes the loop exactly periodic. Rendered notes are cached per render (32 MB).
+  - **The chorus's rate is fitted** to a whole number of cycles per loop; the pump's hits repeat around each part (the loop before and after; the loop after the intro).
+  - **The envelope's release** is an exponential fall (−60 dB over its time) with a 10 ms linear fade to exactly 0 (a per-sample `pow` was the slowest line of a render).
+  - **The director is polled once per frame** (`AudioSystem.setScene` from `App.musicFrame`), not an `effect()`: the race's state changes inside the fixed step and is not a signal. Its input adds `overRace` (Settings or SOUND TEST over the pause menu), `run` (`RaceSession.restarts`, new: a restart starts the world song again from its intro), `stinger` (false until M6c) and SOUND TEST's `jukebox` pick. The grid card wins over the results: after RACE AGAIN the race is still on its results until GO resets it.
+  - **Warnings that duck:** every priority-0 play in `SfxBank` (`onWarning`, a 0.4 s hold) and every sounding telegraph (`RaceSounds`, a 0.15 s hold refreshed each update).
+  - **A song that lands late** (more than 0.25 s after it was wanted) fades in over at least 1 s.
+  - **The validator:** the menu theme loops 60–80 s with at most 4 intro bars; world songs 60–80 s with at most 8; `results` 16 bars; a stinger its length ± 0.25 s.
+  - **Orbital Ring's melody** is a second `bell` track: the song table gives it no lead instrument, and "good enough" asks for a hummable lead.
+  - **Neon Bay's backbeat:** `snare-big` once every two bars (beat 3), as "good enough" allows; there is no regular snare in its instrument list. The style checklist asks the owner about it.
+- **Instruments tuned for these songs:** `saw-pad`, `saw-lead`, `pulse-lead`, `square-arp`, `saw-bass`, `fm-epiano`, `bell`, `sine-sub`, `kick`, `kick-soft`, `snare`, `snare-big`, `hat`, `hat-open`, `rim`. **First recipes, to be tuned in M6c by ear:** `fm-bass`, `tri-bass`, `pulse-chip`, `pluck`, `stab`, `breath-pad`, `flute`, `blip`, `kick-chip`, `snare-gated`, `snare-chip`, `clap`, `hat-chip`, `ride`, `crash`, `shaker`, `tom-lo`, `tom-mid`, `tom-hi`, `metal`, `anvil` (each renders its range cleanly; none has been heard in a song).
+- **The mix after measuring** (energy below 120 Hz was 59–74%, above 6 kHz under 0.5%): `saw-bass`'s second oscillator sat an octave below the note (a 22 Hz sub on F1, inaudible on a phone; now a detuned unison); a shorter kick; brighter lead, arpeggio and hats; lighter lift layers (the lift over the loop set the true peak). Now 52–61% below 120 Hz.
+- **The songs** (a shared 2.1 GHz cloud Xeon; headless Chromium for the Worker column):
+
+  | Song | Loop | Intro + run-on | LUFS | True peak | Voices | MiB (intro, loop, lift) | Render: Node | Render: Chromium Worker |
+  |---|---|---|---|---|---|---|---|---|
+  | `menu` | 32 bars, 71.1 s | 2 bars + 4.7 s | −14.0 | −1.5 dBFS | 14 | 27.0 (no lift) | 1.6–2.5 s | 1.68 s |
+  | `neon-bay` | 32 bars, 65.1 s | 4 bars + 5.0 s | −14.5 | −1.0 | 16 | 37.3 | 1.6–2.5 s | 1.95 s |
+  | `orbital-ring` | 32 bars, 80.0 s | 4 bars + 7.8 s | −14.7 | −1.0 | 19 | 46.4 | 1.8–2.6 s | 2.48 s |
+
+  Neon Bay and Orbital Ring are held below −14 LUFS by the true-peak ceiling (the lift over the loop); both are inside ± 1 LU.
+- **Size:** app JS in play 386.0 → 403.3 KB gzip, **+17.3 KB for M6b** (the Worker 3.0 → 15.3 KB: the synthesiser about 8 KB, the three songs about 4 KB; the page +5.1 KB: the player, the director, the cache, the catalogue, the client's queue). **M6 so far: +28.3 KB of 45; left: 16.7 KB.** On demand: SOUND TEST 1.4 KB, the fallback 15.1 KB.
+- **The perf overlay's audio line:** `audio <avg> p95 <p95> ms` (RaceSounds.update, its queue and MusicPlayer.tick), and `audio p95` in the race summary, with `music` on.
+- **API facts** (Context7 was not available; web search): `AudioBufferSourceNode.start(when, offset)` starts a looping source at `offset` into its buffer and then loops the whole buffer (MDN); `cancelScheduledValues` removes a ramp that ends after the cancel time, so the player follows it at once with `setValueAtTime` of the level it computes itself (it never reads `AudioParam.value`); a WebKit list comment says Workers cannot be loaded from a custom URL scheme set with `setURLSchemeHandler` (Capacitor's `capacitor://`), which makes the sliced main-thread fallback likely on iOS.
+- **The offline proxy** (`e2e/audio.perf.spec.ts`): 4.35% of real time. Its first version built all 360 one-shots up front, which kept every one in the graph for the whole render (10.1% alone, 13.6% under the smoke's load); it now builds each as it plays and lets it go as it ends, as the SFX bank does.
+- **Also found and fixed:** `?jukebox=1` with a new profile opened SOUND TEST and was then replaced by the main menu (creating a profile shows the menu after making it active); it now waits for the menu.
+- **Tests:** unit 113 files, 1,047 passed, 2 skipped (the export, opt-in, and one from before); e2e 40 passed (the 3 new music specs and the perf proxy among them).
+
 ---
 
 ### M6c — The other six world songs, the results theme and the stingers
@@ -2128,7 +2177,7 @@ export interface SongDef {
 **Done when:**
 - [ ] All ten songs and ten stingers pass the song tests and play in SOUND TEST.
 - [ ] Every results screen (Tour, cup, trial, the season's end) plays the right stinger, then the results theme.
-- [ ] App JS ≤ +4 KB gzip for this PR.
+- [ ] App JS ≤ +11 KB gzip for this PR (measured in M6b: a song costs 1.2–1.4 KB gzip; this line was +4 KB before the synthesiser was measured).
 
 **Owner:** listen to each song (and its lift) and each stinger on the iPhone; tick each line of the PR's checklist or write REWORK. Render times of the six new songs on both devices, from SOUND TEST (≤ 3 s each).
 
@@ -2180,7 +2229,7 @@ export interface SongDef {
 - [ ] The three engine voices and the rival voices play; ambience on all 8 worlds; the crowd; the echo.
 - [ ] The full SPEC §8.7 list holds.
 - [ ] `music` is on, then removed as a flag; every existing test passes.
-- [ ] App JS: M6 in total ≤ +25 KB gzip; `public/game` + 0.
+- [ ] App JS: M6 in total ≤ +45 KB gzip; `public/game` + 0.
 
 **The device gate (both devices, `VITE_FEATURES=expansion`):**
 - **fps:** an 8-ship race on Jade Ruins and on Orbital Ring at the device's preset, with the music and every sound: 60 fps, p95 ≤ the M6a baseline + 1 ms.

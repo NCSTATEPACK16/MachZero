@@ -15,6 +15,11 @@ interface AudioDebug {
   presetsMs: number | null;
   presetsBy: 'worker' | 'main' | null;
   played: string[];
+  song: string | null;
+  lift: boolean;
+  muffle: boolean;
+  duckDb: number;
+  audioMs: number;
 }
 
 interface Debug {
@@ -145,5 +150,87 @@ test('MONO and the three sliders persist across a reload', async ({ page }) => {
   await page.getByRole('button', { name: 'SOUND TEST' }).click();
   await expect(screen(page)).toHaveAttribute('data-screen', 'soundtest');
   await expect(page.locator('[data-sound="lightning.bolt"]')).toBeVisible();
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// M6b: the music (IMPLEMENTATION §M6b step 10)
+// ---------------------------------------------------------------------------------------------------------------
+
+const MB100 = 100 * 1024 * 1024;
+
+test('the menu theme starts after the first input, within the buffer budget', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await page.goto('/?features=music&debug=1');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('THEME', 1, 'classic'));
+  await unlock(page);
+  await expect.poll(async () => (await audio(page)).song, { timeout: 90_000 }).toBe('menu');
+  const a = await audio(page);
+  expect(a.lift).toBe(false);
+  expect(a.bufferBytes).toBeLessThanOrEqual(MB100);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('an autopilot race on Neon Bay plays neon-bay, and the final lap brings the lift in', async ({ page }) => {
+  test.setTimeout(330_000);
+  const errors = collectErrors(page);
+  await page.goto('/?autopilot=1&debug=1&quality=low&world=neon-bay&features=music');
+  await page.waitForFunction(() => (window as unknown as { __machzero?: Debug }).__machzero?.race?.state === 'racing', undefined, { timeout: 60_000 });
+  await unlock(page);
+  await expect.poll(async () => (await audio(page)).song, { timeout: 120_000 }).toBe('neon-bay');
+  expect((await audio(page)).lift, 'no lift before the final lap').toBe(false);
+  // Skip ahead in 5 s chunks (no frames run inside one), letting real frames run between them, until the lift is in.
+  let peakBytes = 0;
+  let lift = false;
+  for (let i = 0; i < 40 && !lift; i++) {
+    await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.simulate(5));
+    await page.waitForTimeout(400);
+    const a = await audio(page);
+    peakBytes = Math.max(peakBytes, a.bufferBytes);
+    lift = a.lift;
+    expect(a.song === 'neon-bay' || a.song === null, `song ${a.song}`).toBe(true);
+  }
+  expect(lift, 'the lift on the final lap').toBe(true);
+  expect(peakBytes).toBeLessThanOrEqual(MB100);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('SOUND TEST plays the three songs, with the lift and the loop, within the buffer budget', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors = collectErrors(page);
+  await page.goto('/?features=music&jukebox=1&debug=1');
+  await expect(screen(page)).toHaveAttribute('data-screen', 'create', { timeout: 60_000 });
+  await page.evaluate(() => (window as unknown as { __machzero: Debug }).__machzero.app.createProfile('JUKE', 3, 'classic'));
+  await expect(screen(page)).toHaveAttribute('data-screen', 'soundtest', { timeout: 30_000 });
+  await unlock(page);
+  let peakBytes = 0;
+  for (const id of ['menu', 'neon-bay', 'orbital-ring']) {
+    const row = page.locator(`[data-song="${id}"]`);
+    await row.locator('[data-action="play"]').click();
+    await expect
+      .poll(
+        async () => {
+          const a = await audio(page);
+          peakBytes = Math.max(peakBytes, a.bufferBytes);
+          return a.song;
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(id);
+    await expect(row).toContainText('LUFS');
+  }
+  // The lift on Orbital Ring, then straight into its loop.
+  const orbital = page.locator('[data-song="orbital-ring"]');
+  await orbital.locator('[data-action="lift"]').click();
+  await expect.poll(async () => (await audio(page)).lift).toBe(true);
+  await orbital.locator('[data-action="loop"]').click();
+  await expect.poll(async () => (await audio(page)).song).toBe('orbital-ring');
+  // STOP gives the menu theme back.
+  await orbital.locator('[data-action="stop"]').click();
+  await expect.poll(async () => (await audio(page)).song, { timeout: 60_000 }).toBe('menu');
+  expect(peakBytes).toBeLessThanOrEqual(MB100);
+  expect((await audio(page)).nodes).toBeLessThanOrEqual(150);
   expect(errors, errors.join('\n')).toEqual([]);
 });

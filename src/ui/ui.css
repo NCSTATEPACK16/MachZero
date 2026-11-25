@@ -2438,3 +2438,23 @@ html.mz-pad .mzu-trial-row:focus {
 .mzu-sound-name {
   font-weight: 700;
 }
+/* M6b: the songs take a whole row each (their numbers and four buttons). */
+.mzu-song-list {
+  grid-template-columns: 1fr;
+}
+.mzu-song {
+  flex-wrap: wrap;
+}
+.mzu-song[data-playing] {
+  border-color: rgba(25, 240, 255, 0.6);
+}
+.mzu-song-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 12em;
+}
+.mzu-song-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
